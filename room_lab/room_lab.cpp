@@ -174,6 +174,21 @@ struct App {
     static constexpr int kTrail = 24;  // ~0.33 s of palm positions
     V3 palmTrail[2][kTrail]; int trailN[2] = {0, 0}; float sinceFist[2] = {9, 9};
     bool pendingEnter = false; float pendingFor = 0; long throws = 0, enters = 0;
+    // Swipe to undo: an open hand swept left within kUndoWindow of dictating erases the last typed sentence
+    // (one per swipe, newest first). Enter clears the history, so a sent message is never touched.
+    static constexpr float kUndoWindow = 15.0f;
+    std::vector<int> typed; std::chrono::steady_clock::time_point typedAt{}; long undos = 0;
+    std::mutex keyLock;  // key sequences from helper threads never interleave
+    static int codepoints(const std::string& t) { int n = 0; for (unsigned char c : t) n += (c & 0xC0) != 0x80; return n; }
+    void backspaces(int n) {
+        std::thread([this, n] {
+            std::lock_guard<std::mutex> g(keyLock);
+            for (int i = 0; i < n && streamInput(); i++) {  // 20 ms held: the virtual HID keyboard drops shorter presses
+                LiSendKeyboardEvent((short)0x8008, KEY_ACTION_DOWN, 0); std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                LiSendKeyboardEvent((short)0x8008, KEY_ACTION_UP, 0); std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }).detach();
+    }
     bool handOpen(int h) {
         auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT]; int open = 0;
         for (int tip : {XR_HAND_JOINT_INDEX_TIP_EXT, XR_HAND_JOINT_MIDDLE_TIP_EXT, XR_HAND_JOINT_RING_TIP_EXT, XR_HAND_JOINT_LITTLE_TIP_EXT})
@@ -184,10 +199,13 @@ struct App {
         // Hold it like a finger would: Sunshine on the Macs types through a virtual HID keyboard, and a down/up pair
         // sent 1 ms apart can collapse into no press at all (the Unicode text path is unaffected).
         if (streamInput()) {
-            LiSendKeyboardEvent((short)0x800D, KEY_ACTION_DOWN, 0);
-            std::thread([] { std::this_thread::sleep_for(std::chrono::milliseconds(60)); LiSendKeyboardEvent((short)0x800D, KEY_ACTION_UP, 0); }).detach();
+            std::thread([this] {
+                std::lock_guard<std::mutex> g(keyLock);
+                LiSendKeyboardEvent((short)0x800D, KEY_ACTION_DOWN, 0);
+                std::this_thread::sleep_for(std::chrono::milliseconds(60)); LiSendKeyboardEvent((short)0x800D, KEY_ACTION_UP, 0);
+            }).detach();
         }
-        enters++; caption = "SENT"; captionAt = std::chrono::steady_clock::now(); event("enter sent");
+        typed.clear(); enters++; caption = "SENT"; captionAt = std::chrono::steady_clock::now(); event("enter sent");
     }
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
@@ -873,6 +891,15 @@ void main(){
             if (trailN[h] < kTrail || pendingEnter) continue;
             V3 now = palmTrail[h][(trailN[h] - 1) % kTrail], then = palmTrail[h][trailN[h] % kTrail];
             float push = dot(now - then, fwd);  // forward travel over the last ~0.33 s
+            V3 right = rot(head.orientation, {1, 0, 0}); right.y = 0; right = norm(right);
+            float lateral = dot(now - then, right);
+            bool recent = !typed.empty() && std::chrono::duration<float>(std::chrono::steady_clock::now() - typedAt).count() < kUndoWindow;
+            if (lateral < -0.2f && std::fabs(push) < 0.12f && sinceFist[h] > 0.6f && handOpen(h) && recent && !dictation.recording) {
+                int n = typed.back(); typed.pop_back(); undos++;
+                backspaces(n); typedAt = std::chrono::steady_clock::now();
+                caption = "ERASED"; captionAt = typedAt; event("undo: " + std::to_string(n) + " chars");
+                trailN[h] = 0; continue;
+            }
             if (push > 0.16f && sinceFist[h] < 0.6f && handOpen(h)) {
                 throws++; event("throw: " + std::to_string(push) + " m");
                 if (dictation.recording) dictation.stop();
@@ -883,7 +910,11 @@ void main(){
         if (dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
-            if (streamInput()) { std::string out = t + " "; LiSendUtf8TextEvent(out.c_str(), (unsigned)out.size()); }
+            if (streamInput()) {
+                std::string out = t + " "; LiSendUtf8TextEvent(out.c_str(), (unsigned)out.size());
+                typed.push_back(codepoints(out)); typedAt = std::chrono::steady_clock::now();
+                if (typed.size() > 20) typed.erase(typed.begin());
+            }
             caption = t; captionAt = std::chrono::steady_clock::now();
             event("dictated: " + t);
         }
@@ -1107,11 +1138,21 @@ void main(){
         if (streamInput() && (x != pointer.sentX || y != pointer.sentY)) {
             LiSendMousePositionEvent((short)x, (short)y, (short)W, (short)H); pointer.sentX = x; pointer.sentY = y; pointer.moves++;
         }
-        if (down && !pointer.pressed) { pointer.pressed = true; pointer.clicks++; if (streamInput()) LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT); }
-        if (up && pointer.pressed) releasePointer(false);
+        // Every press is a pure click at the spot where it started: down, then up 40 ms later. The button is never
+        // held while the hand moves, so a click can't turn into a text selection or a window drag.
+        if (down && !pointer.pressed) {
+            pointer.pressed = true; pointer.clicks++;
+            if (streamInput()) std::thread([this] {
+                std::lock_guard<std::mutex> g(keyLock);
+                LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT);
+                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT);
+            }).detach();
+        }
+        if (up) pointer.pressed = false;
     }
     void releasePointer(bool leave = true) {
-        if (pointer.pressed) { pointer.pressed = false; if (streamInput()) LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT); }
+        pointer.pressed = false;  // the click already finished on the Mac
         if (leave) pointer.on = false;
     }
 
@@ -1152,12 +1193,11 @@ void main(){
         if (pointer.on && placed.active) if (auto* w = wallById(placed.wall)) {
             float px = placed.x - placed.w / 2 + pointer.u * placed.w, py = placed.y - placed.h / 2 + (1 - pointer.v) * placed.h;
             V3 c = xform(w->pose, {px, py, 0.035f}), n = rot(w->pose.orientation, {0, 0, 1}), ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0});
-            // Draw, loose, follow: the ring tightens and warms as the thumb (or pinch) closes, a solid dot marks the
-            // click, and it turns blue only once the hand really moves (a drag).
+            // Draw and loose: the ring tightens and warms as the thumb (or pinch) closes; a solid dot marks the click.
             const HandRay& hr = ray[1];
             float draw = std::fmax(std::fmin(std::fmax((0.065f - hr.thumb) / (0.065f - 0.024f), 0.0f), 1.0f),
                                    std::fmin(std::fmax((0.06f - hr.gap) / (0.06f - 0.018f), 0.0f), 1.0f));
-            bool dragging = pointer.pressed && !hr.locked;
+            bool dragging = false;  // presses are pure clicks: there is no drag state any more
             if (pointer.pressed) draw = 1;
             const float white[3] = {1, 1, 1}, gold[3] = {1.0f, 0.8f, 0.2f}, blue[3] = {0.3f, 0.75f, 1.0f};
             float col[4];
@@ -1390,7 +1430,7 @@ void main(){
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
         j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
-        j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters;
+        j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
         j << "]}";

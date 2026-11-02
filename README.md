@@ -60,12 +60,12 @@ Hand input follows one rule: the act of clicking must not move the aim.
   while the thumb and fingertips move.
 - **Press** is the finger gun: point, then lower the thumb onto the side of the middle finger. Pinch still
   works as a fallback.
-- **Rewind and lock**: a press uses the aim from ~0.1 s earlier (before the gesture started) and freezes
-  the pointer. Releasing in place is a clean click; only moving the hand more than 3.5° turns it into a
-  drag or selection.
+- **Rewind and lock**: a press uses the aim from ~0.1 s earlier (before the gesture started).
+- **Clicks only**: every press is a single click at that spot (button down, up 40 ms later). The button is
+  never held while the hand moves, so there is no accidental text selection or window drag.
 - **Smoothing** is adaptive: heavy when the hand is still (precision), light when it moves fast (no lag).
-- **Feedback** (draw, loose, follow): the cursor ring tightens and turns gold as the thumb closes, a solid
-  dot marks the click, and it turns blue only during a real drag.
+- **Feedback** (draw, loose): the cursor ring tightens and turns gold as the thumb closes; a solid dot marks
+  the click.
 - Screens stay put. Move one by holding a press on the bar under it; resize by a corner, or with both hands.
 - **Settings**: turn the back of the left wrist toward your face and hold ("check your watch"; a ring fills)
   to open or close a floating panel: source (MINI, LAPTOP), SMALL/MEDIUM/LARGE, LOCK (hides the move bar and
@@ -75,6 +75,7 @@ Hand input follows one rule: the act of clicking must not move the aim.
   cut at pauses into short segments, each sent once to the Mini's speech service (`~/asr-service`, Parakeet
   TDT 0.6B on MLX, port 8765), and the text is typed into the streamed Mac where the cursor is.
 - **Send**: finish with a throw (push the arm forward and open the hand) to press Enter after the last words.
+- **Undo**: within 15 s of dictating, sweep an open hand to the left to erase the last sentence (one per swipe).
 
 ## Next
 
