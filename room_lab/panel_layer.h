@@ -30,7 +30,9 @@ struct PanelLayer {
     // Transparent margin around the panel image: the compositor cuts a layer's outer edge hard, which
     // crawls as a flickering dashed line with head motion. With the margin and source-alpha blending the
     // edge fades over a filtered pixel instead (still >= 1 px at mip level 4).
-    static constexpr int kPad = 16;
+    int kPad = 0;
+    bool margin = false;        // MARGIN flag: the transparent margin above (off: it shrank the panel and moved the line outward)
+    bool super = true;          // SUPER flag: Meta's quality super-sampling for the layer
     long version = -1;          // VideoStream::mipVersion last copied
     bool hasImage = false;      // at least one released image to show
     long updates = 0;
@@ -102,7 +104,8 @@ void main(){
     // Copy the latest panel image (the video's mipmapped frame, exact tiles included) into the swapchain,
     // flipped to OpenXR's bottom-up image rows, and build its mip chain. Only when a new frame arrived.
     void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion) {
-        if (!srcFbo || width <= 0 || height <= 0 || (mipVersion == version && mipBuilt == mipQuality)) return;
+        if (!srcFbo || width <= 0 || height <= 0 || (mipVersion == version && mipBuilt == mipQuality && kPad == (margin ? 16 : 0))) return;
+        kPad = margin ? 16 : 0;
         if (!ensure(session, width + 2 * kPad, height + 2 * kPad)) return;
         contentW = width; contentH = height;
         uint32_t idx = 0;
@@ -125,7 +128,7 @@ void main(){
     // cylinder's arc (centred on -Z) touches the wall at the panel centre and curves toward the user.
     XrCompositionLayerBaseHeader* layer(XrSpace space, const XrPosef& flatPose, const XrPosef& axisPose, float width, float height) {
         const void* next = nullptr;
-        if (superSample) {
+        if (superSample && super) {
             settings = {XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB};
             settings.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB |
                                   (sharpen ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB : 0) |
@@ -138,19 +141,19 @@ void main(){
         if (curve && cylinder && radius > 0.1f) {
             cyl = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
             cyl.next = next; cyl.space = space; cyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH; cyl.subImage = sub; cyl.pose = axisPose;
-            cyl.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            cyl.layerFlags = margin ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
             cyl.radius = radius; cyl.centralAngle = lw / radius; cyl.aspectRatio = lw / lh;
             return reinterpret_cast<XrCompositionLayerBaseHeader*>(&cyl);
         }
         quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
         quad.next = next; quad.space = space; quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH; quad.pose = flatPose; quad.size = {lw, lh};
-        quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        quad.layerFlags = margin ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
         quad.subImage = sub;
         return reinterpret_cast<XrCompositionLayerBaseHeader*>(&quad);
     }
     std::string json() const {
         return "{\"enabled\":" + std::to_string(enabled ? 1 : 0) + ",\"image\":" + std::to_string(hasImage ? 1 : 0) + ",\"size\":[" + std::to_string(w) + "," +
-               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) + ",\"auto\":" + std::to_string(autoFilter ? 1 : 0) + ",\"mipq\":" + std::to_string(mipBuilt ? 1 : 0) +
+               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) + ",\"auto\":" + std::to_string(autoFilter ? 1 : 0) + ",\"mipq\":" + std::to_string(mipBuilt ? 1 : 0) + ",\"margin\":" + std::to_string(margin ? 1 : 0) + ",\"super\":" + std::to_string(super ? 1 : 0) +
                ",\"curve\":" + std::to_string(curve && cylinder ? 1 : 0) + ",\"radius\":" + std::to_string(radius) +
                ",\"updates\":" + std::to_string(updates) + ",\"error\":\"" + error + "\"}";
     }

@@ -166,6 +166,7 @@ struct App {
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
+    bool bezel = false;  // BEZEL flag: a thin dark frame over the panel edge (eye buffers, 4x MSAA) hides the compositor's edge line
     bool nativeRes = false;  // NATIVE: stream the laptop at its panel's real pixels (2880x1800) instead of 2560x1600
     float currentHz() { float hz = 0; if (xrGetDisplayRefreshRateFB_ && session) xrGetDisplayRefreshRateFB_(session, &hz); return hz; }
     GameStreamHost hostFor(int i) const {
@@ -344,11 +345,11 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 9;
+    static constexpr int kMenuItems = 12;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
-                                            {"CURVE", "DISPLAY"}};
+                                            {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -357,6 +358,9 @@ struct App {
         if (l == "LOCK") return editLocked;
         if (l == "QUAD") return panelLayer.enabled;
         if (l == "CURVE") return panelLayer.curve;
+        if (l == "MARGIN") return panelLayer.margin;
+        if (l == "SUPER") return panelLayer.super;
+        if (l == "BEZEL") return bezel;
         return -1;
     }
     void layoutMenu() {
@@ -424,6 +428,9 @@ struct App {
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
+        else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
+        else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
+        else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
         else if (l == "CURVE") {  // curved panel (with QUAD), centred on where the user stands now
             panelLayer.curve = !panelLayer.curve;
             if (auto* w = placed.active ? wallById(placed.wall) : nullptr)
@@ -1310,6 +1317,15 @@ void main(){
                 int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
+        }
+        if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) {
+            const float col[4] = {0.06f, 0.06f, 0.07f, 1.0f}; const float in = 0.004f, out = 0.014f, z = 0.022f;
+            float l = placed.x - placed.w / 2, r = placed.x + placed.w / 2, b = placed.y - placed.h / 2, t = placed.y + placed.h / 2;
+            auto P = [&](float x, float y) { return xform(w->pose, {x, y, z}); };
+            occ.quad(P(l - out, t - in), P(r + out, t - in), P(r + out, t + out), P(l - out, t + out), col);  // top
+            occ.quad(P(l - out, b - out), P(r + out, b - out), P(r + out, b + in), P(l - out, b + in), col);  // bottom
+            occ.quad(P(l - out, b + in), P(l + in, b + in), P(l + in, t - in), P(l - out, t - in), col);      // left
+            occ.quad(P(r - in, b + in), P(r + out, b + in), P(r + out, t - in), P(r - in, t - in), col);      // right
         }
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
