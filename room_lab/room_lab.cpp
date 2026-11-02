@@ -344,12 +344,11 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 14;
+    static constexpr int kMenuItems = 9;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
-                                            {"NATIVE", "DISPLAY"}, {"SHARPEN", "DISPLAY"}, {"CURVE", "DISPLAY"}, {"MIPQ", "DISPLAY"},
-                                            {"BOOST", "PERFORMANCE"}, {"AUTO", "PERFORMANCE"}};
+                                            {"CURVE", "DISPLAY"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -357,12 +356,7 @@ struct App {
         if (l == "MINI" || l == "LAPTOP") return video.source == l;
         if (l == "LOCK") return editLocked;
         if (l == "QUAD") return panelLayer.enabled;
-        if (l == "NATIVE") return nativeRes;
-        if (l == "SHARPEN") return panelLayer.sharpen;
         if (l == "CURVE") return panelLayer.curve;
-        if (l == "BOOST") return boost;
-        if (l == "AUTO") return panelLayer.autoFilter;
-        if (l == "MIPQ") return mipqMenu;
         return -1;
     }
     void layoutMenu() {
@@ -430,15 +424,6 @@ struct App {
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
-        else if (l == "NATIVE") { nativeRes = !nativeRes; if (video.source == "LAPTOP") launcher.launch(hostFor(1)); }
-        else if (l == "SHARPEN") panelLayer.sharpen = !panelLayer.sharpen;  // compositor text sharpening (with QUAD)
-        else if (l == "BOOST") {  // keep GPU/CPU at boost so the compositor never trades layer quality for headroom
-            boost = !boost;
-            if (xrPerfSettingsSetPerformanceLevelEXT_) for (auto d : {XR_PERF_SETTINGS_DOMAIN_GPU_EXT, XR_PERF_SETTINGS_DOMAIN_CPU_EXT})
-                xrPerfSettingsSetPerformanceLevelEXT_(session, d, boost ? XR_PERF_SETTINGS_LEVEL_BOOST_EXT : XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
-        }
-        else if (l == "AUTO") panelLayer.autoFilter = !panelLayer.autoFilter;  // Meta's per-frame automatic layer filter
-        else if (l == "MIPQ") mipqMenu = !mipqMenu;  // Lanczos mip chain for the panel layer
         else if (l == "CURVE") {  // curved panel (with QUAD), centred on where the user stands now
             panelLayer.curve = !panelLayer.curve;
             if (auto* w = placed.active ? wallById(placed.wall) : nullptr)
