@@ -173,7 +173,7 @@ struct App {
         if (nativeRes && i == 1) { h.width = 2880; h.height = 1800; h.kbps = 100000; }
         return h;
     }
-    bool quadShown = false, quadFile = false; long quadTick = 0;
+    bool quadShown = false, quadFile = false, mipqMenu = false, mipqFile = false; long quadTick = 0;
     MoonlightSource moonlight;
     // Raise a fist (above the chest) and hold to dictate; open the hand to finish. Text is typed into the
     // streamed Mac through Moonlight and shown as a caption.
@@ -320,11 +320,11 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 14;
+    static constexpr int kMenuItems = 15;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
-                                            {"NATIVE", "DISPLAY"}, {"SHARPEN", "DISPLAY"}, {"CURVE", "DISPLAY"},
+                                            {"NATIVE", "DISPLAY"}, {"SHARPEN", "DISPLAY"}, {"CURVE", "DISPLAY"}, {"MIPQ", "DISPLAY"},
                                             {"120HZ", "PERFORMANCE"}, {"BOOST", "PERFORMANCE"}, {"AUTO", "PERFORMANCE"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
@@ -339,6 +339,7 @@ struct App {
         if (l == "120HZ") return hz120;
         if (l == "BOOST") return boost;
         if (l == "AUTO") return panelLayer.autoFilter;
+        if (l == "MIPQ") return mipqMenu;
         return -1;
     }
     void layoutMenu() {
@@ -421,6 +422,7 @@ struct App {
                 xrPerfSettingsSetPerformanceLevelEXT_(session, d, boost ? XR_PERF_SETTINGS_LEVEL_BOOST_EXT : XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
         }
         else if (l == "AUTO") panelLayer.autoFilter = !panelLayer.autoFilter;  // Meta's per-frame automatic layer filter
+        else if (l == "MIPQ") mipqMenu = !mipqMenu;  // Lanczos mip chain for the panel layer
         else if (l == "CURVE") {  // curved panel (with QUAD), centred on where the user stands now
             panelLayer.curve = !panelLayer.curve;
             if (auto* w = placed.active ? wallById(placed.wall) : nullptr)
@@ -1390,8 +1392,9 @@ void main(){
         bool hasVideo = video.update(display) && video.mipTex;
         if (quadTick++ % 60 == 0) {
             quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
-            panelLayer.mipQuality = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // MIPQ (menu item once the grid refactor lands)
+            mipqFile = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // forces MIPQ for self-tests
         }
+        panelLayer.mipQuality = mipqMenu || mipqFile;
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
         if (quad) panelLayer.update(session, video.mipFbo, video.mipW, video.mipH, video.mipVersion);
         quadShown = quad && panelLayer.hasImage;
