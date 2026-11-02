@@ -312,9 +312,9 @@ struct App {
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
     struct MenuItem { const char* label; int col, row; };
-    static constexpr int kMenuItems = 12;
+    static constexpr int kMenuItems = 11;
     const MenuItem menuItems[kMenuItems] = {{"MINI", 0, 0}, {"LAPTOP", 1, 0}, {"SMALL", 0, 1}, {"MEDIUM", 1, 1}, {"LARGE", 2, 1},
-                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"SHARP", 2, 0}, {"QUAD", 1, 2},
+                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"QUAD", 1, 2},
                                             {"NATIVE", 0, 3}, {"SHARPEN", 1, 3}, {"CURVE", 2, 3}};
     void menuCenter(int i, float& x, float& y) {
         x = (menuItems[i].col - 1) * (kMenuBtnW + kMenuGap); y = -(menuItems[i].row - 1.5f) * (kMenuBtnH + kMenuGap);

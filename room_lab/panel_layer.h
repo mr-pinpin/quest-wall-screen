@@ -11,7 +11,7 @@
 #include <vector>
 
 struct PanelLayer {
-    bool enabled = false;       // QUAD toggle; files/quad-on forces it on (for A/B tests)
+    bool enabled = true;        // QUAD toggle (default since the user preferred it); files/quad-on forces it on
     bool superSample = false;   // XR_FB_composition_layer_settings available
     bool cylinder = false;      // XR_KHR_composition_layer_cylinder available
     bool sharpen = false;       // SHARPEN: the compositor's quality sharpening on top of super-sampling
