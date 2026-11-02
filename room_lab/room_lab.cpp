@@ -46,6 +46,10 @@ static float len(V3 a) { return std::sqrt(dot(a, a)); }
 static V3 norm(V3 a) { float l = len(a); return l > 1e-6f ? a * (1.0f / l) : V3{0, 0, 0}; }
 static V3 v3(XrVector3f v) { return {v.x, v.y, v.z}; }
 static XrQuaternionf qinv(XrQuaternionf q) { return {-q.x, -q.y, -q.z, q.w}; }
+static XrQuaternionf qmul(XrQuaternionf a, XrQuaternionf b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
 static V3 rot(XrQuaternionf q, V3 v) {
     V3 u{q.x, q.y, q.z};
     V3 t = cross(u, v) * 2.0f;
@@ -229,7 +233,10 @@ struct App {
     bool resizing2 = false; float resizeStartW = 0, resizeStartD = 1;
     // Settings: hold the back of the left wrist toward your face for kPalmHold to open (or close) a floating panel of big buttons.
     static constexpr float kPalmHold = 0.5f, kMenuBtnW = 0.15f, kMenuBtnH = 0.075f, kMenuGap = 0.02f;
-    bool menuOpen = false, editLocked = false, palmArmed = true; float palmHold = 0; int menuHover = -1;
+    // LOCK pins the screen and the settings panel: the panel is always shown where it was left, and is saved in
+    // the frame of a scene wall so it comes back in the same spot. Unlocked, the watch gesture re-places it.
+    bool menuOpen = false, editLocked = true, palmArmed = true; float palmHold = 0; int menuHover = -1;
+    bool settingsLoaded = false, menuSaved = false; std::string menuWall; XrPosef menuRel{{0, 0, 0, 1}, {0, 0, 0}};
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
     struct MenuItem { const char* label; int col, row; };
@@ -256,6 +263,36 @@ struct App {
         V3 c = v3(head.position) + f * 0.6f; c.y -= 0.12f;
         menu.pose.position = {c.x, c.y, c.z};
         menuOpen = true; menuHover = -1; event("settings opened");
+        if (!menuSaved) editLocked = true;  // first placement: pin it right away
+        saveSettings();
+    }
+    Entity* anyWall() {
+        if (auto* w = placed.active ? wallById(placed.wall) : nullptr) if (w->located) return w;
+        for (auto& e : entities) if (isWall(e) && e.located) return &e;
+        return nullptr;
+    }
+    void saveSettings() {
+        auto* w = anyWall();
+        if (w && menuOpen) {
+            menuWall = w->uuid; menuSaved = true;
+            V3 r = untransform(w->pose, v3(menu.pose.position));
+            menuRel.position = {r.x, r.y, r.z}; menuRel.orientation = qmul(qinv(w->pose.orientation), menu.pose.orientation);
+        }
+        std::ofstream f(gDir + "/settings.json");
+        f << "{\"locked\":" << (editLocked ? 1 : 0) << ",\"menuSaved\":" << (menuSaved ? 1 : 0) << ",\"menuWall\":\"" << menuWall << "\",\"menu\":["
+          << menuRel.position.x << "," << menuRel.position.y << "," << menuRel.position.z << "," << menuRel.orientation.x << ","
+          << menuRel.orientation.y << "," << menuRel.orientation.z << "," << menuRel.orientation.w << "]}";
+    }
+    void loadSettings() {
+        std::ifstream f(gDir + "/settings.json"); if (!f) return;
+        std::stringstream ss; ss << f.rdbuf(); std::string j = ss.str();
+        editLocked = j.find("\"locked\":0") == std::string::npos;
+        menuSaved = j.find("\"menuSaved\":1") != std::string::npos;
+        size_t a = j.find("\"menuWall\":\""); if (a != std::string::npos) { a += 12; menuWall = j.substr(a, j.find('"', a) - a); }
+        float v[7] = {0, 0, 0, 0, 0, 0, 1}; size_t b = j.find("\"menu\":[");
+        if (b != std::string::npos) sscanf(j.c_str() + b + 8, "%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
+        menuRel.position = {v[0], v[1], v[2]}; menuRel.orientation = {v[3], v[4], v[5], v[6]};
+        event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off"));
     }
     void choose(int i) {
         std::string l = menuItems[i].label;
@@ -265,20 +302,32 @@ struct App {
         else if (w && (l == "SMALL" || l == "MEDIUM" || l == "LARGE")) {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
-        else if (l == "CLOSE") menuOpen = false;
+        else if (l == "CLOSE" && !editLocked) menuOpen = false;
+        if (l == "LOCK") saveSettings();
         event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : ""));
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
+        if (!settingsLoaded) { settingsLoaded = true; loadSettings(); }
+        // Bring the saved panel back once its wall is located (the scene loads a moment after start).
+        if (menuSaved && !menuOpen && editLocked) if (auto* w = wallById(menuWall)) if (w->located) {
+            V3 c = xform(w->pose, v3(menuRel.position));
+            menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = qmul(w->pose.orientation, menuRel.orientation);
+            menuOpen = true;
+        }
         V3 palm;
         if (palmFacing(palm)) {
             if (palmArmed && palmHold == 0) palmStart = std::chrono::steady_clock::now();
             if (palmArmed) palmHold = std::fmax(std::chrono::duration<float>(std::chrono::steady_clock::now() - palmStart).count() / kPalmHold, 1e-3f);
-            if (palmArmed && palmHold >= 1) { palmArmed = false; palmHold = 0; if (menuOpen) { menuOpen = false; event("settings closed"); } else openMenu(); }
+            if (palmArmed && palmHold >= 1) {
+                palmArmed = false; palmHold = 0;
+                if (editLocked && menuSaved) event("settings pinned: unlock to move");
+                else openMenu();  // unlocked: bring the panel to where you are now
+            }
         } else { palmArmed = true; palmHold = 0; }
         menuHover = -1;
         if (!menuOpen) return false;
-        if (len(v3(head.position) - v3(menu.pose.position)) > 2.0f) { menuOpen = false; return false; }  // walked away
+        if (!editLocked && len(v3(head.position) - v3(menu.pose.position)) > 3.0f) { menuOpen = false; return false; }  // walked away
         if (!(handActive[1] && ray[1].valid)) return false;
         V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
         if (std::fabs(ld.z) < 1e-4f) return false;
@@ -991,7 +1040,7 @@ void main(){
     }
     void drawMenu(Batch& b) {
         V3 palm;
-        if (palmHold > 0 && palmFacing(palm)) {  // the palm ring fills while summoning
+        if (palmHold > 0 && !(editLocked && menuSaved) && palmFacing(palm)) {  // the ring fills while summoning
             V3 toHead = norm(v3(head.position) - palm), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
             const float col[4] = {0.3f, 0.75f, 1.0f, 0.95f}; float r = 0.03f; int n = (int)(24 * std::fmin(palmHold, 1.0f));
             for (int i = 0; i < n; i++) {
@@ -1010,6 +1059,7 @@ void main(){
             float x, y; menuCenter(i, x, y);
             std::string l = menuItems[i].label;
             bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : false;
+            if (l == "CLOSE" && editLocked) continue;  // pinned: nothing to close
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int k = 0; k < 4; k++) f[k] = on ? act[k] : idle[k];
             if (menuHover == i) for (int k = 0; k < 3; k++) f[k] = std::fmin(1.0f, f[k] + 0.2f);
