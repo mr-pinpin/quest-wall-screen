@@ -103,7 +103,7 @@ void main(){
     }
     // Copy the latest panel image (the video's mipmapped frame, exact tiles included) into the swapchain,
     // flipped to OpenXR's bottom-up image rows, and build its mip chain. Only when a new frame arrived.
-    void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion) {
+    void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion, int srcX = 0, int srcY = 0) {
         if (!srcFbo || width <= 0 || height <= 0 || (mipVersion == version && mipBuilt == mipQuality && kPad == (margin ? 16 : 0))) return;
         kPad = margin ? 16 : 0;
         if (!ensure(session, width + 2 * kPad, height + 2 * kPad)) return;
@@ -116,7 +116,7 @@ void main(){
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, images[idx], 0);
         glViewport(0, 0, w, h); glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);  // the margin stays transparent
-        glBlitFramebuffer(0, 0, width, height, kPad, kPad + height, kPad + width, kPad, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(srcX, srcY, srcX + width, srcY + height, kPad, kPad + height, kPad + width, kPad, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         if (mipQuality) buildMips(images[idx]);
         else { glBindTexture(GL_TEXTURE_2D, images[idx]); glGenerateMipmap(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, 0); }

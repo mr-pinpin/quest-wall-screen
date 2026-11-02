@@ -30,6 +30,10 @@ struct VideoStream {
     bool relay = true;
     std::atomic<bool> relayPaused{false};  // set while another source (Moonlight) feeds submit()
     std::string source = "mac relay";
+    // Direct mode (the extra-screen atlas): plain TCP to a Mac sender, packets framed by a big-endian u32
+    // length (MacScreenSender's framing), instead of the WebSocket relay through adb reverse.
+    std::string directHost; int directPort = 0;
+    std::string meta;  // last JSON text packet (0x80 '{...'), e.g. the atlas layout; kept across video packets
     double hostLatencyMs = 0, rttMs = 0;
     std::atomic<bool> stop{false};
     std::thread net;
@@ -107,7 +111,40 @@ struct VideoStream {
         timeval idle{5, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &idle, sizeof idle);
         return fd;
     }
+    int connectDirect() {
+        int fd = socket(AF_INET, SOCK_STREAM, 0); if (fd < 0) return -1;
+        int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+        int rcv = 8 << 20; setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof rcv);
+        timeval tv{3, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons((uint16_t)directPort);
+        if (inet_pton(AF_INET, directHost.c_str(), &a.sin_addr) != 1 || connect(fd, (sockaddr*)&a, sizeof a) < 0) { close(fd); return -1; }
+        timeval idle{10, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &idle, sizeof idle);
+        return fd;
+    }
+    void runDirect() {
+        std::vector<uint8_t> buf;
+        while (!stop) {
+            setState("connecting");
+            int fd = connectDirect();
+            if (fd < 0) { setState("sender unreachable"); sleepCheck(2000); continue; }
+            setState("connected"); needKey = true;
+            while (!stop) {
+                uint8_t h[4];
+                if (!readExact(fd, h, 4)) break;
+                uint32_t n = (uint32_t)h[0] << 24 | h[1] << 16 | h[2] << 8 | h[3];
+                if (n > (32u << 20)) break;
+                buf.resize(n);
+                if (n && !readExact(fd, buf.data(), n)) break;
+                if (n) packet(buf.data(), n);
+                drain();
+            }
+            close(fd);
+            { std::lock_guard<std::mutex> g(lock); reconnects++; }
+            setState("reconnecting"); sleepCheck(1000);
+        }
+    }
     void run() {
+        if (!directHost.empty()) { runDirect(); return; }
         while (!stop) {
             if (relayPaused) { sleepCheck(200); continue; }
             setState("connecting");
@@ -139,7 +176,11 @@ struct VideoStream {
     void sleepCheck(int ms) { for (int i = 0; i < ms / 50 && !stop; i++) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
 
     void packet(const uint8_t* p, size_t n) {
-        if (p[0] == 0x80) { std::lock_guard<std::mutex> g(lock); message.assign((const char*)p + 1, n - 1); return; }
+        if (p[0] == 0x80) {
+            std::lock_guard<std::mutex> g(lock);
+            if (n > 1 && p[1] == '{') meta.assign((const char*)p + 1, n - 1); else message.assign((const char*)p + 1, n - 1);
+            return;
+        }
         if (n < 20) return;
         bool key = p[0] & 1;
         int64_t pts = 0; for (int i = 0; i < 8; i++) pts = (pts << 8) | p[1 + i];

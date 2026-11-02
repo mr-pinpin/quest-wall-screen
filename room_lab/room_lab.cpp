@@ -164,7 +164,13 @@ struct App {
     Eye eyes[2]{};
     int msaa = 0;
     GLuint program = 0, vao = 0, vbo = 0;
-    GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
+    GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo, uAtlas = -1;
+    // Extra screens (summoned): one H.264 atlas of the laptop's virtual displays (sharp/../AtlasSender.swift),
+    // cropped per screen into its own compositor layer. files/atlas.json: {"host": "<Mac IP>", "port": 57720}.
+    VideoStream atlasVideo;
+    struct AtlasCell { int x, y, w, h; };
+    std::map<int, AtlasCell> atlasCells; int atlasW = 0, atlasH = 0; std::string atlasMeta;
+    std::map<int, PanelLayer> extraLayers; std::set<int> extraLive;
     VideoStream video;
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
     bool bezel = true;   // BEZEL flag (default: it removed the line completely): a frame over the panel edge, drawn in the eye
@@ -629,13 +635,15 @@ void main(){ vCol=aCol; vUv=aUv; vDepthClip=uDepthViewProj*vec4(aPos,1.0); gl_Po
         const char* fs = R"(#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
 precision highp float; precision highp sampler2DArray;
-uniform sampler2D uVideo; uniform int uHasVideo;
+uniform sampler2D uVideo; uniform int uHasVideo; uniform sampler2D uAtlas;
 in vec4 vCol; in vec2 vUv; in vec4 vDepthClip;
 uniform sampler2DArray uDepth; uniform int uOcclude; uniform float uLayer; uniform vec3 uDepthParams;
 out vec4 oColor;
 void main(){
   vec4 c=vCol;
-  if(vUv.x<-5.0){  // AMBI bezel: colour from the screen's nearest edge (blurred by a high mip), alpha from the vertex
+  if(vUv.x<-15.0){  // AMBI bezel of an extra screen: colour from its cell of the atlas (UVs already in atlas space)
+    c=vec4(textureLod(uAtlas,clamp(vec2(vUv.x+20.0,vUv.y),0.002,0.998),5.0).rgb*0.85,vCol.a);
+  } else if(vUv.x<-5.0){  // AMBI bezel: colour from the screen's nearest edge (blurred by a high mip), alpha from the vertex
     vec3 e=uHasVideo>0 ? textureLod(uVideo,clamp(vec2(vUv.x+10.0,1.0-vUv.y),0.002,0.998),6.0).rgb : vec3(0.06);
     c=vec4(e*0.85,vCol.a);
   }
@@ -676,7 +684,7 @@ void main(){
         uViewProj = glGetUniformLocation(program, "uViewProj"); uDepthViewProj = glGetUniformLocation(program, "uDepthViewProj");
         uDepth = glGetUniformLocation(program, "uDepth"); uOcclude = glGetUniformLocation(program, "uOcclude");
         uLayer = glGetUniformLocation(program, "uLayer"); uDepthParams = glGetUniformLocation(program, "uDepthParams");
-        uVideo = glGetUniformLocation(program, "uVideo"); uHasVideo = glGetUniformLocation(program, "uHasVideo");
+        uVideo = glGetUniformLocation(program, "uVideo"); uHasVideo = glGetUniformLocation(program, "uHasVideo"); uAtlas = glGetUniformLocation(program, "uAtlas");
         glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo);
         glBindVertexArray(vao); glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void*)offsetof(Vtx, p));
@@ -1030,9 +1038,9 @@ void main(){
     // Mac creates for it, and until that stream is wired they show as a placeholder.
     struct Screen { int id; Placement p; };
     // Each extra screen can be a real display on the laptop (mac/pinpin-displays: CGVirtualDisplay behind a small
-    // HTTP API on :57710). Behind the MACDISP flag until the headset streams those displays in, so the mouse and
-    // windows can't wander onto a monitor nobody can see.
-    bool macDisplays = false; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
+    // HTTP API on :57710), streamed back through the atlas (AtlasSender.swift). MACDISP is on by default now that the
+    // headset shows those displays; turning it off removes them so nothing wanders onto a monitor nobody can see.
+    bool macDisplays = true; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
     void macDisplay(int id, bool create) {
         std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200" : "/remove?id=" + std::to_string(id);
         std::string host = displayHost;
@@ -1206,6 +1214,11 @@ void main(){
             auto P = [&](float x, float y, float z) { return xform(w->pose, {x, y, z}); };
             const float bg[4] = {0.07f, 0.08f, 0.11f, 0.94f}, edge[4] = {0.35f, 0.75f, 1.0f, 0.8f}, white[4] = {0.92f, 0.95f, 1.0f, 1}, dim[4] = {0.6f, 0.66f, 0.76f, 1};
             float x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, y0 = p.y - p.h / 2, y1 = p.y + p.h / 2;
+            if (extraLive.count(extras[i].id)) {  // its compositor layer shows the Mac display; frame it like the main panel
+                const AtlasCell& c = atlasCells[extras[i].id];
+                const float cell[4] = {c.x / (float)atlasW, c.y / (float)atlasH, (c.x + c.w) / (float)atlasW, (c.y + c.h) / (float)atlasH};
+                if (bezel) bezelFrame(b, *w, p, cell);
+            } else {
             b.quad(P(x0, y0, 0.02f), P(x1, y0, 0.02f), P(x1, y1, 0.02f), P(x0, y1, 0.02f), bg);
             V3 n = rot(w->pose.orientation, {0, 0, 1});
             b.line(P(x0, y0, 0.021f), P(x1, y0, 0.021f), n, 0.006f, edge); b.line(P(x1, y0, 0.021f), P(x1, y1, 0.021f), n, 0.006f, edge);
@@ -1213,6 +1226,7 @@ void main(){
             std::string title = "SCREEN " + std::to_string(extras[i].id);
             text(b, *w, p.x, p.y + p.h * 0.08f, 0.022f, UiGrid::fit(title, 0.012f, p.w * 0.6f, p.h * 0.2f), title.c_str(), white);
             text(b, *w, p.x, p.y - p.h * 0.12f, 0.022f, UiGrid::fit("MAC DISPLAY COMING", 0.006f, p.w * 0.7f, p.h * 0.1f), "MAC DISPLAY COMING", dim);
+            }
             if (!editLocked) {  // grab bar
                 float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
                 const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
@@ -1531,8 +1545,29 @@ void main(){
     // Frame over the panel edge. Every style keeps an opaque core from 4 mm inside to 6 mm outside the edge,
     // which covers the compositor's line; the styles differ around it. AMBI vertices carry panel UVs shifted
     // by -10, and the eye shader then colours them from the screen's nearest edge (a high mip of the video).
-    void bezelFrame(Batch& b, const Entity& wall) {
-        float l = placed.x - placed.w / 2, r = placed.x + placed.w / 2, bt = placed.y - placed.h / 2, t = placed.y + placed.h / 2;
+    void startAtlas() {
+        std::ifstream f(gDir + "/atlas.json"); if (!f) return;
+        std::stringstream ss; ss << f.rdbuf(); std::string j = ss.str();
+        atlasVideo.directHost = SharpLayer::field(j, "host"); atlasVideo.directPort = atoi(SharpLayer::field(j, "port").c_str());
+        if (atlasVideo.directHost.empty() || atlasVideo.directPort <= 0) { atlasVideo.directHost.clear(); return; }
+        atlasVideo.source = "atlas"; atlasVideo.start();
+    }
+    // Layout text from the sender: {"atlas":[W,H],"cells":[{"screen":2,"x":0,"y":0,"w":1920,"h":1200},...]}
+    void parseAtlas() {
+        std::string m; { std::lock_guard<std::mutex> g(atlasVideo.lock); m = atlasVideo.meta; }
+        if (m == atlasMeta) return;
+        atlasMeta = m; atlasCells.clear();
+        size_t a = m.find("\"atlas\":["); if (a != std::string::npos) sscanf(m.c_str() + a + 9, "%d,%d", &atlasW, &atlasH);
+        for (size_t p = m.find("{\"screen\":"); p != std::string::npos; p = m.find("{\"screen\":", p + 1)) {
+            int id, x, y, w, h;
+            if (sscanf(m.c_str() + p, "{\"screen\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d", &id, &x, &y, &w, &h) == 5) atlasCells[id] = {x, y, w, h};
+        }
+        event("atlas layout: " + std::to_string(atlasCells.size()) + " screens");
+    }
+    // cell: the screen's rectangle in atlas texture space {u0, v0, u1, v1} (v from the top) for extra screens;
+    // null for the main panel, whose AMBI colours come from uVideo.
+    void bezelFrame(Batch& b, const Entity& wall, const Placement& pl, const float* cell = nullptr) {
+        float l = pl.x - pl.w / 2, r = pl.x + pl.w / 2, bt = pl.y - pl.h / 2, t = pl.y + pl.h / 2;
         const float z = 0.022f, in = 0.004f;
         auto P = [&](float x, float y) { return xform(wall.pose, {x, y, z}); };
         // A ring between distances d0 and d1 outside the panel edge (negative = inside), as four strips.
@@ -1542,7 +1577,11 @@ void main(){
             for (auto& q : xs) {
                 V3 a = P(q[0], q[1]), bb = P(q[2], q[1]), c = P(q[2], q[3]), d = P(q[0], q[3]);
                 if (!bezelAmbi) { b.quad(a, bb, c, d, col); continue; }
-                auto uv = [&](float x, float y, float* o) { o[0] = std::fmin(1, std::fmax(0, (x - l) / placed.w)) - 10; o[1] = std::fmin(1, std::fmax(0, (y - bt) / placed.h)); };
+                auto uv = [&](float x, float y, float* o) {
+                    float u = std::fmin(1, std::fmax(0, (x - l) / pl.w)), v = std::fmin(1, std::fmax(0, (y - bt) / pl.h));
+                    if (cell) { o[0] = cell[0] + u * (cell[2] - cell[0]) - 20; o[1] = cell[1] + (1 - v) * (cell[3] - cell[1]); }
+                    else { o[0] = u - 10; o[1] = v; }
+                };
                 float ua[2], ub[2], uc[2], ud[2]; uv(q[0], q[1], ua); uv(q[2], q[1], ub); uv(q[2], q[3], uc); uv(q[0], q[3], ud);
                 b.tri(a, bb, c, col, ua, ub, uc); b.tri(a, c, d, col, ua, uc, ud);
             }
@@ -1579,7 +1618,7 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w);
+        if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w, placed);
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawVoice(over);
@@ -1720,6 +1759,17 @@ void main(){
             }
         }
         bool hasVideo = video.update(display) && video.mipTex;
+        if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
+        bool atlasOk = !atlasVideo.directHost.empty() && atlasVideo.update(display) && atlasVideo.mipTex;
+        extraLive.clear();
+        if (atlasOk) {
+            for (auto& e : extras) {
+                auto it = atlasCells.find(e.id); if (it == atlasCells.end()) continue;
+                PanelLayer& L = extraLayers[e.id]; L.superSample = panelLayer.superSample; L.super = panelLayer.super;
+                L.update(session, atlasVideo.mipFbo, it->second.w, it->second.h, atlasVideo.mipVersion, it->second.x, it->second.y);
+                if (L.hasImage) extraLive.insert(e.id);
+            }
+        }
         if (quadTick++ % 60 == 0) {
             quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
             mipqFile = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // forces MIPQ for self-tests
@@ -1742,6 +1792,7 @@ void main(){
             M4 vp = mul(projection(views[i].fov, 0.05f, 100.0f), viewFromPose(views[i].pose));
             glUniformMatrix4fv(uViewProj, 1, GL_FALSE, vp.m);
             glUniform1i(uDepth, 0); glUniform1i(uVideo, 1); glUniform1i(uHasVideo, hasVideo ? (quadShown ? 2 : 1) : 0);
+            glUniform1i(uAtlas, 2); glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, atlasVideo.mipTex); glActiveTexture(GL_TEXTURE0);
             if (depthValid) {
                 auto& dv = depthImage.views[i];
                 M4 dvp = mul(projection(dv.fov, depthImage.nearZ, depthImage.farZ), viewFromPose(dv.pose));
@@ -1800,6 +1851,15 @@ void main(){
                 V3 a = xform(w->pose, {placed.x, placed.y, 0.02f + panelLayer.radius}); XrPosef cp = qp; cp.position = {a.x, a.y, a.z};
                 layers.push_back(panelLayer.layer(local, qp, cp, placed.w, placed.h));
             }
+            V3 eye = v3(head.position);
+            for (auto& e : extras) {  // extra screens: one quad layer each, cut from the atlas
+                if (!extraLive.count(e.id)) continue;
+                Entity* w = wallById(e.p.wall); if (!w || !w->located) continue;
+                V3 c = xform(w->pose, {e.p.x, e.p.y, 0.02f});
+                if (!seenFrom(eye, c, rot(w->pose.orientation, {0, 0, 1}), e.p.wall)) continue;
+                XrPosef qp; qp.orientation = w->pose.orientation; qp.position = {c.x, c.y, c.z};
+                layers.push_back(extraLayers[e.id].layer(local, qp, qp, e.p.w, e.p.h));
+            }
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&proj));
             frames++; framesSec++;
         }
@@ -1841,7 +1901,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
@@ -1885,6 +1945,7 @@ void main(){
         launcher.dir = gDir;
         video.start();  // Mac desktop relay by default; a freshly pushed Sunshine session switches to the Mini
         video.sharp.start(gDir);  // lossless refinement of still tiles, when files/sharp.json names a sender
+        startAtlas();             // extra screens' atlas, when files/atlas.json names a sender
         if (!createSession()) { lastStatus = {}; status(); return; }
         loadPlacement();
         while (!gQuit) {
