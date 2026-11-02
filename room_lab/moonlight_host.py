@@ -37,16 +37,25 @@ from cryptography.x509.oid import NameOID
 
 PRIVATE = pathlib.Path('/root/.local/share/pinpin-wall-screen/private/moonlight')
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ProxyJump=pinpin-air', '-o', 'ConnectTimeout=20', 'pinpin-mini-lan']
-LAN_HOST = '192.168.2.1'  # the Mini as seen from the headset's PinPin-Quest-Offline network
-PORTS = {'http': 47989, 'https': 47984, 'admin': 47990}
-LOCAL = {'http': 57989, 'https': 57984, 'admin': 57990}
+LAN_HOST = '192.168.2.1'  # the Mini as seen from the headset's PinPin-Quest-Offline network (also the Air relay)
+# Sunshine hosts. The Air's Sunshine uses base port 57989 and is reached through lan_relay.py on the Mini;
+# launches are issued on the Mini from the address the stream will come from (lan_bind), so encryption modes match.
+HOSTS = {
+    'mini': {'ssh': SSH, 'base': 47989, 'admin': '~/.local/share/pinpin-connect/sunshine/admin.json', 'lan_bind': '192.168.2.1', 'lan_target': '192.168.2.1', 'pem': 'server.pem'},
+    'air': {'ssh': ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', 'pinpin-air'], 'base': 57989, 'admin': '~/.local/share/pinpin-sunshine/admin.json',
+            'lan_bind': '192.168.1.37', 'lan_target': '192.168.1.36', 'pem': 'server-air.pem'},
+}
+H = HOSTS['mini']
+HOST_NAME = 'mini'
+PORTS = {'http': 0, 'https': -5, 'admin': 1}  # offsets from the Sunshine base port
+LOCAL = {'http': 61989, 'https': 61984, 'admin': 61990}
 PKG = 'com.pinpin.wallscreen.roomlab'
 
 @contextlib.contextmanager
 def tunnel():
-    args = SSH[:-1] + ['-N', '-o', 'ExitOnForwardFailure=yes']
-    for k in PORTS: args += ['-L', f'127.0.0.1:{LOCAL[k]}:127.0.0.1:{PORTS[k]}']
-    p = subprocess.Popen(args + [SSH[-1]])
+    args = H['ssh'][:-1] + ['-N', '-o', 'ExitOnForwardFailure=yes']
+    for k in PORTS: args += ['-L', f"127.0.0.1:{LOCAL[k]}:127.0.0.1:{H['base'] + PORTS[k]}"]
+    p = subprocess.Popen(args + [H['ssh'][-1]])
     try:
         for _ in range(100):
             with contextlib.suppress(OSError):
@@ -91,7 +100,7 @@ d=json.load(sys.stdin)
 fd,path=tempfile.mkstemp();os.write(fd,(d['cert']+d['key']).encode());os.close(fd)
 try:
     ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);ctx.check_hostname=False;ctx.verify_mode=ssl.CERT_NONE;ctx.load_cert_chain(path)
-    c=http.client.HTTPSConnection(d['bind'],47984,context=ctx,timeout=60,source_address=(d['bind'],0))
+    c=http.client.HTTPSConnection(d['target'],d['port'],context=ctx,timeout=60,source_address=(d['bind'],0))
     c.request('GET','/'+d['path']+'?'+d['query']);sys.stdout.write(c.getresponse().read().decode())
 finally:
     os.unlink(path)
@@ -101,7 +110,8 @@ def query_lan(path, params):
     """HTTPS GameStream request issued on the Mini from its headset-facing address, as a LAN client would."""
     _, _, uid = identity()
     q = urllib.parse.urlencode({'uniqueid': uid, 'uuid': secrets.token_hex(16)} | params)
-    body = json.dumps({'cert': (PRIVATE / 'client.pem').read_text(), 'key': (PRIVATE / 'client.key').read_text(), 'bind': LAN_HOST, 'path': path, 'query': q})
+    body = json.dumps({'cert': (PRIVATE / 'client.pem').read_text(), 'key': (PRIVATE / 'client.key').read_text(), 'bind': H['lan_bind'],
+                       'target': H['lan_target'], 'port': H['base'] - 5, 'path': path, 'query': q})
     r = subprocess.run(SSH + ['/usr/bin/python3 -c ' + shlex.quote(REMOTE_HTTPS)], input=body, capture_output=True, text=True, timeout=90)
     if r.returncode: raise SystemExit(r.stderr[-1500:])
     root = ET.fromstring(r.stdout)
@@ -109,7 +119,7 @@ def query_lan(path, params):
     return root
 
 def admin(path, body=None):
-    cred = json.loads(subprocess.run(SSH + ['cat ~/.local/share/pinpin-connect/sunshine/admin.json'], capture_output=True, text=True, check=True).stdout)
+    cred = json.loads(subprocess.run(H['ssh'] + ['cat ' + H['admin']], capture_output=True, text=True, check=True).stdout)
     auth = 'Basic ' + base64.b64encode(f"{cred['username']}:{cred['password']}".encode()).decode()
     base = f"https://127.0.0.1:{LOCAL['admin']}"
     req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
@@ -146,7 +156,7 @@ def pair():
     if 'error' in result: raise result['error']
     root = result['root']
     if root.findtext('paired') != '1': raise SystemExit('server refused getservercert')
-    server_pem = bytes.fromhex(root.findtext('plaincert')); (PRIVATE / 'server.pem').write_bytes(server_pem)
+    server_pem = bytes.fromhex(root.findtext('plaincert')); (PRIVATE / H['pem']).write_bytes(server_pem)
     server = x509.load_pem_x509_certificate(server_pem)
     challenge = secrets.token_bytes(16)
     root = query('pair', {'devicename': 'PinPinQuest', 'updateState': 1, 'clientchallenge': aes(aes_key, challenge).hex()})
@@ -164,7 +174,7 @@ def pair():
     root = query('pair', {'devicename': 'PinPinQuest', 'updateState': 1, 'phrase': 'pairchallenge'}, https=True)
     if approver: approver.join(15)
     print('PAIRED', root.findtext('paired') == '1', 'approval', approval.get('status'), 'client', uid)
-    push({'client.pem': PRIVATE / 'client.pem', 'client.key': PRIVATE / 'client.key', 'server.pem': PRIVATE / 'server.pem'})
+    push({'client.pem': PRIVATE / 'client.pem', 'client.key': PRIVATE / 'client.key', H['pem']: PRIVATE / H['pem']})
 
 def push(files):
     """Copy files into the app's private storage (files/moonlight/) through the Mini's ADB."""
@@ -202,16 +212,19 @@ def launch(app, width, height, fps, bitrate, hevc):
     session = {'host': LAN_HOST, 'rtspSessionUrl': url, 'appVersion': info['appversion'], 'gfeVersion': info['GfeVersion'],
                'serverCodecModeSupport': int(info['ServerCodecModeSupport'] or 1), 'width': width, 'height': height, 'fps': fps,
                'bitrateKbps': bitrate, 'hevc': hevc, 'rikey': rikey.hex(), 'rikeyid': rikeyid, 'app': app, 'appid': int(appid),
-               'issued': time.time()}
+               'issued': time.time(), 'source': HOST_NAME}
     print(verb.upper(), json.dumps({k: v for k, v in session.items() if k != 'rikey'}))
     push({'session.json': json.dumps(session)})
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('action', choices=['pair', 'launch', 'apps', 'status', 'cancel'])
+    p.add_argument('--host', choices=sorted(HOSTS), default='mini')
     p.add_argument('--app', default='Desktop'); p.add_argument('--width', type=int, default=2560); p.add_argument('--height', type=int, default=1440)
     p.add_argument('--fps', type=int, default=72); p.add_argument('--bitrate', type=int, default=60000); p.add_argument('--h264', action='store_true')
     a = p.parse_args()
+    global H, HOST_NAME
+    H, HOST_NAME = HOSTS[a.host], a.host
     with tunnel():
         if a.action == 'pair': pair()
         elif a.action == 'apps': print(apps())

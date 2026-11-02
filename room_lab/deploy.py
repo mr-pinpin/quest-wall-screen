@@ -22,8 +22,11 @@ P='%s'
 if action=='install':
     apk=home/'.local/share/pinpin-quest/wall-screen/room-lab.apk';apk.write_bytes(base64.b64decode(sys.stdin.read()))
     subprocess.run(adb+['push',str(apk),'/data/local/tmp/pinpin-room-lab.apk'],check=True,capture_output=True)
-    print('INSTALL',sh("/debug_ramdisk/su -c 'pm install -r -g /data/local/tmp/pinpin-room-lab.apk'"))
-    print('GRANT',sh("/debug_ramdisk/su -c 'pm grant %%s com.oculus.permission.USE_SCENE'"%%P) or 'ok')
+    # Root (Codex's recovery agent restores /debug_ramdisk/su after reboots) is optional: the adb shell user can install.
+    root=sh('test -x /debug_ramdisk/su && echo yes')=='yes'
+    su=(lambda c:"/debug_ramdisk/su -c '%%s'"%%c) if root else (lambda c:c)
+    print('INSTALL',sh(su('pm install -r -g /data/local/tmp/pinpin-room-lab.apk')))
+    print('GRANT',sh(su('pm grant %%s com.oculus.permission.USE_SCENE'%%P)) or 'ok','(root)' if root else '(no root)')
     sh('am force-stop '+P)
     print('LAUNCH',sh("am broadcast -a com.oculus.vrpowermanager.prox_close >/dev/null; input keyevent KEYCODE_WAKEUP; am start -n %%s/.MainActivity --ez capture %%s"%%(P,'true' if capture else 'false')))
     time.sleep(8)

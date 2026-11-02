@@ -14,7 +14,7 @@ struct MoonlightSource {
     VideoStream* video = nullptr;
     std::thread thread;
     std::atomic<bool> running{false};
-    std::string host, url, appVersion, gfeVersion, stage = "idle", error;
+    std::string host, url, appVersion, gfeVersion, label, stage = "idle", error;
     int width = 2560, height = 1440, fps = 72, bitrate = 60000, codecSupport = 1, rikeyid = 0;
     bool hevc = true;
     uint8_t rikey[16] = {};
@@ -37,7 +37,9 @@ struct MoonlightSource {
         host = field(j, "host"); url = field(j, "rtspSessionUrl"); appVersion = field(j, "appVersion"); gfeVersion = field(j, "gfeVersion");
         width = atoi(field(j, "width").c_str()); height = atoi(field(j, "height").c_str()); fps = atoi(field(j, "fps").c_str());
         bitrate = atoi(field(j, "bitrateKbps").c_str()); codecSupport = atoi(field(j, "serverCodecModeSupport").c_str());
-        hevc = field(j, "hevc") == "true"; rikeyid = atoi(field(j, "rikeyid").c_str());
+        hevc = field(j, "hevc") == "true"; rikeyid = atoi(field(j, "rikeyid").c_str()); label = field(j, "source");
+        for (auto& c : label) c = (char)toupper(c);
+        if (label == "AIR") label = "LAPTOP";
         std::string k = field(j, "rikey");
         for (int i = 0; i < 16 && (size_t)i * 2 + 1 < k.size(); i++) rikey[i] = (uint8_t)strtol(k.substr(i * 2, 2).c_str(), nullptr, 16);
         return !host.empty() && !url.empty() && width > 0;
@@ -70,7 +72,7 @@ struct MoonlightSource {
     static void clLog(const char* fmt, ...) { va_list a; va_start(a, fmt); __android_log_vprint(ANDROID_LOG_INFO, "PinPinMoonlight", fmt, a); va_end(a); }
 
     void start(VideoStream* v) {
-        video = v; self = this; v->source = "moonlight " + host; set(&error, ""); set(&stage, "connecting"); running = true;
+        video = v; self = this; v->source = label.empty() ? "moonlight " + host : label; set(&error, ""); set(&stage, "connecting"); running = true;
         thread = std::thread([this] {
             SERVER_INFORMATION si; LiInitializeServerInformation(&si);
             si.address = host.c_str(); si.serverInfoAppVersion = appVersion.c_str(); si.serverInfoGfeVersion = gfeVersion.c_str();
@@ -100,7 +102,7 @@ struct MoonlightSource {
     }
     std::string json() {
         return "{\"stage\":\"" + get(stage) + "\",\"error\":\"" + get(error) + "\",\"host\":\"" + host + "\",\"mode\":\"" + std::to_string(width) + "x" +
-               std::to_string(height) + "@" + std::to_string(fps) + "\",\"kbps\":" + std::to_string(bitrate) + "}";
+               std::to_string(height) + "@" + std::to_string(fps) + "\",\"kbps\":" + std::to_string(bitrate) + ",\"source\":\"" + label + "\"}";
     }
 };
 MoonlightSource* MoonlightSource::self = nullptr;

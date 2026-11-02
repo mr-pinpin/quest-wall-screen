@@ -23,6 +23,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include "moonlight.h"
+#include "gamestream.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -158,6 +159,11 @@ struct App {
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
     MoonlightSource moonlight;
+    GameStreamLauncher launcher;
+    // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
+    GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
+                               {"LAPTOP", "192.168.2.1", 57984, "server-air.pem", 2560, 1600, 60, 40000}};
+    int hoverButton = -1;
 
     PFN_xrCreatePassthroughFB xrCreatePassthroughFB_ = nullptr;
     PFN_xrCreatePassthroughLayerFB xrCreatePassthroughLayerFB_ = nullptr;
@@ -204,6 +210,8 @@ struct App {
 
     Placement candidate, placed;
     int sizeIndex = 1;
+    // Pointer on the placed panel: hand ray -> stream pixel, pinch = left button (hold to drag), like the TV remote.
+    struct Pointer { bool on = false, pressed = false; float u = 0.5f, v = 0.5f; int sentX = -1, sentY = -1; long moves = 0, clicks = 0; } pointer;
     long aimFrames = 0, hitFrames = 0, pinchEdges = 0; V3 lastAimO{0, 0, 0}, lastAimD{0, 0, 0}; float lastNearest = -1; std::string lastNearestWall;
     long frames = 0, framesSec = 0, fps = 0;
     XrPosef head{{0, 0, 0, 1}, {0, 0, 0}};
@@ -633,7 +641,30 @@ void main(){
                 best = t; hit = &e; hx = x; hy = y;
             }
             lastNearest = nearest < 1e8f ? nearest : -1;
-            if (hit) { hitFrames++;
+            bool onPanel = false;
+            hoverButton = -1;
+            if (hit && placed.active && hit->uuid == placed.wall) {
+                for (int b = 0; b < 2; b++) {
+                    float bx, by; buttonCenter(b, bx, by);
+                    if (std::fabs(hx - bx) < kButtonW / 2 && std::fabs(hy - by) < kButtonH / 2) hoverButton = b;
+                }
+                if (hoverButton >= 0) {
+                    onPanel = true;  // buttons belong to the panel: no placement outline, no pointer
+                    if (pinch[1] && !pinchPrev[1]) { launcher.launch(hosts[hoverButton]); event(std::string("switch to ") + hosts[hoverButton].name); }
+                }
+            }
+            if (hit && placed.active && hit->uuid == placed.wall && hoverButton < 0) {
+                float u = (hx - (placed.x - placed.w / 2)) / placed.w, v = 1.0f - (hy - (placed.y - placed.h / 2)) / placed.h;
+                if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+                    onPanel = true;
+                    if (!pointer.on) { pointer.u = u; pointer.v = v; }
+                    pointer.u += (u - pointer.u) * 0.55f; pointer.v += (v - pointer.v) * 0.55f;  // light smoothing of hand jitter
+                    pointer.on = true;
+                    drivePointer(pinch[1] && !pinchPrev[1], !pinch[1] && pinchPrev[1]);
+                }
+            }
+            if (!onPanel) releasePointer();
+            if (hit && !onPanel) { hitFrames++;
                 candidate.active = true; candidate.wall = hit->uuid; candidate.x = hx; candidate.y = hy;
                 candidate.w = sizes[sizeIndex][0]; candidate.h = sizes[sizeIndex][1];
                 validate(candidate, *hit);
@@ -641,7 +672,61 @@ void main(){
                 if (pinch[1] && !pinchPrev[1] && candidate.valid) { placed = candidate; savePlacement(); event("placed panel on wall " + placed.wall); }
             }
         }
+        if (!(handActive[1] && ray[1].valid)) releasePointer();
         for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
+    }
+
+    static constexpr float kButtonW = 0.30f, kButtonH = 0.085f;
+    void buttonCenter(int b, float& x, float& y) {
+        x = placed.x + (b == 0 ? -0.17f : 0.17f);
+        y = placed.y + placed.h / 2 + 0.075f;
+        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - 0.075f;
+    }
+    // 5x7 pixel font, just the letters the UI needs.
+    static const uint8_t* glyph(char c) {
+        static const uint8_t M[7] = {17, 27, 21, 21, 17, 17, 17}, I[7] = {14, 4, 4, 4, 4, 4, 14}, N[7] = {17, 25, 21, 19, 17, 17, 17},
+            L[7] = {16, 16, 16, 16, 16, 16, 31}, A[7] = {14, 17, 17, 31, 17, 17, 17}, P[7] = {30, 17, 17, 30, 16, 16, 16},
+            T[7] = {31, 4, 4, 4, 4, 4, 4}, O[7] = {14, 17, 17, 17, 17, 17, 14};
+        switch (c) { case 'M': return M; case 'I': return I; case 'N': return N; case 'L': return L; case 'A': return A; case 'P': return P; case 'T': return T; case 'O': return O; }
+        return nullptr;
+    }
+    void text(Batch& b, const Entity& w, float cx, float cy, float z, float px, const char* s, const float* col) {
+        int n = (int)strlen(s); float x0 = cx - (n * 6 - 1) * px / 2, y0 = cy + 3.5f * px;
+        for (int i = 0; i < n; i++) if (auto* g = glyph(s[i])) for (int r = 0; r < 7; r++) for (int c = 0; c < 5; c++) if (g[r] & (16 >> c)) {
+            float x = x0 + (i * 6 + c) * px, y = y0 - (r + 1) * px;
+            b.quad(xform(w.pose, {x, y, z}), xform(w.pose, {x + px, y, z}), xform(w.pose, {x + px, y + px, z}), xform(w.pose, {x, y + px, z}), col);
+        }
+    }
+    void buttons(Batch& b) {
+        auto* w = wallById(placed.wall); if (!w) return;
+        std::string st = launcher.get(), current = video.source;
+        for (int i = 0; i < 2; i++) {
+            float x, y; buttonCenter(i, x, y);
+            bool active = current == hosts[i].name, connecting = launcher.busy && st.find(hosts[i].name) != std::string::npos;
+            const float idle[4] = {0.12f, 0.14f, 0.18f, 0.85f}, on[4] = {0.10f, 0.45f, 0.22f, 0.92f}, wait[4] = {0.55f, 0.40f, 0.08f, 0.92f};
+            const float* fill = connecting ? wait : active ? on : idle;
+            float f2[4] = {fill[0], fill[1], fill[2], fill[3]};
+            if (hoverButton == i) for (int k = 0; k < 3; k++) f2[k] = std::fmin(1.0f, f2[k] + 0.18f);
+            float hw = kButtonW / 2, hh = kButtonH / 2;
+            b.quad(xform(w->pose, {x - hw, y - hh, 0.02f}), xform(w->pose, {x + hw, y - hh, 0.02f}), xform(w->pose, {x + hw, y + hh, 0.02f}), xform(w->pose, {x - hw, y + hh, 0.02f}), f2);
+            const float white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
+            text(b, *w, x, y, 0.025f, 0.007f, hosts[i].name, white);
+        }
+    }
+
+    bool streamInput() { return moonlight.running && moonlight.get(moonlight.stage) == "streaming"; }
+    void drivePointer(bool down, bool up) {
+        int W = moonlight.width, H = moonlight.height;
+        int x = (int)(pointer.u * W + 0.5f), y = (int)(pointer.v * H + 0.5f);
+        if (streamInput() && (x != pointer.sentX || y != pointer.sentY)) {
+            LiSendMousePositionEvent((short)x, (short)y, (short)W, (short)H); pointer.sentX = x; pointer.sentY = y; pointer.moves++;
+        }
+        if (down && !pointer.pressed) { pointer.pressed = true; pointer.clicks++; if (streamInput()) LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT); }
+        if (up && pointer.pressed) releasePointer(false);
+    }
+    void releasePointer(bool leave = true) {
+        if (pointer.pressed) { pointer.pressed = false; if (streamInput()) LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT); }
+        if (leave) pointer.on = false;
     }
 
     void panelQuad(Batch& b, const Placement& p, const Entity& wall, float z, const float* col, bool screen) {
@@ -670,10 +755,20 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); }
+        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); }
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
+        }
+        if (pointer.on && placed.active) if (auto* w = wallById(placed.wall)) {
+            float px = placed.x - placed.w / 2 + pointer.u * placed.w, py = placed.y - placed.h / 2 + (1 - pointer.v) * placed.h;
+            V3 c = xform(w->pose, {px, py, 0.035f}), n = rot(w->pose.orientation, {0, 0, 1}), ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0});
+            const float idle[4] = {1, 1, 1, 0.9f}, down[4] = {1.0f, 0.85f, 0.2f, 1};
+            const float* col = pointer.pressed ? down : idle; float r = pointer.pressed ? 0.008f : 0.012f;
+            for (int i = 0; i < 12; i++) {
+                float a0 = i * 0.5236f, a1 = (i + 1) * 0.5236f;
+                over.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.003f, col);
+            }
         }
         const float handCol[4] = {0.2f, 0.9f, 1.0f, 0.9f}, pinchCol[4] = {1.0f, 0.9f, 0.2f, 1.0f}, rayCol[4] = {1, 1, 1, 0.5f};
         for (int h = 0; h < 2; h++) {
@@ -817,7 +912,9 @@ void main(){
         j << "]},\"aim\":{\"frames\":" << aimFrames << ",\"hitFrames\":" << hitFrames << ",\"pinchEdges\":" << pinchEdges
           << ",\"o\":[" << lastAimO.x << "," << lastAimO.y << "," << lastAimO.z << "],\"d\":[" << lastAimD.x << "," << lastAimD.y << "," << lastAimD.z
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
-        j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json();
+        j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
+          << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
+        j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
@@ -854,6 +951,7 @@ void main(){
         { std::ofstream(gDir + "/events.log", std::ios::trunc); }
         if (!createInstance(env) || !createEgl()) { status(); return; }
         createGl();
+        launcher.dir = gDir;
         video.start();  // Mac desktop relay by default; a freshly pushed Sunshine session switches to the Mini
         if (!createSession()) { lastStatus = {}; status(); return; }
         loadPlacement();
@@ -866,6 +964,7 @@ void main(){
         lastStatus = {}; status();
         event("exiting");
         moonlight.stop();
+        launcher.shutdown();
         video.shutdown();
         if (session) xrDestroySession(session);
         if (instance) xrDestroyInstance(instance);
