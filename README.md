@@ -92,5 +92,14 @@ Hand input follows one rule: the act of clicking must not move the aim.
 5. **Sharper panel**: hand the video to the compositor as its own layer instead of resampling it through
    the eye buffers.
 6. Deferred: **several screens at once** (moonlight-common-c allows one connection per process, so the
-   second screen uses the Mac relay) and **sound** (the headset side is done; the Macs need a virtual
-   audio device and `stream_audio = true` in Sunshine).
+   second screen uses the Mac relay) and **sound from the Mini** (MINI/Atlas Sunshine still has `stream_audio = false`).
+
+## Sound
+
+The laptop's Sunshine (`~/Applications/PinPin Sunshine.app`, conf `~/.local/share/pinpin-sunshine/sunshine.conf`)
+runs with `stream_audio = true` and no `audio_sink`, so it captures through the macOS system audio tap (macOS 14.2+;
+no virtual audio driver). The launch asks for host audio off, so the Mac goes quiet and the sound plays in the headset
+(Opus via libopus into AAudio, 50 ms jitter target). The app's Info.plist must carry `NSAudioCaptureUsageDescription`:
+without it tccd refuses kTCCServiceAudioCapture and the tap delivers pure zeros (check `moonlight.audio.peak` in
+`status.json`). After re-signing the app, grant Screen & System Audio Recording and Accessibility again on the Mac,
+and restart Sunshine. While an audio-capture prompt is pending, Sunshine hangs and exits ("Hang detected").
