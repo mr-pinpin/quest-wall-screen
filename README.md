@@ -52,7 +52,34 @@ Four head-locked dots show passthrough, room model, depth and hands.
 Measured 2026-11-02 on the Mini-hosted PinPin-Quest-Offline Wi-Fi: HEVC 2560x1440 at 57 fps (the app's own rate),
 6 ms RTT, ~25 ms from arrival to the panel (41 ms worst), no drops.
 
+## Input: aim is never disturbed
+
+Hand input follows one rule: the act of clicking must not move the aim.
+
+- **Aim** runs from an estimated shoulder through the index and middle knuckles, joints that stay still
+  while the thumb and fingertips move.
+- **Press** is the finger gun: point, then lower the thumb onto the side of the middle finger. Pinch still
+  works as a fallback.
+- **Rewind and lock**: a press uses the aim from ~0.1 s earlier (before the gesture started) and freezes
+  the pointer. Releasing in place is a clean click; only moving the hand more than 3.5° turns it into a
+  drag or selection.
+- **Smoothing** is adaptive: heavy when the hand is still (precision), light when it moves fast (no lag).
+- **Feedback** (draw, loose, follow): the cursor ring tightens and turns gold as the thumb closes, a solid
+  dot marks the click, and it turns blue only during a real drag.
+- Screens stay put. Move one by holding a press on the bar under it; resize by a corner, or with both hands.
+
 ## Next
 
-Game-grade transport like the TV path (Sunshine → Moonlight: UDP, HEVC, high bitrate, 60–120 fps,
-input), direct LAN instead of the ADB tunnel, Retina capture on the Mac.
+1. **Onboarding calibration.** A guided first run that asks the user to aim and "shoot" at targets
+   (finger gun, pinch, hold, drag) and records labelled joint traces. The labelled set gives per-user
+   thresholds for the thumb press, the lock angle and the smoothing, replacing today's fixed values
+   (see the `thumb*`, `pinchPresses` and `lockBreaks` fields in `status.json`). Onboarding will matter
+   for everyone who uses the platform, so build it as its own reusable stage.
+2. **Settings panel**: big floating buttons (source, sizes, edit lock, sharpness, recenter), summoned
+   by a palm-up gesture.
+3. **Free-standing screens** anchored anywhere in the apartment, not only on walls from the room scan.
+4. **Sharper panel**: hand the video to the compositor as its own layer instead of resampling it through
+   the eye buffers.
+5. Deferred: **several screens at once** (moonlight-common-c allows one connection per process, so the
+   second screen uses the Mac relay) and **sound** (the headset side is done; the Macs need a virtual
+   audio device and `stream_audio = true` in Sunshine).

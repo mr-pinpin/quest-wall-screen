@@ -181,7 +181,7 @@ struct App {
     // pinch kept as a fallback. A press rewinds the ray ~0.1 s (to before the gesture began) and locks it there
     // until the hand moves more than kLockDeg, so a press-release in place is a clean click and only a real
     // movement becomes a drag/selection.
-    static constexpr int kHist = 16, kRewind = 7; static constexpr float kLockDeg = 2.5f;
+    static constexpr int kHist = 16, kRewind = 7; static constexpr float kLockDeg = 3.5f;
     struct HandRay {
         bool valid = false, pinch = false, thumbDown = false, pinchDown = false, locked = false, wasPressed = false;
         V3 o{0, 0, 0}, d{0, 0, 0}, tip{0, 0, 0}, lockO{0, 0, 0}, lockD{0, 0, 0};
@@ -639,7 +639,7 @@ void main(){
                 float u = std::fmin(std::fmax(dot(t - a, ab) / std::fmax(dot(ab, ab), 1e-6f), 0.0f), 1.0f);
                 hr.thumb = len(t - (a + ab * u));
                 hr.thumbMin = std::fmin(hr.thumbMin, hr.thumb); hr.thumbMax = std::fmax(hr.thumbMax, hr.thumb);
-                bool was = hr.thumbDown; hr.thumbDown = was ? hr.thumb < 0.032f : hr.thumb < 0.020f;
+                bool was = hr.thumbDown; hr.thumbDown = was ? hr.thumb < 0.038f : hr.thumb < 0.024f;
                 if (hr.thumbDown && !was) hr.thumbPresses++;
             }
             bool pinchWas = hr.pinch;
@@ -884,12 +884,23 @@ void main(){
         if (pointer.on && placed.active) if (auto* w = wallById(placed.wall)) {
             float px = placed.x - placed.w / 2 + pointer.u * placed.w, py = placed.y - placed.h / 2 + (1 - pointer.v) * placed.h;
             V3 c = xform(w->pose, {px, py, 0.035f}), n = rot(w->pose.orientation, {0, 0, 1}), ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0});
-            const float idle[4] = {1, 1, 1, 0.9f}, down[4] = {1.0f, 0.85f, 0.2f, 1};
-            const float* col = pointer.pressed ? down : idle; float r = pointer.pressed ? 0.008f : 0.012f;
-            for (int i = 0; i < 12; i++) {
-                float a0 = i * 0.5236f, a1 = (i + 1) * 0.5236f;
-                over.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.003f, col);
+            // Draw, loose, follow: the ring tightens and warms as the thumb (or pinch) closes, a solid dot marks the
+            // click, and it turns blue only once the hand really moves (a drag).
+            const HandRay& hr = ray[1];
+            float draw = std::fmax(std::fmin(std::fmax((0.065f - hr.thumb) / (0.065f - 0.024f), 0.0f), 1.0f),
+                                   std::fmin(std::fmax((0.06f - hr.gap) / (0.06f - 0.018f), 0.0f), 1.0f));
+            bool dragging = pointer.pressed && !hr.locked;
+            if (pointer.pressed) draw = 1;
+            const float white[3] = {1, 1, 1}, gold[3] = {1.0f, 0.8f, 0.2f}, blue[3] = {0.3f, 0.75f, 1.0f};
+            float col[4];
+            for (int k = 0; k < 3; k++) col[k] = dragging ? blue[k] : white[k] + (gold[k] - white[k]) * draw;
+            col[3] = 0.75f + 0.25f * draw;
+            float r = 0.018f - 0.010f * draw;
+            for (int i = 0; i < 16; i++) {
+                float a0 = i * 0.3927f, a1 = (i + 1) * 0.3927f;
+                over.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.0035f, col);
             }
+            if (pointer.pressed) { float d = 0.004f; over.quad(c - ax * d - ay * d, c + ax * d - ay * d, c + ax * d + ay * d, c - ax * d + ay * d, col); }
         }
         const float rayCol[4] = {1, 1, 1, 0.35f};
         for (int h = 0; h < 2; h++) {
