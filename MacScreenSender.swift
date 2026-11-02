@@ -33,6 +33,7 @@ final class ScreenSender: NSObject, NSApplicationDelegate, SCStreamOutput, SCStr
     private let captureQueue=DispatchQueue(label:"com.pinpin.wall-screen.capture")
     private let stateLock=NSLock()
     private var forceKey=true
+    private var frameRate=60
     private var firstPTS:Double?
     private var codecBytes:[UInt8]=[0x42,0,0x28]
     private var encoder:VTCompressionSession?
@@ -41,6 +42,19 @@ final class ScreenSender: NSObject, NSApplicationDelegate, SCStreamOutput, SCStr
     private var enabled=true
     private var clientCount=0
     private var width=1920, height=1080
+    // Tunables live in ~/.local/share/pinpin-wall-screen/sender.json so quality changes need no rebuild
+    // (a rebuild changes the ad-hoc signature and macOS asks for Screen Recording again).
+    private struct Settings { var maxWidth=2560; var fps=60; var bitrate=25_000_000; var profile="high"; var lowLatency=true }
+    private func settings()->Settings {
+        var s=Settings()
+        let url=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/pinpin-wall-screen/sender.json")
+        if let data=try? Data(contentsOf:url),let j=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] {
+            if let v=j["maxWidth"] as? Int {s.maxWidth=v}; if let v=j["fps"] as? Int {s.fps=max(1,v)}
+            if let v=j["bitrate"] as? Int {s.bitrate=v}; if let v=j["profile"] as? String {s.profile=v}
+            if let v=j["lowLatency"] as? Bool {s.lowLatency=v}
+        }
+        return s
+    }
     private var statusItem:NSStatusItem!
     private let statusLine=NSMenuItem(title:"Starting…",action:nil,keyEquivalent:"")
 
@@ -139,20 +153,31 @@ final class ScreenSender: NSObject, NSApplicationDelegate, SCStreamOutput, SCStr
                 guard let display=content.displays.first(where:{$0.displayID==CGMainDisplayID()}) ?? content.displays.first else {
                     throw NSError(domain:"WallScreen",code:1,userInfo:[NSLocalizedDescriptionKey:"No display available"])
                 }
-                width=min(1920,display.width)/2*2;height=max(2,Int(Double(display.height)*Double(width)/Double(display.width))/2*2)
+                let s=self.settings()
+                let pixelWidth=CGDisplayCopyDisplayMode(display.displayID)?.pixelWidth ?? display.width
+                width=min(s.maxWidth,pixelWidth)/2*2;height=max(2,Int(Double(display.height)*Double(width)/Double(display.width))/2*2)
                 var compression:VTCompressionSession?
-                let result=VTCompressionSessionCreate(allocator:kCFAllocatorDefault,width:Int32(width),height:Int32(height),codecType:kCMVideoCodecType_H264,encoderSpecification:[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder:true] as CFDictionary,imageBufferAttributes:nil,compressedDataAllocator:nil,outputCallback:compressionOutput,refcon:Unmanaged.passUnretained(self).toOpaque(),compressionSessionOut:&compression)
+                var spec:[CFString:Any]=[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder:true]
+                if s.lowLatency {spec[kVTVideoEncoderSpecification_EnableLowLatencyRateControl]=true}
+                var result=VTCompressionSessionCreate(allocator:kCFAllocatorDefault,width:Int32(width),height:Int32(height),codecType:kCMVideoCodecType_H264,encoderSpecification:spec as CFDictionary,imageBufferAttributes:nil,compressedDataAllocator:nil,outputCallback:compressionOutput,refcon:Unmanaged.passUnretained(self).toOpaque(),compressionSessionOut:&compression)
+                if result != noErr {
+                    spec.removeValue(forKey:kVTVideoEncoderSpecification_EnableLowLatencyRateControl)
+                    result=VTCompressionSessionCreate(allocator:kCFAllocatorDefault,width:Int32(width),height:Int32(height),codecType:kCMVideoCodecType_H264,encoderSpecification:spec as CFDictionary,imageBufferAttributes:nil,compressedDataAllocator:nil,outputCallback:compressionOutput,refcon:Unmanaged.passUnretained(self).toOpaque(),compressionSessionOut:&compression)
+                }
                 guard result==noErr,let compression=compression else {throw NSError(domain:NSOSStatusErrorDomain,code:Int(result))}
                 encoder=compression
                 VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_RealTime,value:kCFBooleanTrue)
                 VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_AllowFrameReordering,value:kCFBooleanFalse)
-                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_ProfileLevel,value:kVTProfileLevel_H264_Baseline_AutoLevel)
-                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_AverageBitRate,value:6_000_000 as CFNumber)
-                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_ExpectedFrameRate,value:30 as CFNumber)
-                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_MaxKeyFrameInterval,value:30 as CFNumber)
+                let profile = s.profile=="baseline" ? kVTProfileLevel_H264_Baseline_AutoLevel : s.profile=="main" ? kVTProfileLevel_H264_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel
+                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_ProfileLevel,value:profile)
+                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_AverageBitRate,value:s.bitrate as CFNumber)
+                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_DataRateLimits,value:[s.bitrate*3/16,1] as CFArray)
+                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_ExpectedFrameRate,value:s.fps as CFNumber)
+                VTSessionSetProperty(compression,key:kVTCompressionPropertyKey_MaxKeyFrameInterval,value:(s.fps*2) as CFNumber)
+                self.frameRate=s.fps
                 VTCompressionSessionPrepareToEncodeFrames(compression)
                 let configuration=SCStreamConfiguration();configuration.width=width;configuration.height=height
-                configuration.minimumFrameInterval=CMTime(value:1,timescale:30);configuration.queueDepth=3
+                configuration.minimumFrameInterval=CMTime(value:1,timescale:CMTimeScale(s.fps));configuration.queueDepth=3
                 configuration.pixelFormat=kCVPixelFormatType_32BGRA;configuration.showsCursor=true;configuration.capturesAudio=false
                 let filter=SCContentFilter(display:display,excludingWindows:[])
                 let capture=SCStream(filter:filter,configuration:configuration,delegate:self)
@@ -171,7 +196,7 @@ final class ScreenSender: NSObject, NSApplicationDelegate, SCStreamOutput, SCStr
         guard type == .screen,CMSampleBufferDataIsReady(sample),let pixel=CMSampleBufferGetImageBuffer(sample),let compression=encoder else{return}
         stateLock.lock();let key=forceKey;forceKey=false;stateLock.unlock()
         let properties:CFDictionary?=key ? [kVTEncodeFrameOptionKey_ForceKeyFrame:true] as CFDictionary:nil
-        VTCompressionSessionEncodeFrame(compression,imageBuffer:pixel,presentationTimeStamp:CMSampleBufferGetPresentationTimeStamp(sample),duration:CMTime(value:1,timescale:30),frameProperties:properties,sourceFrameRefcon:nil,infoFlagsOut:nil)
+        VTCompressionSessionEncodeFrame(compression,imageBuffer:pixel,presentationTimeStamp:CMSampleBufferGetPresentationTimeStamp(sample),duration:CMTime(value:1,timescale:CMTimeScale(frameRate)),frameProperties:properties,sourceFrameRefcon:nil,infoFlagsOut:nil)
     }
     fileprivate func encoded(_ sample:CMSampleBuffer){
         guard let block=CMSampleBufferGetDataBuffer(sample),let format=CMSampleBufferGetFormatDescription(sample) else{return}

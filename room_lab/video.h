@@ -26,6 +26,10 @@
 
 struct VideoStream {
     int port = 8087;
+    bool relay = true;
+    std::atomic<bool> relayPaused{false};  // set while another source (Moonlight) feeds submit()
+    std::string source = "mac relay";
+    double hostLatencyMs = 0, rttMs = 0;
     std::atomic<bool> stop{false};
     std::thread net;
 
@@ -39,6 +43,7 @@ struct VideoStream {
     AMediaCodec* codec = nullptr;
     AImageReader* reader = nullptr;
     int codecW = 0, codecH = 0;
+    bool codecHevc = false;
     bool needKey = true;
 
     // render-thread state
@@ -68,7 +73,7 @@ struct VideoStream {
         glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         createBlit();
-        net = std::thread([this] { run(); });
+        if (relay) net = std::thread([this] { run(); });
     }
     void shutdown() {
         stop = true;
@@ -100,13 +105,14 @@ struct VideoStream {
     }
     void run() {
         while (!stop) {
+            if (relayPaused) { sleepCheck(200); continue; }
             setState("connecting");
             int fd = connectRelay();
             if (fd < 0) { setState("relay unreachable"); sleepCheck(1000); continue; }
             setState("connected");
             needKey = true;
             std::vector<uint8_t> buf;
-            while (!stop) {
+            while (!stop && !relayPaused) {
                 uint8_t h[2];
                 if (!readExact(fd, h, 2)) break;
                 uint64_t n = h[1] & 0x7f;
@@ -134,23 +140,29 @@ struct VideoStream {
         bool key = p[0] & 1;
         int64_t pts = 0; for (int i = 0; i < 8; i++) pts = (pts << 8) | p[1 + i];
         int w = (p[9] << 8) | p[10], h = (p[11] << 8) | p[12];
-        const uint8_t* data = p + 16; size_t len = n - 16;
+        { std::lock_guard<std::mutex> g(lock); message.clear(); }
+        submit(p + 16, n - 16, key, pts, w, h, false);
+    }
+    // Feed one Annex B access unit (any source). Returns false when the caller should request a keyframe.
+    bool submit(const uint8_t* data, size_t len, bool key, int64_t pts, int w, int h, bool hevc) {
         double t = now();
         {
             std::lock_guard<std::mutex> g(lock);
-            packets++; bytes += (long)n; if (key) keyframes++; width = w; height = h; message.clear();
-            arrivals.emplace_back(pts, t); while (arrivals.size() > 120) arrivals.pop_front();
+            packets++; bytes += (long)len; if (key) keyframes++; width = w; height = h;
+            arrivals.emplace_back(pts, t); while (arrivals.size() > 240) arrivals.pop_front();
         }
-        if (key && (!codec || w != codecW || h != codecH)) configure(w, h, data, len);
-        if (!codec) return;
-        if (needKey && !key) { std::lock_guard<std::mutex> g(lock); dropped++; return; }
+        if (key && (!codec || w != codecW || h != codecH || hevc != codecHevc)) configure(w, h, data, len, hevc);
+        if (!codec) return false;
+        if (needKey && !key) { std::lock_guard<std::mutex> g(lock); dropped++; return false; }
         ssize_t idx = AMediaCodec_dequeueInputBuffer(codec, 20000);
-        if (idx < 0) { needKey = true; std::lock_guard<std::mutex> g(lock); dropped++; return; }  // decoder backed up: resync on next key
+        if (idx < 0) { needKey = true; std::lock_guard<std::mutex> g(lock); dropped++; return false; }  // decoder backed up: resync on next key
         size_t cap = 0; uint8_t* in = AMediaCodec_getInputBuffer(codec, (size_t)idx, &cap);
-        if (!in || cap < len) { AMediaCodec_queueInputBuffer(codec, (size_t)idx, 0, 0, pts, 0); return; }
+        if (!in || cap < len) { AMediaCodec_queueInputBuffer(codec, (size_t)idx, 0, 0, pts, 0); return false; }
         memcpy(in, data, len);
         AMediaCodec_queueInputBuffer(codec, (size_t)idx, 0, len, (uint64_t)pts, 0);
         if (key) needKey = false;
+        drain();
+        return true;
     }
     void drain() {
         if (!codec) return;
@@ -162,27 +174,33 @@ struct VideoStream {
             else break;
         }
     }
-    static void nal(const uint8_t* d, size_t n, int type, std::vector<uint8_t>& out) {
+    // Append every NAL (with its 4-byte start code) whose type is in `types` to `out`.
+    static void nals(const uint8_t* d, size_t n, bool hevc, std::initializer_list<int> types, std::vector<uint8_t>& out) {
         for (size_t i = 0; i + 4 < n; i++) {
-            if (d[i] || d[i + 1] || d[i + 2] != 0 || d[i + 3] != 1 || (d[i + 4] & 0x1f) != type) continue;
+            if (d[i] || d[i + 1] || d[i + 2] != 0 || d[i + 3] != 1) continue;
+            int type = hevc ? (d[i + 4] >> 1) & 0x3f : d[i + 4] & 0x1f;
             size_t j = i + 4; while (j + 3 < n && !(d[j] == 0 && d[j + 1] == 0 && d[j + 2] == 0 && d[j + 3] == 1)) j++;
             if (j + 3 >= n) j = n;
-            out.assign(d + i, d + j); return;
+            for (int k : types) if (k == type) { out.insert(out.end(), d + i, d + j); break; }
+            i = j - 1;
         }
     }
     void releaseCodec() {
         if (codec) { AMediaCodec_stop(codec); AMediaCodec_delete(codec); codec = nullptr; }
         // reader is released by the render thread once its last image is gone
     }
-    void configure(int w, int h, const uint8_t* data, size_t len) {
+    void configure(int w, int h, const uint8_t* data, size_t len, bool hevc) {
         releaseCodec();
-        std::vector<uint8_t> sps, pps; nal(data, len, 7, sps); nal(data, len, 8, pps);
+        std::vector<uint8_t> sps, pps;  // HEVC: VPS+SPS+PPS all go in csd-0
+        if (hevc) nals(data, len, true, {32, 33, 34}, sps);
+        else { nals(data, len, false, {7}, sps); nals(data, len, false, {8}, pps); }
+        const char* mime = hevc ? "video/hevc" : "video/avc";
         AImageReader* r = nullptr;
         if (AImageReader_newWithUsage(w, h, AIMAGE_FORMAT_PRIVATE, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, 4, &r) != AMEDIA_OK) { setState("image reader failed"); return; }
         ANativeWindow* window = nullptr; AImageReader_getWindow(r, &window);
-        AMediaCodec* c = AMediaCodec_createDecoderByType("video/avc");
+        AMediaCodec* c = AMediaCodec_createDecoderByType(mime);
         AMediaFormat* f = AMediaFormat_new();
-        AMediaFormat_setString(f, AMEDIAFORMAT_KEY_MIME, "video/avc");
+        AMediaFormat_setString(f, AMEDIAFORMAT_KEY_MIME, mime);
         AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_WIDTH, w); AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_HEIGHT, h);
         AMediaFormat_setInt32(f, "low-latency", 1);
         AMediaFormat_setInt32(f, "vendor.qti-ext-dec-low-latency.enable", 1);
@@ -195,7 +213,7 @@ struct VideoStream {
         if (s != AMEDIA_OK || AMediaCodec_start(c) != AMEDIA_OK) { if (c) AMediaCodec_delete(c); AImageReader_delete(r); setState("decoder failed"); return; }
         std::lock_guard<std::mutex> g(lock);
         pendingReaders.push_back(r);
-        codec = c; codecW = w; codecH = h; needKey = true; state = "decoding";
+        codec = c; codecW = w; codecH = h; codecHevc = hevc; needKey = true; state = "decoding";
     }
     std::vector<AImageReader*> pendingReaders;  // newest last; render thread switches to it
 
@@ -289,8 +307,8 @@ void main(){ o=vec4(pow(texture(uFrame,vUv).rgb,vec3(2.2)),1.0); })";
     std::string json() {
         std::lock_guard<std::mutex> g(lock);
         char b[512];
-        snprintf(b, sizeof b, "{\"state\":\"%s\",\"size\":[%d,%d],\"packets\":%ld,\"keyframes\":%ld,\"decoded\":%ld,\"displayed\":%ld,\"dropped\":%ld,\"bytes\":%ld,\"reconnects\":%ld,\"latencyMs\":%.1f,\"latencyMaxMs\":%.1f,\"message\":\"",
-                 state.c_str(), width, height, packets, keyframes, decoded, displayed, dropped, bytes, reconnects, latencyMs, latencyMaxMs);
+        snprintf(b, sizeof b, "{\"source\":\"%s\",\"hostMs\":%.1f,\"rttMs\":%.1f,\"hevc\":%d,\"state\":\"%s\",\"size\":[%d,%d],\"packets\":%ld,\"keyframes\":%ld,\"decoded\":%ld,\"displayed\":%ld,\"dropped\":%ld,\"bytes\":%ld,\"reconnects\":%ld,\"latencyMs\":%.1f,\"latencyMaxMs\":%.1f,\"message\":\"",
+                 source.c_str(), hostLatencyMs, rttMs, codecHevc ? 1 : 0, state.c_str(), width, height, packets, keyframes, decoded, displayed, dropped, bytes, reconnects, latencyMs, latencyMaxMs);
         std::string s = b;
         for (char c : message) if (c != '"' && c != '\\' && (unsigned char)c >= 0x20) s += c;
         return s + "\"}";

@@ -6,6 +6,9 @@ import pathlib
 import subprocess
 import urllib.request
 import zipfile
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / 'third_party'))
+import build_moonlight
 
 SRC=pathlib.Path(__file__).resolve().parent
 URL='https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.41/openxr_loader_for_android-1.1.41.aar'
@@ -24,11 +27,12 @@ def main():
     sdk=out/'sdk';assets=out/'assets';assets.mkdir(exist_ok=True)
     with zipfile.ZipFile(aar) as z:
         z.extractall(sdk);(assets/'OpenXR-LICENSE.txt').write_bytes(z.read('META-INF/LICENSE'))
+    ml_out=out/'moonlight';ml_src,_mb=build_moonlight.build(args.ndk,out/'moonlight-cache',ml_out)
     tool=args.ndk/'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++'
     library=sdk/'prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so'
     def run(values):subprocess.run([str(v) for v in values],check=True)
     run([tool,'-shared','-fPIC','-O2','-std=c++17','-Wall','-Wno-missing-braces','-static-libstdc++','-I'+str(sdk/'prefab/modules/headers/include'),
-         SRC/'room_lab.cpp',library,'-lEGL','-lGLESv3','-llog','-landroid','-lmediandk','-lnativewindow','-Wl,-soname,libpinpin_room_lab.so','-o',out/'libpinpin_room_lab.so'])
+         '-I'+str(ml_src/'src'),SRC/'room_lab.cpp',ml_out/'libmoonlight.a',ml_out/'libmbedcrypto.a',library,'-lEGL','-lGLESv3','-llog','-landroid','-lmediandk','-lnativewindow','-Wl,-soname,libpinpin_room_lab.so','-o',out/'libpinpin_room_lab.so'])
     classes=out/'classes';classes.mkdir(exist_ok=True)
     android='/usr/lib/android-sdk/platforms/android-23/android.jar'
     run(['javac','-source','8','-target','8','-classpath',android,'-d',classes,SRC/'src/com/pinpin/wallscreen/roomlab/MainActivity.java'])

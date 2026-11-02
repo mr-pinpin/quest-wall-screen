@@ -21,7 +21,8 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "video.h"
+#include <sys/stat.h>
+#include "moonlight.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -156,6 +157,7 @@ struct App {
     GLuint program = 0, vao = 0, vbo = 0;
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
+    MoonlightSource moonlight;
 
     PFN_xrCreatePassthroughFB xrCreatePassthroughFB_ = nullptr;
     PFN_xrCreatePassthroughLayerFB xrCreatePassthroughLayerFB_ = nullptr;
@@ -604,7 +606,10 @@ void main(){
 
     void updatePlacement() {
         candidate.active = false;
-        const float sizes[3][2] = {{1.0f, 0.625f}, {1.44f, 0.9f}, {2.0f, 1.25f}};
+        float aspect = 0.625f;
+        { std::lock_guard<std::mutex> g(video.lock); if (video.width > 0 && video.height > 0) aspect = (float)video.height / (float)video.width; }
+        const float sizes[3][2] = {{1.0f, 1.0f * aspect}, {1.44f, 1.44f * aspect}, {2.0f, 2.0f * aspect}};
+        if (placed.active && std::fabs(placed.h - placed.w * aspect) > 0.005f) { placed.h = placed.w * aspect; if (auto* w = wallById(placed.wall)) validate(placed, *w); }
         bool pinch[2];
         for (int h = 0; h < 2; h++) pinch[h] = handActive[h] && ray[h].pinch;
         if (pinch[0] && !pinchPrev[0]) {
@@ -812,7 +817,7 @@ void main(){
         j << "]},\"aim\":{\"frames\":" << aimFrames << ",\"hitFrames\":" << hitFrames << ",\"pinchEdges\":" << pinchEdges
           << ",\"o\":[" << lastAimO.x << "," << lastAimO.y << "," << lastAimO.z << "],\"d\":[" << lastAimD.x << "," << lastAimD.y << "," << lastAimD.z
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
-        j << ",\"video\":" << video.json();
+        j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json();
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
@@ -822,20 +827,45 @@ void main(){
         rename(tmp.c_str(), (gDir + "/status.json").c_str());
     }
 
+    // files/moonlight/session.json is replaced by moonlight_host.py launch; Sunshine only holds a launched
+    // session for a few seconds, so connect as soon as a new one appears. When the stream ends, the Mac relay resumes.
+    time_t sessionMtime = 0; long watchTick = 0; bool moonlightActive = false;
+    void watchSession() {
+        if (watchTick++ % 10) return;
+        struct stat st{};
+        std::string path = gDir + "/moonlight/session.json";
+        if (stat(path.c_str(), &st) == 0 && st.st_mtime != sessionMtime) {
+            bool first = sessionMtime == 0; sessionMtime = st.st_mtime;
+            if (!first || time(nullptr) - st.st_mtime < 20) {
+                moonlight.stop();
+                if (moonlight.load(gDir)) {
+                    video.relayPaused = true; moonlight.start(&video); moonlightActive = true;
+                    event("moonlight session " + moonlight.host + " " + std::to_string(moonlight.width) + "x" + std::to_string(moonlight.height));
+                }
+            }
+        }
+        if (moonlightActive && !moonlight.running) {
+            moonlightActive = false; moonlight.stop(); video.relayPaused = false; video.source = "mac relay";
+            event("moonlight ended: " + moonlight.get(moonlight.error));
+        }
+    }
+
     void run(JNIEnv* env) {
         { std::ofstream(gDir + "/events.log", std::ios::trunc); }
         if (!createInstance(env) || !createEgl()) { status(); return; }
         createGl();
-        video.start();
+        video.start();  // Mac desktop relay by default; a freshly pushed Sunshine session switches to the Mini
         if (!createSession()) { lastStatus = {}; status(); return; }
         loadPlacement();
         while (!gQuit) {
+            watchSession();
             pollEvents();
             if (running) frame(); else std::this_thread::sleep_for(std::chrono::milliseconds(10));
             status();
         }
         lastStatus = {}; status();
         event("exiting");
+        moonlight.stop();
         video.shutdown();
         if (session) xrDestroySession(session);
         if (instance) xrDestroyInstance(instance);
