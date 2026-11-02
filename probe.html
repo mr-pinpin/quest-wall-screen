@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wall screen setup</title>
+<style>body{font:22px system-ui;background:#142021;color:#edf3ee;max-width:850px;margin:60px auto;padding:24px}button{font:inherit;padding:18px 28px;border:0;border-radius:12px;background:#b4dfbb;color:#142021}pre{white-space:pre-wrap;font-size:17px;line-height:1.5}</style>
+<h1>Wall screen setup</h1>
+<p>Check whether this headset can find the walls in your room.</p>
+<button id="check">Check room support</button><pre id="status">Checking browser…</pre>
+<script>
+const status=document.querySelector('#status');
+const report={userAgent:navigator.userAgent,secureContext:isSecureContext,webxr:!!navigator.xr,videoDecoder:!!window.VideoDecoder};
+async function send(){status.textContent=JSON.stringify(report,null,2);await fetch('/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(report)}).catch(()=>{});}
+async function setup(){
+  if(navigator.xr){report.immersiveAR=await navigator.xr.isSessionSupported('immersive-ar');report.immersiveVR=await navigator.xr.isSessionSupported('immersive-vr');}
+  if(window.VideoDecoder){try{report.h264=(await VideoDecoder.isConfigSupported({codec:'avc1.42E01E',codedWidth:1920,codedHeight:1080,hardwareAcceleration:'prefer-hardware',optimizeForLatency:true})).supported;}catch(e){report.decoderError=String(e);}}
+  await send();
+}
+document.querySelector('#check').onclick=async()=>{
+  try{
+    const session=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['local-floor'],optionalFeatures:['plane-detection','anchors','hit-test','hand-tracking']});
+    report.sessionStarted=true;report.enabledFeatures=session.enabledFeatures?Array.from(session.enabledFeatures):null;
+    const canvas=document.createElement('canvas'),gl=canvas.getContext('webgl',{xrCompatible:true,alpha:true});
+    await gl.makeXRCompatible();session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl)});
+    await session.requestReferenceSpace('local-floor');
+    let last=0;
+    function frame(t,f){
+      session.requestAnimationFrame(frame);gl.bindFramebuffer(gl.FRAMEBUFFER,session.renderState.baseLayer.framebuffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+      if(t-last>1000){last=t;report.planeAPI='detectedPlanes' in f;report.planes=Array.from(f.detectedPlanes||[]).map(p=>({orientation:p.orientation,semanticLabel:p.semanticLabel||null,vertices:p.polygon.length}));report.timestamp=Date.now();send();}
+    }
+    session.addEventListener('end',()=>{report.sessionEnded=true;send();});session.requestAnimationFrame(frame);await send();
+  }catch(e){report.sessionError=String(e);await send();}
+};setup();
+</script></html>

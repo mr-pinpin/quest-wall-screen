@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wall Screen</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#112322;color:#edf3e9;font:20px system-ui}main{max-width:1000px;margin:auto;padding:46px 28px}header{display:flex;align-items:center;gap:16px;margin-bottom:24px}h1{margin:0;font-size:38px}small{color:#b4c7be}button{font:inherit;border:0;border-radius:12px;padding:17px 25px;background:#c4e7b6;color:#17332b;cursor:pointer}button:disabled{opacity:.4}#preview{width:100%;aspect-ratio:16/10;background:#071313;border:1px solid #3d5c51;border-radius:16px}p{line-height:1.6}#message{min-height:32px;color:#d4e8d2}.actions{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+</style>
+<main><header><h1>Wall Screen</h1><small>Your Mac, in your room</small></header>
+<canvas id="preview"></canvas><p id="message">Connecting to your Mac…</p>
+<div class="actions"><button id="enter">Place on a wall</button><button id="move">Choose another wall</button></div>
+<p>With room walls mapped, point at a wall and select it. Otherwise, touch the left and right edges of your chosen screen position with a tracked hand or controller and select each point.</p>
+</main><script type="module" src="/viewer.js"></script></html>

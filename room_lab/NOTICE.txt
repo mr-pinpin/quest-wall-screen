@@ -1,0 +1,8 @@
+This room lab's own Java/C++ wrapper is project-owned functional software.
+It is built against Khronos OpenXR loader 1.1.41, under Apache License 2.0.
+The unmodified upstream license is included in the generated APK assets.
+The SDK and binary loader are downloaded to an external build cache, not vendored
+or relicensed by this repository. The builder pins the Maven artifact's SHA-256.
+
+Upstream: https://github.com/KhronosGroup/OpenXR-SDK
+Artifact: org.khronos.openxr:openxr_loader_for_android:1.1.41

@@ -1,0 +1,35 @@
+{
+  "goal": "Native Quest application for a wireless Mac desktop attached to a chosen physical wall",
+  "sourceMac": "originating MacBook Air",
+  "requirements": {
+    "nativeApplication": true,
+    "passthrough": true,
+    "headTracking": true,
+    "handTrackingAndGestures": true,
+    "primarySelection": "headset volume button; exact rocker direction not yet established",
+    "candidatePreview": "dashed outlines aligned with mapped flat surfaces",
+    "placement": "fit the whole panel within a valid flat area; reject obstructed positions",
+    "occlusion": "real foreground objects must occlude virtual UI",
+    "wallAnchorAndResize": true,
+    "transportPreference": "reuse the existing Sunshine/Moonlight television technology",
+    "microphoneLater": "headset microphone with held selection key, routed to Mac dictation/Wispr Flow"
+  },
+  "validated": {
+    "browserPrototype": "live Mac desktop confirmed by user; temporary proof, not the final application",
+    "capture": "ScreenCaptureKit + VideoToolbox H264, 1440x900 avc1.420028",
+    "prototypeTransport": "authenticated TLS Air-to-Mini; WebSocket through wireless ADB reverse to Quest browser",
+    "latency": "user reports approximately 5–10 seconds; unacceptable for typing; not yet isolated or corrected",
+    "webxr": "immersive-ar, local-floor, hand-tracking, anchors and plane-detection enabled; no planes returned",
+    "nativeRuntime": "properly declared manifest exposes passthrough, spatial entities/query/storage, scene/capture, environmental depth, hand tracking/aim and local-floor",
+    "nativeDepthFrames": false,
+    "nativeSceneGeometry": false,
+    "nativeViewer": false
+  },
+  "constraints": {
+    "firmware": "49829370055000510; do not update",
+    "preserveWorkingRootAutomation": true,
+    "preserveExistingTelevisionStream": true,
+    "keepPrivateKeysAndRoomReportsOutsideGit": true,
+    "noHeadsetRequiredDuringBuild": "ask user to wear headset only for specific spatial/input/visual tests"
+  }
+}
