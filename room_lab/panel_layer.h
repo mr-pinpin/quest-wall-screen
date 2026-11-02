@@ -25,7 +25,12 @@ struct PanelLayer {
     XrSwapchain chain = XR_NULL_HANDLE;
     std::vector<GLuint> images;
     GLuint fbo = 0;
-    int w = 0, h = 0, levels = 1;
+    int w = 0, h = 0, levels = 1;   // swapchain size: the panel image plus a transparent margin
+    int contentW = 0, contentH = 0;
+    // Transparent margin around the panel image: the compositor cuts a layer's outer edge hard, which
+    // crawls as a flickering dashed line with head motion. With the margin and source-alpha blending the
+    // edge fades over a filtered pixel instead (still >= 1 px at mip level 4).
+    static constexpr int kPad = 16;
     long version = -1;          // VideoStream::mipVersion last copied
     bool hasImage = false;      // at least one released image to show
     long updates = 0;
@@ -98,7 +103,8 @@ void main(){
     // flipped to OpenXR's bottom-up image rows, and build its mip chain. Only when a new frame arrived.
     void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion) {
         if (!srcFbo || width <= 0 || height <= 0 || (mipVersion == version && mipBuilt == mipQuality)) return;
-        if (!ensure(session, width, height)) return;
+        if (!ensure(session, width + 2 * kPad, height + 2 * kPad)) return;
+        contentW = width; contentH = height;
         uint32_t idx = 0;
         XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
         if (XR_FAILED(xrAcquireSwapchainImage(chain, &ai, &idx))) return;
@@ -106,7 +112,8 @@ void main(){
         glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, images[idx], 0);
-        glBlitFramebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glViewport(0, 0, w, h); glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);  // the margin stays transparent
+        glBlitFramebuffer(0, 0, width, height, kPad, kPad + height, kPad + width, kPad, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         if (mipQuality) buildMips(images[idx]);
         else { glBindTexture(GL_TEXTURE_2D, images[idx]); glGenerateMipmap(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, 0); }
@@ -126,14 +133,18 @@ void main(){
             next = &settings;
         }
         XrSwapchainSubImage sub{}; sub.swapchain = chain; sub.imageRect = {{0, 0}, {w, h}}; sub.imageArrayIndex = 0;
+        // Grow the layer by the margin so the panel content keeps its physical size.
+        float lw = contentW > 0 ? width * w / contentW : width, lh = contentH > 0 ? height * h / contentH : height;
         if (curve && cylinder && radius > 0.1f) {
             cyl = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
             cyl.next = next; cyl.space = space; cyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH; cyl.subImage = sub; cyl.pose = axisPose;
-            cyl.radius = radius; cyl.centralAngle = width / radius; cyl.aspectRatio = width / height;
+            cyl.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            cyl.radius = radius; cyl.centralAngle = lw / radius; cyl.aspectRatio = lw / lh;
             return reinterpret_cast<XrCompositionLayerBaseHeader*>(&cyl);
         }
         quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-        quad.next = next; quad.space = space; quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH; quad.pose = flatPose; quad.size = {width, height};
+        quad.next = next; quad.space = space; quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH; quad.pose = flatPose; quad.size = {lw, lh};
+        quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
         quad.subImage = sub;
         return reinterpret_cast<XrCompositionLayerBaseHeader*>(&quad);
     }
