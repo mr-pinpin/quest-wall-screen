@@ -16,7 +16,7 @@ import VideoToolbox
 func log(_ s: String) { FileHandle.standardError.write(("pinpin-atlas: " + s + "\n").data(using: .utf8)!) }
 
 struct Options {
-    var port: UInt16 = 57720, fps = 30, bitrate = 40_000_000, cellW = 1920, cellH = 1200, maxW = 3840, maxH = 2160
+    var port: UInt16 = 57720, fps = 60, bitrate = 40_000_000, cellW = 1920, cellH = 1200, maxW = 3840, maxH = 2160
     var url = "http://127.0.0.1:57710/displays", test = ""
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -81,7 +81,8 @@ final class Atlas {
     var layoutKey = "", layoutJSON = ""
     var encoder: VTCompressionSession?
     var peers: [UUID: Peer] = [:]
-    var forceKey = true, codecBytes: [UInt8] = [0x64, 0, 0x33], frame: Int64 = 0, lastEncode: UInt64 = 0
+    var forceKey = true, codecBytes: [UInt8] = [0x64, 0, 0x33], frame: Int64 = 0
+    var lastBuffer: CVPixelBuffer?
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
     init(_ o: Options) { self.o = o }
 
@@ -126,7 +127,7 @@ final class Atlas {
         lock.withLock { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4); self.cells = cells; dirty = true }
         let cj = cells.map { "{\"screen\":\($0.entry.screen),\"x\":\($0.x),\"y\":\($0.y),\"w\":\($0.w),\"h\":\($0.h)}" }.joined(separator: ",")
         layoutJSON = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
-        work.sync { makeEncoder() }
+        work.sync { lastBuffer = nil; makeEncoder() }
         guard let content = try? await SCShareableContent.current else { log("no shareable content"); layoutKey = ""; return }
         for c in cells {
             guard let d = content.displays.first(where: { $0.displayID == c.entry.display }) else { log("display \(c.entry.display) not found"); continue }
@@ -159,28 +160,30 @@ final class Atlas {
         VTCompressionSessionPrepareToEncodeFrames(e)
         encoder = e
     }
+    // Constant frame rate: hardware decoders release a frame only when the next one arrives, so sending only on
+    // change made a still screen's updates wait for the next change (~230 ms measured). Unchanged frames re-encode
+    // the previous buffer (no copy) and cost almost nothing as skip-coded P-frames.
     func tick() {
         guard let e = encoder, !peers.isEmpty, let pool = VTCompressionSessionGetPixelBufferPool(e) else { return }
         lock.lock(); let changed = dirty; dirty = false; lock.unlock()
-        let key = forceKey
-        // A still display still gets a frame every 200 ms: decoders hold the first frame until the next arrives.
-        let now = DispatchTime.now().uptimeNanoseconds
-        if !changed && !key && now - lastEncode < 200_000_000 { return }
-        lastEncode = now
-        forceKey = false
-        var out: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let pb = out else { return }
-        CVPixelBufferLockBaseAddress(pb, [])
-        if let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self) {
-            let stride = CVPixelBufferGetBytesPerRow(pb)
-            lock.lock()
-            pixels.withUnsafeBufferPointer { src in for y in 0..<H { memcpy(base + y * stride, src.baseAddress! + y * W * 4, W * 4) } }
-            lock.unlock()
+        let key = forceKey; forceKey = false
+        var pb = lastBuffer
+        if changed || pb == nil {
+            var out: CVPixelBuffer?
+            guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let fresh = out else { return }
+            CVPixelBufferLockBaseAddress(fresh, [])
+            if let base = CVPixelBufferGetBaseAddress(fresh)?.assumingMemoryBound(to: UInt8.self) {
+                let stride = CVPixelBufferGetBytesPerRow(fresh)
+                lock.lock()
+                pixels.withUnsafeBufferPointer { src in for y in 0..<H { memcpy(base + y * stride, src.baseAddress! + y * W * 4, W * 4) } }
+                lock.unlock()
+            }
+            CVPixelBufferUnlockBaseAddress(fresh, [])
+            pb = fresh; lastBuffer = fresh
         }
-        CVPixelBufferUnlockBaseAddress(pb, [])
         frame += 1
         let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
-        VTCompressionSessionEncodeFrame(e, imageBuffer: pb, presentationTimeStamp: CMTime(value: frame, timescale: CMTimeScale(o.fps)),
+        VTCompressionSessionEncodeFrame(e, imageBuffer: pb!, presentationTimeStamp: CMTime(value: frame, timescale: CMTimeScale(o.fps)),
                                         duration: CMTime(value: 1, timescale: CMTimeScale(o.fps)), frameProperties: props, sourceFrameRefcon: nil, infoFlagsOut: nil)
     }
     func encoded(_ sample: CMSampleBuffer) {

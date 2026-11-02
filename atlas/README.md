@@ -4,8 +4,9 @@ Each summoned screen in the headset is a macOS virtual display on the laptop (ma
 HTTP :57710). `pinpin-atlas` polls `GET :57710/displays`, captures every listed display with
 ScreenCaptureKit, packs them into one atlas frame (cells fit 1920x1200, rows wrap at 3840) and serves it
 as hardware H.264 on TCP :57720 in MacScreenSender's packet format. Before every keyframe it sends the
-layout as a text packet: `{"atlas":[W,H],"cells":[{"screen":id,"x","y","w","h"}]}`. A still atlas is
-re-sent every 200 ms (decoders hold the first frame until the next).
+layout as a text packet: `{"atlas":[W,H],"cells":[{"screen":id,"x","y","w","h"}]}`. It encodes at a constant 60 fps
+(unchanged frames re-encode the last buffer as near-free skip frames): decoders release a frame only when
+the next arrives, so sending only on change measured ~234 ms latency; constant rate measures ~24 ms.
 
 Headset: `files/atlas.json` = `{"host": "<laptop IP>", "port": 57720}`. A second VideoStream decodes
 the atlas (direct TCP mode); each live screen copies its cell into its own PanelLayer (compositor quad
