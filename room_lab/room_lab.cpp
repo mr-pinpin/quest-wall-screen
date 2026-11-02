@@ -301,6 +301,30 @@ struct App {
     float menuHalfW() const { return menuGrid.halfW; }
     float menuHalfH() const { return menuGrid.halfH; }
     float menuBarY() const { return menuGrid.barY; }
+    // Real walls hide what is behind them: something on a wall shows only from the side it faces, and only
+    // while no other scanned wall stands between the eye and it. The compositor layer has no depth, so this
+    // check is what keeps the kitchen screen from showing through the wall in the next room.
+    bool seenFrom(V3 eye, V3 c, V3 n, const std::string& ownWall) {
+        if (dot(eye - c, n) < 0.02f) return false;  // behind its wall
+        V3 d = eye - c; float L = len(d); if (L < 1e-3f) return true; d = d * (1.0f / L);
+        for (auto& e : entities) {
+            if (!isWall(e) || !e.located || e.uuid == ownWall) continue;
+            V3 lo = untransform(e.pose, c), ld = rot(qinv(e.pose.orientation), d);
+            if (std::fabs(ld.z) < 1e-4f) continue;
+            float t = -lo.z / ld.z; if (t < 0.05f || t > L - 0.05f) continue;
+            float x = lo.x + ld.x * t, y = lo.y + ld.y * t;
+            if (x > e.r2.offset.x && y > e.r2.offset.y && x < e.r2.offset.x + e.r2.extent.width && y < e.r2.offset.y + e.r2.extent.height) return false;
+        }
+        return true;
+    }
+    bool panelSeen = true, menuSeen = true;
+    void updateVisibility() {
+        V3 eye = v3(head.position);
+        panelSeen = true;
+        if (placed.active) if (auto* w = wallById(placed.wall))
+            panelSeen = seenFrom(eye, xform(w->pose, {placed.x, placed.y, 0.02f}), rot(w->pose.orientation, {0, 0, 1}), placed.wall);
+        menuSeen = !menuOpen || menuMoving || seenFrom(eye, v3(menu.pose.position), rot(menu.pose.orientation, {0, 0, 1}), menuStickWall);
+    }
     Entity* rayWall(V3 o, V3 d, float& hx, float& hy) {
         float best = 1e9f; Entity* hit = nullptr;
         for (auto& e : entities) {
@@ -446,7 +470,7 @@ struct App {
         } else { palmArmed = true; palmHold = 0; }
         menuHover = -1; menuBarHover = false;
         layoutMenu();
-        if (!menuOpen) return false;
+        if (!menuOpen || !menuSeen) return false;
         if (menuMoving) {
             if (handActive[1] && ray[1].valid) {
                 float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy);
@@ -1008,6 +1032,7 @@ void main(){
     }
     void updatePlacement() {
         candidate.active = false;
+        updateVisibility();
         updateVoice();
         if (updateMenu()) {
             releasePointer(); barHover = false; cornerHover = -1;
@@ -1245,7 +1270,7 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
+        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawVoice(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
@@ -1304,7 +1329,7 @@ void main(){
                 b.line(palm + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), palm + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.005f, col);
             }
         }
-        if (!menuOpen) return;
+        if (!menuOpen || !menuSeen) return;
         auto P = [&](float x, float y, float z) { return xform(menu.pose, {x, y, z}); };
         float hw = menuHalfW(), hh = menuHalfH();
         const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
@@ -1457,7 +1482,7 @@ void main(){
                 pv[i].subImage.swapchain = eyes[i].chain; pv[i].subImage.imageRect = {{0, 0}, {eyes[i].w, eyes[i].h}};
             }
             proj.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT; proj.space = local; proj.viewCount = 2; proj.views = pv;
-            if (quadShown) if (auto* w = wallById(placed.wall)) {  // under the eye buffers, which leave the panel transparent
+            if (quadShown && panelSeen) if (auto* w = wallById(placed.wall)) {  // under the eye buffers, which leave the panel transparent
                 V3 c = xform(w->pose, {placed.x, placed.y, 0.02f}); XrPosef qp; qp.orientation = w->pose.orientation; qp.position = {c.x, c.y, c.z};
                 V3 a = xform(w->pose, {placed.x, placed.y, 0.02f + panelLayer.radius}); XrPosef cp = qp; cp.position = {a.x, a.y, a.z};
                 layers.push_back(panelLayer.layer(local, qp, cp, placed.w, placed.h));
