@@ -176,8 +176,18 @@ struct App {
     XrHandTrackingAimStateFB aim[2];
     bool handActive[2] = {false, false}, pinchPrev[2] = {false, false};
     int handResult[2] = {0, 0};
-    // Ray and pinch derived from joints: shoulder estimate -> pinch point, thumb/index tip distance.
-    struct HandRay { bool valid = false, pinch = false; V3 o{0, 0, 0}, d{0, 0, 0}, tip{0, 0, 0}; float gap = 1; };
+    // Ray and press derived from joints. The ray runs shoulder -> index/middle knuckles, joints that stay still
+    // while the thumb moves. Press is the "finger gun" (thumb tip down onto the side of the middle finger), with
+    // pinch kept as a fallback. A press rewinds the ray ~0.1 s (to before the gesture began) and locks it there
+    // until the hand moves more than kLockDeg, so a press-release in place is a clean click and only a real
+    // movement becomes a drag/selection.
+    static constexpr int kHist = 16, kRewind = 7; static constexpr float kLockDeg = 2.5f;
+    struct HandRay {
+        bool valid = false, pinch = false, thumbDown = false, pinchDown = false, locked = false, wasPressed = false;
+        V3 o{0, 0, 0}, d{0, 0, 0}, tip{0, 0, 0}, lockO{0, 0, 0}, lockD{0, 0, 0};
+        V3 histO[kHist], histD[kHist]; int histN = 0;
+        float gap = 1, thumb = 1, thumbMin = 1, thumbMax = 0; long thumbPresses = 0, pinchPresses = 0, lockBreaks = 0;
+    };
     HandRay ray[2];
 
     PFN_xrQuerySpacesFB xrQuerySpacesFB_ = nullptr;
@@ -621,10 +631,33 @@ void main(){
             if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; continue; }
             hr.gap = len(v3(th.pose.position) - v3(ix.pose.position));
             hr.tip = (v3(th.pose.position) + v3(ix.pose.position)) * 0.5f;
-            hr.pinch = hr.pinch ? hr.gap < 0.035f : hr.gap < 0.018f;
-            V3 grip = (v3(kn.pose.position) + v3(tm.pose.position)) * 0.5f;
+            hr.pinchDown = hr.pinchDown ? hr.gap < 0.035f : hr.gap < 0.018f;
+            // Thumb tip to the middle finger's proximal phalanx (segment knuckle -> middle joint).
+            auto& mp = joints[h][XR_HAND_JOINT_MIDDLE_PROXIMAL_EXT]; auto& mi = joints[h][XR_HAND_JOINT_MIDDLE_INTERMEDIATE_EXT];
+            if ((mp.locationFlags & need) && (mi.locationFlags & need)) {
+                V3 a = v3(mp.pose.position), b = v3(mi.pose.position), t = v3(th.pose.position), ab = b - a;
+                float u = std::fmin(std::fmax(dot(t - a, ab) / std::fmax(dot(ab, ab), 1e-6f), 0.0f), 1.0f);
+                hr.thumb = len(t - (a + ab * u));
+                hr.thumbMin = std::fmin(hr.thumbMin, hr.thumb); hr.thumbMax = std::fmax(hr.thumbMax, hr.thumb);
+                bool was = hr.thumbDown; hr.thumbDown = was ? hr.thumb < 0.032f : hr.thumb < 0.020f;
+                if (hr.thumbDown && !was) hr.thumbPresses++;
+            }
+            bool pinchWas = hr.pinch;
+            if (hr.pinchDown && !pinchWas && !hr.thumbDown) hr.pinchPresses++;
+            hr.pinch = hr.thumbDown || hr.pinchDown;
+            V3 knuckles = (v3(kn.pose.position) + v3(mp.pose.position)) * 0.5f;
             V3 shoulder = xform(head, {h == 1 ? 0.17f : -0.17f, -0.2f, 0.05f});
-            hr.o = grip; hr.d = norm(grip - shoulder); hr.valid = len(grip - shoulder) > 0.15f;
+            V3 ro = knuckles, rd = norm(knuckles - shoulder);
+            hr.valid = len(knuckles - shoulder) > 0.15f;
+            int slot = hr.histN % kHist; hr.histO[slot] = ro; hr.histD[slot] = rd; hr.histN++;
+            if (hr.pinch && !pinchWas) {
+                int back = std::min(kRewind, hr.histN - 1), i = (hr.histN - 1 - back) % kHist;
+                hr.locked = true; hr.lockO = hr.histO[i]; hr.lockD = hr.histD[i];
+            }
+            if (hr.locked && hr.pinch && dot(rd, hr.lockD) < std::cos(kLockDeg * 0.0174533f)) { hr.locked = false; hr.lockBreaks++; }
+            // Hold the lock through the release frame so the button-up lands where the click started.
+            if (hr.locked && !hr.pinch && !pinchWas) hr.locked = false;
+            hr.o = hr.locked ? hr.lockO : ro; hr.d = hr.locked ? hr.lockD : rd;
         }
     }
 
@@ -741,7 +774,11 @@ void main(){
                 if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
                     onPanel = true;
                     if (!pointer.on) { pointer.u = u; pointer.v = v; }
-                    pointer.u += (u - pointer.u) * 0.55f; pointer.v += (v - pointer.v) * 0.55f;  // light smoothing of hand jitter
+                    // Heavy smoothing when the hand is still (precision), light when it moves fast (no lag).
+                    float speed = std::hypot(u - pointer.u, v - pointer.v) * 72.0f;  // screen widths per second
+                    float a = std::fmin(0.08f + speed * 0.9f, 0.7f);
+                    if (ray[1].locked) a = 0;
+                    pointer.u += (u - pointer.u) * a; pointer.v += (v - pointer.v) * a;
                     pointer.on = true;
                     drivePointer(pinch[1] && !pinchPrev[1], !pinch[1] && pinchPrev[1]);
                 }
@@ -991,7 +1028,8 @@ void main(){
           << ",\"far\":" << (std::isinf(depthImage.farZ) ? -1.0f : depthImage.farZ) << "}";
         j << ",\"hands\":[";
         for (int h = 0; h < 2; h++) j << (h ? "," : "") << "{\"active\":" << handActive[h] << ",\"aim\":" << (bool)(aim[h].status & XR_HAND_TRACKING_AIM_VALID_BIT_FB)
-                                      << ",\"pinch\":" << aim[h].pinchStrengthIndex << ",\"ray\":" << ray[h].valid << ",\"gap\":" << ray[h].gap << ",\"result\":" << handResult[h] << ",\"tracker\":" << (hands[h] != XR_NULL_HANDLE) << "}";
+                                      << ",\"pinch\":" << aim[h].pinchStrengthIndex << ",\"ray\":" << ray[h].valid << ",\"gap\":" << ray[h].gap << ",\"thumb\":" << ray[h].thumb << ",\"thumbMin\":" << ray[h].thumbMin << ",\"thumbMax\":" << ray[h].thumbMax
+                                      << ",\"thumbPresses\":" << ray[h].thumbPresses << ",\"pinchPresses\":" << ray[h].pinchPresses << ",\"lockBreaks\":" << ray[h].lockBreaks << ",\"result\":" << handResult[h] << ",\"tracker\":" << (hands[h] != XR_NULL_HANDLE) << "}";
         j << "],\"scene\":{\"state\":\"" << sceneState << "\",\"entities\":[";
         bool first = true;
         for (auto& e : entities) {
