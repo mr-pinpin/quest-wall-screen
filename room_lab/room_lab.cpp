@@ -243,6 +243,25 @@ struct App {
     // the frame of a scene wall so it comes back in the same spot. Unlocked, the watch gesture re-places it.
     bool menuOpen = false, editLocked = true, palmArmed = true; float palmHold = 0; int menuHover = -1;
     bool settingsLoaded = false, menuSaved = false; std::string menuWall; XrPosef menuRel{{0, 0, 0, 1}, {0, 0, 0}};
+    // Unlocked, the panel has a grab bar like the screen: hold, drag, and it sticks flat to the wall you point at.
+    bool menuRestored = false, menuMoving = false, menuBarHover = false; float menuBarHold = 0; std::string menuStickWall;
+    std::chrono::steady_clock::time_point menuBarStart{};
+    float menuHalfW() const { return 1.5f * (kMenuBtnW + kMenuGap) + 0.02f; }
+    float menuHalfH() const { return 1.5f * (kMenuBtnH + kMenuGap) + 0.06f; }
+    float menuBarY() const { return -menuHalfH() + 0.04f - 0.035f; }
+    Entity* rayWall(V3 o, V3 d, float& hx, float& hy) {
+        float best = 1e9f; Entity* hit = nullptr;
+        for (auto& e : entities) {
+            if (!isWall(e) || !e.located) continue;
+            V3 lo = untransform(e.pose, o), ld = rot(qinv(e.pose.orientation), d);
+            if (std::fabs(ld.z) < 1e-4f) continue;
+            float t = -lo.z / ld.z; if (t <= 0 || t > best) continue;
+            float x = lo.x + ld.x * t, y = lo.y + ld.y * t;
+            if (x < e.r2.offset.x || y < e.r2.offset.y || x > e.r2.offset.x + e.r2.extent.width || y > e.r2.offset.y + e.r2.extent.height) continue;
+            best = t; hit = &e; hx = x; hy = y;
+        }
+        return hit;
+    }
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
     struct MenuItem { const char* label; int col, row; };
@@ -278,7 +297,8 @@ struct App {
         return nullptr;
     }
     void saveSettings() {
-        auto* w = anyWall();
+        Entity* w = menuStickWall.empty() ? nullptr : wallById(menuStickWall);
+        if (!w || !w->located) w = anyWall();
         if (w && menuOpen) {
             menuWall = w->uuid; menuSaved = true;
             V3 r = untransform(w->pose, v3(menu.pose.position));
@@ -296,6 +316,7 @@ struct App {
         menuSaved = j.find("\"menuSaved\":1") != std::string::npos;
         size_t a = j.find("\"menuWall\":\""); if (a != std::string::npos) { a += 12; menuWall = j.substr(a, j.find('"', a) - a); }
         float v[7] = {0, 0, 0, 0, 0, 0, 1}; size_t b = j.find("\"menu\":[");
+        menuStickWall = menuWall;
         if (b != std::string::npos) sscanf(j.c_str() + b + 8, "%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
         menuRel.position = {v[0], v[1], v[2]}; menuRel.orientation = {v[3], v[4], v[5], v[6]};
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off"));
@@ -316,7 +337,8 @@ struct App {
     bool updateMenu() {
         if (!settingsLoaded) { settingsLoaded = true; loadSettings(); }
         // Bring the saved panel back once its wall is located (the scene loads a moment after start).
-        if (menuSaved && !menuOpen && editLocked) if (auto* w = wallById(menuWall)) if (w->located) {
+        if (menuSaved && !menuRestored) if (auto* w = wallById(menuWall)) if (w->located) {
+            menuRestored = true;
             V3 c = xform(w->pose, v3(menuRel.position));
             menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = qmul(w->pose.orientation, menuRel.orientation);
             menuOpen = true;
@@ -328,19 +350,44 @@ struct App {
             if (palmArmed && palmHold >= 1) {
                 palmArmed = false; palmHold = 0;
                 if (editLocked && menuSaved) event("settings pinned: unlock to move");
-                else openMenu();  // unlocked: bring the panel to where you are now
+                else if (!menuOpen) openMenu();  // the grab bar moves it; the gesture only brings back a closed panel
             }
         } else { palmArmed = true; palmHold = 0; }
-        menuHover = -1;
+        menuHover = -1; menuBarHover = false;
         if (!menuOpen) return false;
+        if (menuMoving) {
+            if (handActive[1] && ray[1].valid) {
+                float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy);
+                if (w) {  // flat on the wall, the bar under the hand
+                    V3 c = xform(w->pose, {hx, hy - menuBarY(), 0.03f});
+                    menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = w->pose.orientation; menuStickWall = w->uuid;
+                } else {  // no wall: float 1.2 m out, facing you
+                    V3 c = ray[1].o + ray[1].d * 1.2f, f = norm(c - v3(head.position)); f.y = 0; f = norm(f);
+                    float yaw = std::atan2(-f.x, -f.z); c.y -= menuBarY();
+                    menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = {0, std::sin(yaw / 2), 0, std::cos(yaw / 2)}; menuStickWall.clear();
+                }
+            }
+            if (!(handActive[1] && ray[1].pinch)) { menuMoving = false; saveSettings(); event("settings moved" + std::string(menuStickWall.empty() ? "" : " onto wall " + menuStickWall)); }
+            return true;
+        }
         if (!editLocked && len(v3(head.position) - v3(menu.pose.position)) > 3.0f) { menuOpen = false; return false; }  // walked away
         if (!(handActive[1] && ray[1].valid)) return false;
         V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
         if (std::fabs(ld.z) < 1e-4f) return false;
         float t = -lo.z / ld.z; if (t <= 0) return false;
         float x = lo.x + ld.x * t, y = lo.y + ld.y * t;
-        float hw = 1.5f * (kMenuBtnW + kMenuGap) + 0.02f, hh = 1.5f * (kMenuBtnH + kMenuGap) + 0.06f;
-        if (std::fabs(x) > hw || std::fabs(y) > hh) return false;
+        float hw = menuHalfW(), hh = menuHalfH();
+        if (std::fabs(x) > hw || y > hh || y < menuBarY() - 0.04f) return false;
+        if (!editLocked && std::fabs(x) < 0.18f && std::fabs(y - menuBarY()) < 0.035f) {
+            menuBarHover = true;
+            if (ray[1].pinch && !pinchPrev[1]) menuBarStart = std::chrono::steady_clock::now();
+            if (ray[1].pinch) {
+                menuBarHold = std::chrono::duration<float>(std::chrono::steady_clock::now() - menuBarStart).count() / kHoldToMove;
+                if (menuBarHold >= 1) { menuMoving = true; menuBarHold = 0; event("settings move started"); }
+            } else menuBarHold = 0;
+            return true;
+        }
+        menuBarHold = 0;
         for (int i = 0; i < kMenuItems; i++) {
             float bx, by; menuCenter(i, bx, by);
             if (std::fabs(x - bx) < kMenuBtnW / 2 && std::fabs(y - by) < kMenuBtnH / 2) menuHover = i;
@@ -1078,17 +1125,28 @@ void main(){
             float col[4];
             for (int k = 0; k < 3; k++) col[k] = dragging ? blue[k] : white[k] + (gold[k] - white[k]) * draw;
             col[3] = 0.75f + 0.25f * draw;
-            float r = 0.018f - 0.010f * draw;
-            for (int i = 0; i < 16; i++) {
-                float a0 = i * 0.3927f, a1 = (i + 1) * 0.3927f;
-                over.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.0035f, col);
-            }
-            if (pointer.pressed) { float d = 0.004f; over.quad(c - ax * d - ay * d, c + ax * d - ay * d, c + ax * d + ay * d, c - ax * d + ay * d, col); }
+            // Constant angular size (about 1.4 degrees open, 0.6 closed) and a dark outline, so it reads on white windows.
+            float dist = std::fmax(len(c - v3(head.position)), 0.3f), k = dist / 1.5f;
+            float r = (0.018f - 0.010f * draw) * k, lw = 0.004f * k;
+            const float shadow[4] = {0, 0, 0, 0.65f};
+            auto ring = [&](float rr, float w, const float* cc, float z) {
+                V3 cz = c + n * z;
+                for (int i = 0; i < 20; i++) {
+                    float a0 = i * 0.31416f, a1 = (i + 1) * 0.31416f;
+                    over.line(cz + ax * (rr * std::cos(a0)) + ay * (rr * std::sin(a0)), cz + ax * (rr * std::cos(a1)) + ay * (rr * std::sin(a1)), n, w, cc);
+                }
+            };
+            ring(r, lw * 2.2f, shadow, 0);
+            ring(r, lw, col, 0.001f);
+            float d = (pointer.pressed ? 0.005f : 0.0022f) * k;
+            V3 cz = c + n * 0.001f;
+            over.quad(cz - ax * (d * 1.8f) - ay * (d * 1.8f), cz + ax * (d * 1.8f) - ay * (d * 1.8f), cz + ax * (d * 1.8f) + ay * (d * 1.8f), cz - ax * (d * 1.8f) + ay * (d * 1.8f), shadow);
+            over.quad(cz - ax * d - ay * d, cz + ax * d - ay * d, cz + ax * d + ay * d, cz - ax * d + ay * d, col);
         }
         const float rayCol[4] = {1, 1, 1, 0.35f};
         for (int h = 0; h < 2; h++) {
             if (!handActive[h]) continue;
-            if (h == 1 && ray[h].valid && !pointer.on) {
+            if (h == 1 && ray[h].valid) {
                 V3 o = ray[h].o, d = ray[h].d;
                 float L = lastNearest > 0 ? std::fmin(lastNearest, 6.0f) : 3.0f;
                 const float hitCol[4] = {0.3f, 1.0f, 0.5f, 0.8f};
@@ -1112,6 +1170,16 @@ void main(){
         const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
         b.quad(P(-hw, -hh + 0.04f, 0), P(hw, -hh + 0.04f, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
         text(b, menu, 0, hh - 0.04f, 0.003f, 0.006f, "SETTINGS", white);
+        if (!editLocked) {
+            float y = menuBarY(), bw = 0.3f, bh = 0.025f;
+            const float idle[4] = {0.75f, 0.78f, 0.82f, 0.45f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.8f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
+            const float* col = menuMoving ? fill : menuBarHover ? hover : idle;
+            b.quad(P(-bw / 2, y - bh / 2, 0.002f), P(bw / 2, y - bh / 2, 0.002f), P(bw / 2, y + bh / 2, 0.002f), P(-bw / 2, y + bh / 2, 0.002f), col);
+            if (menuBarHold > 0 && !menuMoving) {
+                float x1 = -bw / 2 + bw * std::fmin(menuBarHold, 1.0f);
+                b.quad(P(-bw / 2, y - bh / 2, 0.003f), P(x1, y - bh / 2, 0.003f), P(x1, y + bh / 2, 0.003f), P(-bw / 2, y + bh / 2, 0.003f), fill);
+            }
+        }
         std::string current = video.source;
         for (int i = 0; i < kMenuItems; i++) {
             float x, y; menuCenter(i, x, y);

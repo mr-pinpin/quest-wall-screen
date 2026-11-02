@@ -70,6 +70,7 @@ Hand input follows one rule: the act of clicking must not move the aim.
 - **Settings**: turn the back of the left wrist toward your face and hold ("check your watch"; a ring fills)
   to open or close a floating panel: source (MINI, LAPTOP), SMALL/MEDIUM/LARGE, LOCK (hides the move bar and
   corners) and CLOSE. Palm toward the face is left alone: that is Meta's system menu gesture.
+  Unlocked, the panel has its own grab bar: hold, drag, and it sticks flat to the wall you point at.
 - **Dictation**: raise a fist above the chest and hold to talk; open the hand to finish. The headset mic is
   cut at pauses into short segments, each sent once to the Mini's speech service (`~/asr-service`, Parakeet
   TDT 0.6B on MLX, port 8765), and the text is typed into the streamed Mac where the cursor is.
@@ -82,9 +83,12 @@ Hand input follows one rule: the act of clicking must not move the aim.
    (see the `thumb*`, `pinchPresses` and `lockBreaks` fields in `status.json`). Onboarding will matter
    for everyone who uses the platform, so build it as its own reusable stage.
 2. **Settings panel**: first version shipped; add sharpness, recenter and per-screen options.
-3. **Free-standing screens** anchored anywhere in the apartment, not only on walls from the room scan.
-4. **Sharper panel**: hand the video to the compositor as its own layer instead of resampling it through
+3. **Hand occlusion halo.** A hand in front of a screen cuts a blocky, pixelated hole around itself that
+   shows the wall instead of the hand over the screen. Environment depth is low resolution, so its edges
+   step. Fix with soft (feathered) depth occlusion and, for hands, the tracked hand mesh as the occluder.
+4. **Free-standing screens** anchored anywhere in the apartment, not only on walls from the room scan.
+5. **Sharper panel**: hand the video to the compositor as its own layer instead of resampling it through
    the eye buffers.
-5. Deferred: **several screens at once** (moonlight-common-c allows one connection per process, so the
+6. Deferred: **several screens at once** (moonlight-common-c allows one connection per process, so the
    second screen uses the Mac relay) and **sound** (the headset side is done; the Macs need a virtual
    audio device and `stream_audio = true` in Sunshine).
