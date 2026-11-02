@@ -210,6 +210,10 @@ struct App {
 
     Placement candidate, placed;
     int sizeIndex = 1;
+    // Screens stay put. Moving one is deliberate: pinch and hold the grab bar under it, drag, release to drop.
+    static constexpr float kHoldToMove = 0.5f, kBarW = 0.36f, kBarH = 0.035f, kBarGap = 0.045f;
+    bool moving = false, barHover = false, barHolding = false; float barHold = 0;
+    std::chrono::steady_clock::time_point barPinchStart{};
     // Pointer on the placed panel: hand ray -> stream pixel, pinch = left button (hold to drag), like the TV remote.
     struct Pointer { bool on = false, pressed = false; float u = 0.5f, v = 0.5f; int sentX = -1, sentY = -1; long moves = 0, clicks = 0; } pointer;
     long aimFrames = 0, hitFrames = 0, pinchEdges = 0; V3 lastAimO{0, 0, 0}, lastAimD{0, 0, 0}; float lastNearest = -1; std::string lastNearestWall;
@@ -620,11 +624,8 @@ void main(){
         if (placed.active && std::fabs(placed.h - placed.w * aspect) > 0.005f) { placed.h = placed.w * aspect; if (auto* w = wallById(placed.wall)) validate(placed, *w); }
         bool pinch[2];
         for (int h = 0; h < 2; h++) pinch[h] = handActive[h] && ray[h].pinch;
-        if (pinch[0] && !pinchPrev[0]) {
-            sizeIndex = (sizeIndex + 1) % 3;
-            if (placed.active) { placed.w = sizes[sizeIndex][0]; placed.h = sizes[sizeIndex][1]; if (auto* w = wallById(placed.wall)) validate(placed, *w); savePlacement(); }
-            event("panel size " + std::to_string(sizes[sizeIndex][0]));
-        }
+        float candW = placed.active ? placed.w : sizes[sizeIndex][0], candH = placed.active ? placed.h : sizes[sizeIndex][1];
+        barHover = false;
         int h = 1;
         if (handActive[h] && ray[h].valid) {
             V3 o = ray[h].o, d = ray[h].d;
@@ -643,7 +644,36 @@ void main(){
             lastNearest = nearest < 1e8f ? nearest : -1;
             bool onPanel = false;
             hoverButton = -1;
+            if (moving) {
+                // The bar stays under the hand: the panel hangs above the grab point.
+                releasePointer();
+                if (hit) {
+                    candidate.active = true; candidate.wall = hit->uuid; candidate.x = hx; candidate.y = hy + candH / 2 + kBarGap;
+                    candidate.w = candW; candidate.h = candH; validate(candidate, *hit);
+                }
+                if (!pinch[1]) {
+                    if (candidate.active && candidate.valid) { placed = candidate; savePlacement(); event("moved panel to wall " + placed.wall); }
+                    else event("move cancelled");
+                    moving = false; candidate.active = false;
+                }
+                for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
+                return;
+            }
             if (hit && placed.active && hit->uuid == placed.wall) {
+                float bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
+                if (std::fabs(hx - bx) < kBarW / 2 + 0.03f && std::fabs(hy - by) < kBarH / 2 + 0.03f) barHover = true;
+            }
+            if (barHover) {
+                onPanel = true;
+                releasePointer();
+                if (pinch[1] && !pinchPrev[1]) { barHolding = true; barPinchStart = std::chrono::steady_clock::now(); }
+                if (barHolding && pinch[1]) {
+                    barHold = std::chrono::duration<float>(std::chrono::steady_clock::now() - barPinchStart).count() / kHoldToMove;
+                    if (barHold >= 1) { moving = true; barHolding = false; barHold = 0; event("move started"); }
+                }
+            }
+            if (!barHover || !pinch[1]) { barHolding = false; barHold = 0; }
+            if (!barHover && hit && placed.active && hit->uuid == placed.wall) {
                 for (int b = 0; b < 2; b++) {
                     float bx, by; buttonCenter(b, bx, by);
                     if (std::fabs(hx - bx) < kButtonW / 2 && std::fabs(hy - by) < kButtonH / 2) hoverButton = b;
@@ -653,7 +683,7 @@ void main(){
                     if (pinch[1] && !pinchPrev[1]) { launcher.launch(hosts[hoverButton]); event(std::string("switch to ") + hosts[hoverButton].name); }
                 }
             }
-            if (hit && placed.active && hit->uuid == placed.wall && hoverButton < 0) {
+            if (!barHover && hit && placed.active && hit->uuid == placed.wall && hoverButton < 0) {
                 float u = (hx - (placed.x - placed.w / 2)) / placed.w, v = 1.0f - (hy - (placed.y - placed.h / 2)) / placed.h;
                 if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
                     onPanel = true;
@@ -664,9 +694,9 @@ void main(){
                 }
             }
             if (!onPanel) releasePointer();
-            if (hit && !onPanel) { hitFrames++;
+            if (hit && !onPanel && !placed.active) { hitFrames++;
                 candidate.active = true; candidate.wall = hit->uuid; candidate.x = hx; candidate.y = hy;
-                candidate.w = sizes[sizeIndex][0]; candidate.h = sizes[sizeIndex][1];
+                candidate.w = candW; candidate.h = candH;
                 validate(candidate, *hit);
                 if (pinch[1] && !pinchPrev[1]) pinchEdges++;
                 if (pinch[1] && !pinchPrev[1] && candidate.valid) { placed = candidate; savePlacement(); event("placed panel on wall " + placed.wall); }
@@ -680,7 +710,7 @@ void main(){
     void buttonCenter(int b, float& x, float& y) {
         x = placed.x + (b == 0 ? -0.17f : 0.17f);
         y = placed.y + placed.h / 2 + 0.075f;
-        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - 0.075f;
+        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
     }
     // 5x7 pixel font, just the letters the UI needs.
     static const uint8_t* glyph(char c) {
@@ -742,20 +772,21 @@ void main(){
 
     void build(Batch& occ, Batch& over) {
         const float wallCol[4] = {0.3f, 0.85f, 1.0f, 0.55f}, planeCol[4] = {1, 1, 1, 0.35f}, volCol[4] = {1.0f, 0.6f, 0.15f, 0.6f};
+        bool placing = moving || !placed.active;
         for (auto& e : entities) {
-            if (!e.located) continue;
+            if (!e.located || !placing) continue;
             if (e.has2d && !e.has3d) {
                 auto c = corners2d(e); V3 n = rot(e.pose.orientation, {0, 0, 1}); V3 lift = n * 0.01f;
                 const float* col = isWall(e) ? wallCol : planeCol;
                 for (int i = 0; i < 4; i++) occ.dashed(c[i] + lift, c[(i + 1) % 4] + lift, n, 0.008f, col);
             }
-            if (e.has3d) {
+            if (e.has3d && false) {
                 auto c = corners3d(e);
                 int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); }
+        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); grabBar(occ, *w); }
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -770,26 +801,25 @@ void main(){
                 over.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.003f, col);
             }
         }
-        const float handCol[4] = {0.2f, 0.9f, 1.0f, 0.9f}, pinchCol[4] = {1.0f, 0.9f, 0.2f, 1.0f}, rayCol[4] = {1, 1, 1, 0.5f};
+        const float rayCol[4] = {1, 1, 1, 0.35f};
         for (int h = 0; h < 2; h++) {
             if (!handActive[h]) continue;
-            bool pinching = ray[h].pinch;
-            for (auto& j : joints[h]) if (j.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) over.cube(v3(j.pose.position), 0.008f, pinching ? pinchCol : handCol);
-            if (h == 1 && ray[h].valid) {
+            if (h == 1 && ray[h].valid && !pointer.on) {
                 V3 o = ray[h].o, d = ray[h].d;
                 float L = lastNearest > 0 ? std::fmin(lastNearest, 6.0f) : 3.0f;
                 const float hitCol[4] = {0.3f, 1.0f, 0.5f, 0.8f};
-                over.ray(o + d * 0.05f, o + d * L, 0.004f, candidate.active ? hitCol : rayCol);
+                over.ray(o + d * 0.05f, o + d * L, 0.003f, candidate.active ? hitCol : rayCol);
             }
         }
-        // Head-locked status dots: passthrough, room model, depth, hands.
-        bool walls = false; for (auto& e : entities) walls |= isWall(e) && e.located;
-        bool st[4] = {ptLayer != XR_NULL_HANDLE, walls, depthValid, handActive[0] || handActive[1]};
-        bool waiting[4] = {false, sceneState.rfind("querying", 0) == 0 || sceneState == "capturing", depthStarted && !depthValid, false};
-        for (int i = 0; i < 4; i++) {
-            const float g[4] = {0.2f, 1, 0.3f, 0.9f}, r[4] = {1, 0.2f, 0.2f, 0.9f}, a[4] = {1, 0.75f, 0.1f, 0.9f};
-            over.cube(xform(head, {-0.045f + i * 0.03f, -0.22f, -0.8f}), 0.015f, st[i] ? g : waiting[i] ? a : r);
-        }
+    }
+    void grabBar(Batch& b, const Entity& w) {
+        float x = placed.x, y = placed.y - placed.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+        const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
+        auto rect = [&](float x0, float x1, const float* col, float z) {
+            b.quad(xform(w.pose, {x0, y - hh, z}), xform(w.pose, {x1, y - hh, z}), xform(w.pose, {x1, y + hh, z}), xform(w.pose, {x0, y + hh, z}), col);
+        };
+        rect(x - hw, x + hw, moving ? fill : barHover ? hover : idle, 0.02f);
+        if (barHold > 0 && !moving) rect(x - hw, x - hw + kBarW * std::fmin(barHold, 1.0f), fill, 0.022f);
     }
 
     void render(const XrView* views, const Batch& occ, const Batch& over) {

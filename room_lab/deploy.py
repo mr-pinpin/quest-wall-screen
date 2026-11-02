@@ -8,11 +8,12 @@
 """
 import argparse
 import base64
+import os
 import shlex
 import subprocess
 
 PKG='com.pinpin.wallscreen.roomlab'
-SSH=['ssh','-C','-o','BatchMode=yes','-o','ProxyJump=pinpin-air','-o','ConnectTimeout=15','pinpin-mini-lan']
+SSH=['ssh','-C','-o','BatchMode=yes','-o','ConnectTimeout=15',os.environ.get('PINPIN_MINI_SSH','pinpin-mini')]  # Tailscale; the Mini is the house gateway since 2026-11-02
 MINI=r'''
 import sys,base64,pathlib,subprocess,time
 home=pathlib.Path.home();adb=[str(home/'.local/share/pinpin-quest/platform-tools/adb'),'-s','127.0.0.1:26351']
