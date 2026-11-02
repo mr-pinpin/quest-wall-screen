@@ -348,12 +348,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 16;
+    static constexpr int kMenuItems = 17;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -363,6 +363,7 @@ struct App {
         if (l == "QUAD") return panelLayer.enabled;
         if (l == "CURVE") return panelLayer.curve;
         if (l == "SPELL") return spellOn;
+        if (l == "MACDISP") return macDisplays;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
@@ -435,6 +436,10 @@ struct App {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "SPELL") { spellOn = !spellOn; spell.clear(); }
+        else if (l == "MACDISP") {  // give every extra screen a real Mac display, or take them all away
+            macDisplays = !macDisplays;
+            for (auto& sc : extras) macDisplay(sc.id, macDisplays);
+        }
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -1024,6 +1029,26 @@ void main(){
     // burst marks the result. Extra screens are remembered (files/screens.json); each will be a real display the
     // Mac creates for it, and until that stream is wired they show as a placeholder.
     struct Screen { int id; Placement p; };
+    // Each extra screen can be a real display on the laptop (mac/pinpin-displays: CGVirtualDisplay behind a small
+    // HTTP API on :57710). Behind the MACDISP flag until the headset streams those displays in, so the mouse and
+    // windows can't wander onto a monitor nobody can see.
+    bool macDisplays = false; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
+    void macDisplay(int id, bool create) {
+        std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200" : "/remove?id=" + std::to_string(id);
+        std::string host = displayHost;
+        std::thread([this, host, path] {
+            int fd = socket(AF_INET, SOCK_STREAM, 0); bool ok = false;
+            timeval tv{5, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+            sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57710); inet_pton(AF_INET, host.c_str(), &a.sin_addr);
+            if (fd >= 0 && connect(fd, (sockaddr*)&a, sizeof a) == 0) {
+                std::string req = "POST " + path + " HTTP/1.0\r\nHost: " + host + "\r\nContent-Length: 0\r\n\r\n";
+                if (send(fd, req.data(), req.size(), 0) == (ssize_t)req.size()) { char buf[256] = {}; ok = recv(fd, buf, sizeof buf - 1, 0) > 0 && strstr(buf, " 200 "); }
+            }
+            if (fd >= 0) close(fd);
+            displayCalls++; if (!ok) displayFailures++;
+        }).detach();
+        event(std::string(create ? "mac display for screen " : "remove mac display of screen ") + std::to_string(id));
+    }
     std::vector<Screen> extras; int nextScreenId = 2;
     bool spellOn = true; SpellRecognizer spell; float spellCooldown = 0, spellProgress = 0; int spellTurn = 0;
     struct Burst { V3 c, ax, ay; float r; float col[4]; std::chrono::steady_clock::time_point t0; };
@@ -1061,6 +1086,7 @@ void main(){
         if (!np.valid) { burst(c, r, red); toast("spell", "NO ROOM HERE: " + np.reason, red, 3); return; }
         int id = nextScreenId++;
         extras.push_back({id, np}); saveScreens();
+        if (macDisplays) macDisplay(id, true);
         burst(c, r, gold); toast("spell", "SCREEN " + std::to_string(id) + " SUMMONED", gold, 3);
         event("summoned screen " + std::to_string(id) + " on wall " + np.wall + " w " + std::to_string(np.w));
     }
@@ -1075,6 +1101,7 @@ void main(){
         int i = extraAt(eye, norm(c - eye), hx, hy);
         if (i >= 0) {
             int id = extras[i].id; extras.erase(extras.begin() + i); saveScreens();
+            if (macDisplays) macDisplay(id, false);
             burst(c, r, violet); toast("spell", "SCREEN " + std::to_string(id) + " DISMISSED", violet, 3); event("dismissed screen " + std::to_string(id)); return;
         }
         burst(c, r, violet); toast("spell", "CANCELLED", violet, 2);
@@ -1817,7 +1844,7 @@ void main(){
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
-        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << "}";
+        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
