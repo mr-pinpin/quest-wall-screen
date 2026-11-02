@@ -23,7 +23,8 @@ struct AudioOut {
     size_t head = 0, count = 0;      // read position and fill, in frames (one frame = `channels` samples)
     bool primed = false;             // false until kTargetMs is buffered
     std::mutex lock;
-    std::atomic<long> packets{0}, underruns{0}, dropped{0}, decodeErrors{0};
+    std::atomic<long> packets{0}, underruns{0}, dropped{0}, decodeErrors{0}, played{0};
+    std::atomic<int> peak{0}, peakMax{0};  // decoded loudness (0..32767): tells silence from sound
     std::string state = "idle";
 
     static aaudio_data_callback_result_t onData(AAudioStream*, void* user, void* out, int32_t n) {
@@ -36,7 +37,7 @@ struct AudioOut {
             for (int c = 0; c < a->channels; c++) o[i * a->channels + c] = a->ring[f * a->channels + c];
         }
         if (have < n) { memset(o + have * a->channels, 0, (n - have) * a->channels * sizeof(int16_t)); if (a->primed) { a->underruns++; a->primed = false; } }
-        a->head = (a->head + have) % cap; a->count -= have;
+        a->head = (a->head + have) % cap; a->count -= have; a->played += have;
         return AAUDIO_CALLBACK_RESULT_CONTINUE;
     }
     static void onError(AAudioStream*, void* user, aaudio_result_t err) {
@@ -77,6 +78,8 @@ struct AudioOut {
         int n = opus_multistream_decode(dec, (const unsigned char*)data, data ? len : 0, pcm.data(), frameSamples, 0);
         if (n <= 0) { decodeErrors++; return; }
         packets++;
+        int pk = 0; for (int i = 0; i < n * channels; i++) pk = std::max(pk, std::abs((int)pcm[i]));
+        peak = pk; if (pk > peakMax) peakMax = pk;
         std::lock_guard<std::mutex> g(lock);
         size_t cap = ring.size() / channels, maxFrames = (size_t)rate * kMaxMs / 1000, target = (size_t)rate * kTargetMs / 1000;
         if (count + n > maxFrames) {  // burst overflow: trim back to midway between target and max
@@ -98,6 +101,9 @@ struct AudioOut {
         size_t buffered; { std::lock_guard<std::mutex> g(lock); buffered = count; }
         return "{\"state\":\"" + state + "\",\"channels\":" + std::to_string(channels) + ",\"packets\":" + std::to_string(packets.load()) +
                ",\"bufferedMs\":" + std::to_string(rate ? (int)(buffered * 1000 / rate) : 0) + ",\"underruns\":" + std::to_string(underruns.load()) +
-               ",\"droppedFrames\":" + std::to_string(dropped.load()) + ",\"decodeErrors\":" + std::to_string(decodeErrors.load()) + "}";
+               ",\"droppedFrames\":" + std::to_string(dropped.load()) + ",\"decodeErrors\":" + std::to_string(decodeErrors.load()) +
+               ",\"peak\":" + std::to_string(peak.load()) + ",\"peakMax\":" + std::to_string(peakMax.load()) + ",\"playedFrames\":" + std::to_string(played.load()) +
+               ",\"device\":" + std::to_string(stream ? AAudioStream_getDeviceId(stream) : -1) +
+               ",\"stream\":\"" + (stream ? AAudio_convertStreamStateToText(AAudioStream_getState(stream)) : "none") + "\"}";
     }
 };
