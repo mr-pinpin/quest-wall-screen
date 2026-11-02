@@ -16,7 +16,7 @@
 
 struct GameStreamHost {
     const char* name;      // shown on the button
-    const char* address;   // as seen from the headset (the Air is reached through the Mini relay)
+    const char* address;   // as seen from the headset (direct on the house LAN since 2026-11-03)
     int httpsPort;
     const char* serverPem; // pinned certificate from pairing
     int width, height, fps, kbps;

@@ -231,7 +231,7 @@ struct App {
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
     GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
-                               {"LAPTOP", "192.168.2.1", 57984, "server-air.pem", 2560, 1600, 60, 80000}};
+                               {"LAPTOP", "192.168.0.102", 57984, "server-air.pem", 2560, 1600, 60, 80000}};  // direct: the Mini relay is retired
     int hoverButton = -1;
 
     PFN_xrCreatePassthroughFB xrCreatePassthroughFB_ = nullptr;
@@ -1041,7 +1041,8 @@ void main(){
     // headset shows those displays; turning it off removes them so nothing wanders onto a monitor nobody can see.
     bool macDisplays = true; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
     void macDisplay(int id, bool create) {
-        std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200&scale=2" : "/remove?id=" + std::to_string(id);
+        // 1x: the atlas cell is 1920x1200 anyway, and a 2x display makes YouTube pull 1440p/4K over a ~30 Mbps house line.
+        std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200&scale=1" : "/remove?id=" + std::to_string(id);
         std::string host = displayHost;
         std::thread([this, host, path] {
             int fd = socket(AF_INET, SOCK_STREAM, 0); bool ok = false;
@@ -1184,6 +1185,46 @@ void main(){
         if (extraHold >= 1) { extraMoving = extraBarHover; extraHold = 0; event("moving screen " + std::to_string(extras[extraMoving].id)); }
         return true;
     }
+    // Demand: what the user can see right now, so the laptop spends bandwidth only there ("virtual texture" style).
+    // Five times a second the headset sends one UDP datagram to the laptop (:57721):
+    //   {"t":<ms>,"budgetKbps":<n>,"screens":[{"id":1,"vis":1,"px":1400,"pri":1.00},...]}
+    // id 1 is the main panel, extras use their screen ids. vis: on screen and not behind a wall. px: how many
+    // headset pixels the screen spans horizontally (the most detail worth sending). pri: 0..1 gaze weight
+    // (1 within ~12 degrees of where the head points, falling to 0.1 at the edge of view).
+    static constexpr float kPxPerRad = 1260.0f;  // Quest 3: about 22 px per degree at the centre of the lens
+    int demandSock = -1; std::chrono::steady_clock::time_point demandAt{}; long demandSent = 0; int budgetKbps = 60000;
+    struct Demand { int id; bool vis; int px; float pri; };
+    Demand demandFor(int id, const Placement& p, Entity* w) {
+        Demand d{id, false, 0, 0};
+        if (!w || !w->located || !p.active) return d;
+        V3 eye = v3(head.position), c = xform(w->pose, {p.x, p.y, 0.02f}), n = rot(w->pose.orientation, {0, 0, 1});
+        float dist = std::fmax(len(c - eye), 0.2f);
+        float half = std::atan(p.w / 2 / dist);
+        float off = std::acos(std::fmin(std::fmax(dot(norm(c - eye), rot(head.orientation, {0, 0, -1})), -1.0f), 1.0f));
+        d.vis = seenFrom(eye, c, n, p.wall) && off - half < 0.95f;  // ~55 degrees: inside the headset's view
+        d.px = (int)std::fmin(3840.0f, 2 * half * kPxPerRad);
+        d.pri = !d.vis ? 0.0f : off < 0.21f ? 1.0f : std::fmax(0.1f, 1.0f - (off - 0.21f) / 0.75f);
+        return d;
+    }
+    void sendDemand() {
+        auto t = std::chrono::steady_clock::now();
+        if (t - demandAt < std::chrono::milliseconds(200)) return;
+        demandAt = t;
+        std::vector<Demand> ds;
+        ds.push_back(demandFor(1, placed, placed.active ? wallById(placed.wall) : nullptr));
+        for (auto& sc : extras) ds.push_back(demandFor(sc.id, sc.p, wallById(sc.p.wall)));
+        std::string j = "{\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
+        for (size_t i = 0; i < ds.size(); i++) {
+            char b[96]; snprintf(b, sizeof b, "%s{\"id\":%d,\"vis\":%d,\"px\":%d,\"pri\":%.2f}", i ? "," : "", ds[i].id, ds[i].vis ? 1 : 0, ds[i].px, ds[i].pri);
+            j += b;
+        }
+        j += "]}";
+        if (demandSock < 0) demandSock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57721); inet_pton(AF_INET, displayHost.c_str(), &a.sin_addr);
+        sendto(demandSock, j.data(), j.size(), 0, (sockaddr*)&a, sizeof a);
+        demandSent++; lastDemand = j;
+    }
+    std::string lastDemand;
     void saveScreens() {
         std::ofstream f(gDir + "/screens.json");
         f << "{\"next\":" << nextScreenId << ",\"screens\":[";
@@ -1357,6 +1398,7 @@ void main(){
     void updatePlacement() {
         candidate.active = false;
         updateVisibility();
+        sendDemand();
         pollBattery();
         updateVoice();
         updateSpell();
@@ -1945,7 +1987,7 @@ void main(){
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
-        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
+        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
