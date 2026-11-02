@@ -70,6 +70,9 @@ Hand input follows one rule: the act of clicking must not move the aim.
 - **Settings**: turn the back of the left wrist toward your face and hold ("check your watch"; a ring fills)
   to open or close a floating panel: source (MINI, LAPTOP), SMALL/MEDIUM/LARGE, LOCK (hides the move bar and
   corners) and CLOSE. Palm toward the face is left alone: that is Meta's system menu gesture.
+- **Dictation**: raise a fist above the chest and hold to talk; open the hand to finish. The headset mic is
+  cut at pauses into short segments, each sent once to the Mini's speech service (`~/asr-service`, Parakeet
+  TDT 0.6B on MLX, port 8765), and the text is typed into the streamed Mac where the cursor is.
 
 ## Next
 

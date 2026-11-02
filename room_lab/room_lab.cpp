@@ -23,6 +23,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include "moonlight.h"
+#include "voice.h"
 #include "gamestream.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
@@ -163,6 +164,11 @@ struct App {
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
     MoonlightSource moonlight;
+    // Raise a fist (above the chest) and hold to dictate; open the hand to finish. Text is typed into the
+    // streamed Mac through Moonlight and shown as a caption.
+    Dictation dictation;
+    static constexpr float kFistHold = 0.25f, kFistRelease = 0.3f;
+    float fistTime = 0, openTime = 0; std::string caption; std::chrono::steady_clock::time_point captionAt{};
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
     GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
@@ -187,7 +193,7 @@ struct App {
     // movement becomes a drag/selection.
     static constexpr int kHist = 16, kRewind = 7; static constexpr float kLockDeg = 3.5f;
     struct HandRay {
-        bool valid = false, pinch = false, thumbDown = false, pinchDown = false, locked = false, wasPressed = false;
+        bool valid = false, pinch = false, thumbDown = false, pinchDown = false, locked = false, wasPressed = false, fist = false;
         V3 o{0, 0, 0}, d{0, 0, 0}, tip{0, 0, 0}, lockO{0, 0, 0}, lockD{0, 0, 0};
         V3 histO[kHist], histD[kHist]; int histN = 0;
         float gap = 1, thumb = 1, thumbMin = 1, thumbMax = 0; long thumbPresses = 0, pinchPresses = 0, lockBreaks = 0;
@@ -758,8 +764,16 @@ void main(){
                 if (hr.thumbDown && !was) hr.thumbPresses++;
             }
             bool pinchWas = hr.pinch;
+            // Fist: all four fingertips curled to the palm. A fist rests the thumb on the fingers, so it never clicks.
+            hr.fist = false;
+            if (auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT]; pj.locationFlags & need) {
+                int curled = 0;
+                for (int tip : {XR_HAND_JOINT_INDEX_TIP_EXT, XR_HAND_JOINT_MIDDLE_TIP_EXT, XR_HAND_JOINT_RING_TIP_EXT, XR_HAND_JOINT_LITTLE_TIP_EXT})
+                    if ((joints[h][tip].locationFlags & need) && len(v3(joints[h][tip].pose.position) - v3(pj.pose.position)) < 0.07f) curled++;
+                hr.fist = curled == 4;
+            }
             if (hr.pinchDown && !pinchWas && !hr.thumbDown) hr.pinchPresses++;
-            hr.pinch = hr.thumbDown || hr.pinchDown;
+            hr.pinch = !hr.fist && (hr.thumbDown || hr.pinchDown);
             V3 knuckles = (v3(kn.pose.position) + v3(mp.pose.position)) * 0.5f;
             V3 shoulder = xform(head, {h == 1 ? 0.17f : -0.17f, -0.2f, 0.05f});
             V3 ro = knuckles, rd = norm(knuckles - shoulder);
@@ -776,8 +790,51 @@ void main(){
         }
     }
 
+    void updateVoice() {
+        const float dt = 1.0f / 72;
+        bool raised = false;
+        for (int h = 0; h < 2; h++) if (handActive[h] && ray[h].fist) {
+            auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT];
+            if (pj.pose.position.y > head.position.y - 0.35f) raised = true;
+        }
+        if (raised) { fistTime += dt; openTime = 0; } else { openTime += dt; fistTime = 0; }
+        if (!dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
+        if (dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
+        std::string t;
+        while (dictation.take(t)) {
+            if (streamInput()) { std::string out = t + " "; LiSendUtf8TextEvent(out.c_str(), (unsigned)out.size()); }
+            caption = t; captionAt = std::chrono::steady_clock::now();
+            event("dictated: " + t);
+        }
+    }
+    void drawVoice(Batch& b) {
+        float since = std::chrono::duration<float>(std::chrono::steady_clock::now() - captionAt).count();
+        bool showCaption = !caption.empty() && since < 5.0f;
+        if (!dictation.recording && dictation.state != "transcribing" && !showCaption) return;
+        // Head-locked strip, low in the view.
+        V3 f = rot(head.orientation, {0, 0, -1}); f.y = 0; f = norm(f); if (len(f) < 0.5f) f = {0, 0, -1};
+        float yaw = std::atan2(-f.x, -f.z);
+        Entity hud; hud.pose.orientation = {0, std::sin(yaw / 2), 0, std::cos(yaw / 2)};
+        V3 c = v3(head.position) + f * 0.75f; c.y -= 0.28f; hud.pose.position = {c.x, c.y, c.z};
+        auto P = [&](float x, float y) { return xform(hud.pose, {x, y, 0}); };
+        const float bg[4] = {0.05f, 0.06f, 0.08f, 0.75f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f}, red[4] = {1.0f, 0.25f, 0.2f, 1.0f}, amber[4] = {1.0f, 0.75f, 0.1f, 1.0f};
+        std::string line = dictation.recording ? "LISTENING" : dictation.state == "transcribing" ? "TRANSCRIBING" : "";
+        std::string cap;
+        if (showCaption) { for (char ch : caption) cap += (char)toupper((unsigned char)ch); if (cap.size() > 44) cap = cap.substr(cap.size() - 44); }
+        float w = 0.5f, h = cap.empty() ? 0.05f : 0.09f;
+        b.quad(P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, h / 2), P(-w / 2, h / 2), bg);
+        if (!line.empty()) {
+            const float* dot = dictation.recording ? red : amber;
+            float pulse = dictation.recording ? 0.006f + 0.003f * std::fmin(dictation.level.load() / 3000.0f, 1.0f) : 0.006f, dx = -0.2f, dy = cap.empty() ? 0 : 0.02f;
+            b.quad(xform(hud.pose, {dx - pulse, dy - pulse, 0.002f}), xform(hud.pose, {dx + pulse, dy - pulse, 0.002f}),
+                   xform(hud.pose, {dx + pulse, dy + pulse, 0.002f}), xform(hud.pose, {dx - pulse, dy + pulse, 0.002f}), dot);
+            text(b, hud, 0.0f, dy, 0.002f, 0.004f, line.c_str(), white);
+        }
+        if (!cap.empty()) text(b, hud, 0.0f, line.empty() ? 0 : -0.022f, 0.002f, 0.0018f, cap.c_str(), white);
+    }
     void updatePlacement() {
         candidate.active = false;
+        updateVoice();
         if (updateMenu()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
@@ -1002,6 +1059,7 @@ void main(){
         }
         if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
+        drawVoice(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -1226,6 +1284,7 @@ void main(){
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
         j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
+        j << ",\"voice\":" << dictation.json();
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
         j << "]}";
@@ -1273,6 +1332,7 @@ void main(){
         }
         lastStatus = {}; status();
         event("exiting");
+        dictation.shutdown();
         moonlight.stop();
         launcher.shutdown();
         video.shutdown();
