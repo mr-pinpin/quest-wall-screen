@@ -67,6 +67,9 @@ Hand input follows one rule: the act of clicking must not move the aim.
 - **Feedback** (draw, loose, follow): the cursor ring tightens and turns gold as the thumb closes, a solid
   dot marks the click, and it turns blue only during a real drag.
 - Screens stay put. Move one by holding a press on the bar under it; resize by a corner, or with both hands.
+- **Settings**: turn the back of the left wrist toward your face and hold ("check your watch"; a ring fills)
+  to open or close a floating panel: source (MINI, LAPTOP), SMALL/MEDIUM/LARGE, LOCK (hides the move bar and
+  corners) and CLOSE. Palm toward the face is left alone: that is Meta's system menu gesture.
 
 ## Next
 
@@ -75,8 +78,7 @@ Hand input follows one rule: the act of clicking must not move the aim.
    thresholds for the thumb press, the lock angle and the smoothing, replacing today's fixed values
    (see the `thumb*`, `pinchPresses` and `lockBreaks` fields in `status.json`). Onboarding will matter
    for everyone who uses the platform, so build it as its own reusable stage.
-2. **Settings panel**: big floating buttons (source, sizes, edit lock, sharpness, recenter), summoned
-   by a palm-up gesture.
+2. **Settings panel**: first version shipped; add sharpness, recenter and per-screen options.
 3. **Free-standing screens** anchored anywhere in the apartment, not only on walls from the room scan.
 4. **Sharper panel**: hand the video to the compositor as its own layer instead of resampling it through
    the eye buffers.

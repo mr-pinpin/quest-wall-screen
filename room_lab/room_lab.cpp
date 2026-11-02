@@ -227,6 +227,72 @@ struct App {
     // Resize: pinch with both hands while pointing at the screen and pull apart, or drag a corner.
     static constexpr float kMinW = 0.5f, kCorner = 0.08f;
     bool resizing2 = false; float resizeStartW = 0, resizeStartD = 1;
+    // Settings: hold the back of the left wrist toward your face for kPalmHold to open (or close) a floating panel of big buttons.
+    static constexpr float kPalmHold = 0.5f, kMenuBtnW = 0.15f, kMenuBtnH = 0.075f, kMenuGap = 0.02f;
+    bool menuOpen = false, editLocked = false, palmArmed = true; float palmHold = 0; int menuHover = -1;
+    std::chrono::steady_clock::time_point palmStart{};
+    Entity menu;  // only its pose is used: the panel's plane, facing the user
+    struct MenuItem { const char* label; int col, row; };
+    static constexpr int kMenuItems = 7;
+    const MenuItem menuItems[kMenuItems] = {{"MINI", 0, 0}, {"LAPTOP", 1, 0}, {"SMALL", 0, 1}, {"MEDIUM", 1, 1}, {"LARGE", 2, 1},
+                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}};
+    void menuCenter(int i, float& x, float& y) {
+        x = (menuItems[i].col - 1) * (kMenuBtnW + kMenuGap); y = -(menuItems[i].row - 1) * (kMenuBtnH + kMenuGap);
+    }
+    bool palmFacing(V3& at) {
+        if (!handActive[0]) return false;
+        auto& pj = joints[0][XR_HAND_JOINT_PALM_EXT];
+        if (!(pj.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) || !(pj.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return false;
+        at = v3(pj.pose.position);
+        // The back of the wrist toward the face ("check your watch"): the palm-toward-face pose is Meta's system menu gesture.
+        V3 out = rot(pj.pose.orientation, {0, 1, 0});  // OpenXR hand joints: +Y is the back of the hand
+        return dot(out, norm(v3(head.position) - at)) > 0.75f && len(v3(head.position) - at) < 0.7f;
+    }
+    void openMenu() {
+        V3 f = rot(head.orientation, {0, 0, -1}); f.y = 0; f = norm(f);
+        if (len(f) < 0.5f) f = {0, 0, -1};
+        float yaw = std::atan2(-f.x, -f.z);
+        menu.pose.orientation = {0, std::sin(yaw / 2), 0, std::cos(yaw / 2)};
+        V3 c = v3(head.position) + f * 0.6f; c.y -= 0.12f;
+        menu.pose.position = {c.x, c.y, c.z};
+        menuOpen = true; menuHover = -1; event("settings opened");
+    }
+    void choose(int i) {
+        std::string l = menuItems[i].label;
+        auto* w = placed.active ? wallById(placed.wall) : nullptr;
+        if (l == "MINI") launcher.launch(hosts[0]);
+        else if (l == "LAPTOP") launcher.launch(hosts[1]);
+        else if (w && (l == "SMALL" || l == "MEDIUM" || l == "LARGE")) {
+            resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
+        } else if (l == "LOCK") editLocked = !editLocked;
+        else if (l == "CLOSE") menuOpen = false;
+        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : ""));
+    }
+    // Returns true when the settings panel takes the right hand this frame.
+    bool updateMenu() {
+        V3 palm;
+        if (palmFacing(palm)) {
+            if (palmArmed && palmHold == 0) palmStart = std::chrono::steady_clock::now();
+            if (palmArmed) palmHold = std::fmax(std::chrono::duration<float>(std::chrono::steady_clock::now() - palmStart).count() / kPalmHold, 1e-3f);
+            if (palmArmed && palmHold >= 1) { palmArmed = false; palmHold = 0; if (menuOpen) { menuOpen = false; event("settings closed"); } else openMenu(); }
+        } else { palmArmed = true; palmHold = 0; }
+        menuHover = -1;
+        if (!menuOpen) return false;
+        if (len(v3(head.position) - v3(menu.pose.position)) > 2.0f) { menuOpen = false; return false; }  // walked away
+        if (!(handActive[1] && ray[1].valid)) return false;
+        V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
+        if (std::fabs(ld.z) < 1e-4f) return false;
+        float t = -lo.z / ld.z; if (t <= 0) return false;
+        float x = lo.x + ld.x * t, y = lo.y + ld.y * t;
+        float hw = 1.5f * (kMenuBtnW + kMenuGap) + 0.02f, hh = 1.5f * (kMenuBtnH + kMenuGap) + 0.06f;
+        if (std::fabs(x) > hw || std::fabs(y) > hh) return false;
+        for (int i = 0; i < kMenuItems; i++) {
+            float bx, by; menuCenter(i, bx, by);
+            if (std::fabs(x - bx) < kMenuBtnW / 2 && std::fabs(y - by) < kMenuBtnH / 2) menuHover = i;
+        }
+        if (menuHover >= 0 && ray[1].pinch && !pinchPrev[1]) choose(menuHover);
+        return true;
+    }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
         float aspect = placed.h / placed.w, m = 0.03f;
@@ -663,6 +729,11 @@ void main(){
 
     void updatePlacement() {
         candidate.active = false;
+        if (updateMenu()) {
+            releasePointer(); barHover = false; cornerHover = -1;
+            for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
+            return;
+        }
         float aspect = 0.625f;
         { std::lock_guard<std::mutex> g(video.lock); if (video.width > 0 && video.height > 0) aspect = (float)video.height / (float)video.width; }
         const float sizes[3][2] = {{1.0f, 1.0f * aspect}, {1.44f, 1.44f * aspect}, {2.0f, 2.0f * aspect}};
@@ -725,7 +796,7 @@ void main(){
                 return;
             }
             bool onScreen = hit && pw && hit == pw && std::fabs(hx - placed.x) < placed.w / 2 + 0.05f && std::fabs(hy - placed.y) < placed.h / 2 + kBarGap + 0.05f;
-            if (onScreen && pinch[0] && pinch[1] && (!pinchPrev[0] || !pinchPrev[1]) && handActive[0]) {
+            if (onScreen && !editLocked && pinch[0] && pinch[1] && (!pinchPrev[0] || !pinchPrev[1]) && handActive[0]) {
                 resizing2 = true; resizeStartW = placed.w; resizeStartD = std::fmax(len(ray[0].tip - ray[1].tip), 0.05f);
                 releasePointer(); event("two-hand resize");
                 for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
@@ -733,7 +804,7 @@ void main(){
             }
             // Corners: bit 0 = right, bit 1 = top. Grabbing one scales the screen around the opposite corner.
             cornerHover = -1;
-            if (onScreen) for (int c = 0; c < 4; c++) {
+            if (onScreen && !editLocked) for (int c = 0; c < 4; c++) {
                 float cx = placed.x + (c & 1 ? 1 : -1) * placed.w / 2, cy = placed.y + (c & 2 ? 1 : -1) * placed.h / 2;
                 if (std::fabs(hx - cx) < kCorner && std::fabs(hy - cy) < kCorner) cornerHover = c;
             }
@@ -745,7 +816,7 @@ void main(){
                     event("corner resize");
                 }
             }
-            if (cornerHover < 0 && hit && placed.active && hit->uuid == placed.wall) {
+            if (!editLocked && cornerHover < 0 && hit && placed.active && hit->uuid == placed.wall) {
                 float bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
                 if (std::fabs(hx - bx) < kBarW / 2 + 0.03f && std::fabs(hy - by) < kBarH / 2 + 0.03f) barHover = true;
             }
@@ -802,13 +873,17 @@ void main(){
         y = placed.y + placed.h / 2 + 0.075f;
         if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
     }
-    // 5x7 pixel font, just the letters the UI needs.
+    // 5x7 pixel font, A-Z (bit 16 is the leftmost column).
     static const uint8_t* glyph(char c) {
-        static const uint8_t M[7] = {17, 27, 21, 21, 17, 17, 17}, I[7] = {14, 4, 4, 4, 4, 4, 14}, N[7] = {17, 25, 21, 19, 17, 17, 17},
-            L[7] = {16, 16, 16, 16, 16, 16, 31}, A[7] = {14, 17, 17, 31, 17, 17, 17}, P[7] = {30, 17, 17, 30, 16, 16, 16},
-            T[7] = {31, 4, 4, 4, 4, 4, 4}, O[7] = {14, 17, 17, 17, 17, 17, 14};
-        switch (c) { case 'M': return M; case 'I': return I; case 'N': return N; case 'L': return L; case 'A': return A; case 'P': return P; case 'T': return T; case 'O': return O; }
-        return nullptr;
+        static const uint8_t F[26][7] = {
+            {14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30}, {14, 17, 16, 16, 16, 17, 14}, {30, 17, 17, 17, 17, 17, 30},
+            {31, 16, 16, 30, 16, 16, 31}, {31, 16, 16, 30, 16, 16, 16}, {14, 17, 16, 23, 17, 17, 15}, {17, 17, 17, 31, 17, 17, 17},
+            {14, 4, 4, 4, 4, 4, 14}, {7, 2, 2, 2, 2, 18, 12}, {17, 18, 20, 24, 20, 18, 17}, {16, 16, 16, 16, 16, 16, 31},
+            {17, 27, 21, 21, 17, 17, 17}, {17, 25, 21, 19, 17, 17, 17}, {14, 17, 17, 17, 17, 17, 14}, {30, 17, 17, 30, 16, 16, 16},
+            {14, 17, 17, 17, 21, 18, 13}, {30, 17, 17, 30, 20, 18, 17}, {15, 16, 16, 14, 1, 1, 30}, {31, 4, 4, 4, 4, 4, 4},
+            {17, 17, 17, 17, 17, 17, 14}, {17, 17, 17, 17, 17, 10, 4}, {17, 17, 17, 21, 21, 21, 10}, {17, 17, 10, 4, 10, 17, 17},
+            {17, 17, 10, 4, 4, 4, 4}, {31, 1, 2, 4, 8, 16, 31}};
+        return c >= 'A' && c <= 'Z' ? F[c - 'A'] : nullptr;
     }
     void text(Batch& b, const Entity& w, float cx, float cy, float z, float px, const char* s, const float* col) {
         int n = (int)strlen(s); float x0 = cx - (n * 6 - 1) * px / 2, y0 = cy + 3.5f * px;
@@ -876,7 +951,8 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); grabBar(occ, *w); corners(occ, *w); }
+        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
+        drawMenu(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -910,6 +986,45 @@ void main(){
                 float L = lastNearest > 0 ? std::fmin(lastNearest, 6.0f) : 3.0f;
                 const float hitCol[4] = {0.3f, 1.0f, 0.5f, 0.8f};
                 over.ray(o + d * 0.05f, o + d * L, 0.003f, candidate.active ? hitCol : rayCol);
+            }
+        }
+    }
+    void drawMenu(Batch& b) {
+        V3 palm;
+        if (palmHold > 0 && palmFacing(palm)) {  // the palm ring fills while summoning
+            V3 toHead = norm(v3(head.position) - palm), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
+            const float col[4] = {0.3f, 0.75f, 1.0f, 0.95f}; float r = 0.03f; int n = (int)(24 * std::fmin(palmHold, 1.0f));
+            for (int i = 0; i < n; i++) {
+                float a0 = 1.5708f - i * 0.2618f, a1 = 1.5708f - (i + 1) * 0.2618f;
+                b.line(palm + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), palm + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.005f, col);
+            }
+        }
+        if (!menuOpen) return;
+        auto P = [&](float x, float y, float z) { return xform(menu.pose, {x, y, z}); };
+        float hw = 1.5f * (kMenuBtnW + kMenuGap) + 0.02f, hh = 1.5f * (kMenuBtnH + kMenuGap) + 0.06f;
+        const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
+        b.quad(P(-hw, -hh + 0.04f, 0), P(hw, -hh + 0.04f, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
+        text(b, menu, 0, hh - 0.04f, 0.003f, 0.006f, "SETTINGS", white);
+        std::string current = video.source;
+        for (int i = 0; i < kMenuItems; i++) {
+            float x, y; menuCenter(i, x, y);
+            std::string l = menuItems[i].label;
+            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : false;
+            const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
+            float f[4]; for (int k = 0; k < 4; k++) f[k] = on ? act[k] : idle[k];
+            if (menuHover == i) for (int k = 0; k < 3; k++) f[k] = std::fmin(1.0f, f[k] + 0.2f);
+            b.quad(P(x - kMenuBtnW / 2, y - kMenuBtnH / 2, 0.002f), P(x + kMenuBtnW / 2, y - kMenuBtnH / 2, 0.002f),
+                   P(x + kMenuBtnW / 2, y + kMenuBtnH / 2, 0.002f), P(x - kMenuBtnW / 2, y + kMenuBtnH / 2, 0.002f), f);
+            text(b, menu, x, y, 0.004f, 0.0055f, menuItems[i].label, white);
+        }
+        if (menuHover >= 0 && handActive[1] && ray[1].valid) {
+            V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
+            float t = -lo.z / ld.z; V3 c = P(lo.x + ld.x * t, lo.y + ld.y * t, 0.006f);
+            V3 n = rot(menu.pose.orientation, {0, 0, 1}), ax = rot(menu.pose.orientation, {1, 0, 0}), ay = rot(menu.pose.orientation, {0, 1, 0});
+            const float col[4] = {1.0f, 0.8f, 0.2f, 1.0f}; float r = 0.008f;
+            for (int i = 0; i < 12; i++) {
+                float a0 = i * 0.5236f, a1 = (i + 1) * 0.5236f;
+                b.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), n, 0.003f, col);
             }
         }
     }
