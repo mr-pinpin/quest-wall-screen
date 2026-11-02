@@ -10,8 +10,15 @@
 //                                                 scale 2 = HiDPI (Retina-sharp text), 1 = plain
 //   POST /remove?id=2                   -> remove it (its windows move back, like unplugging a monitor)
 // Only loopback and the house network (192.168.0.0/16) may call it.
+//
+// Mouse on UDP :57711 (one datagram per event, so pointing stays low latency):
+//   "m <screen> <u> <v>"  move the pointer      u, v in 0..10000 across that display (0,0 = top left)
+//   "c <screen> <u> <v>"  click there           (down, up 40 ms later)
+// Keyboard needs nothing here: text and keys from the stream go to the focused window on any display.
+// Posting events needs Accessibility for this binary (System Settings > Privacy & Security > Accessibility).
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <ApplicationServices/ApplicationServices.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -37,7 +44,7 @@
 @property(readonly, nonatomic) CGDirectDisplayID displayID;
 @end
 
-static const int kPort = 57710;
+static const int kPort = 57710, kMousePort = 57711;
 static NSMutableDictionary<NSNumber *, CGVirtualDisplay *> *displays;
 static NSMutableDictionary<NSNumber *, NSArray<NSNumber *> *> *sizes;  // points w, h, scale
 static NSString *statePath;
@@ -131,6 +138,27 @@ static void serve(int fd) {
         send(fd, out.bytes, out.length, 0); close(fd);
     });
 }
+static CGPoint pointOn(int sid, int u, int v, BOOL *ok) {
+    CGVirtualDisplay *d = displays[@(sid)]; *ok = d != nil;
+    if (!d) return CGPointZero;
+    CGRect b = CGDisplayBounds(d.displayID);  // global points, follows the user's arrangement
+    return CGPointMake(b.origin.x + b.size.width * fmin(fmax(u, 0), 10000) / 10000.0,
+                       b.origin.y + b.size.height * fmin(fmax(v, 0), 10000) / 10000.0);
+}
+static void post(CGEventType t, CGPoint p) {
+    CGEventRef e = CGEventCreateMouseEvent(NULL, t, p, kCGMouseButtonLeft);
+    if (e) { CGEventPost(kCGHIDEventTap, e); CFRelease(e); }
+}
+static void mouse(const char *msg) {
+    char op = 0; int sid = 0, u = 0, v = 0;
+    if (sscanf(msg, "%c %d %d %d", &op, &sid, &u, &v) != 4) return;
+    BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
+    if (op == 'm') post(kCGEventMouseMoved, p);
+    else if (op == 'c') {
+        post(kCGEventMouseMoved, p); post(kCGEventLeftMouseDown, p);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ post(kCGEventLeftMouseUp, p); });
+    }
+}
 int main(void) {
     @autoreleasepool {
         displays = [NSMutableDictionary dictionary]; sizes = [NSMutableDictionary dictionary];
@@ -154,6 +182,22 @@ int main(void) {
             serve(fd);
         });
         dispatch_resume(src);
+
+        int us = socket(AF_INET, SOCK_DGRAM, 0);
+        struct sockaddr_in ua = {0}; ua.sin_family = AF_INET; ua.sin_port = htons(kMousePort); ua.sin_addr.s_addr = htonl(INADDR_ANY);
+        if (bind(us, (struct sockaddr *)&ua, sizeof ua)) { perror("bind udp"); return 1; }
+        // Ask once: macOS lists this binary under Accessibility and offers to open the setting.
+        BOOL trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES});
+        NSLog(@"mouse on udp :%d (Accessibility trusted: %d)", kMousePort, trusted);
+        dispatch_source_t usrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, us, 0, dispatch_get_main_queue());
+        dispatch_source_set_event_handler(usrc, ^{
+            char buf[128]; struct sockaddr_in peer; socklen_t len = sizeof peer;
+            ssize_t n = recvfrom(us, buf, sizeof buf - 1, 0, (struct sockaddr *)&peer, &len);
+            uint32_t ip = ntohl(peer.sin_addr.s_addr);
+            if (n <= 0 || ((ip >> 24) != 127 && (ip >> 16) != ((192 << 8) | 168))) return;
+            buf[n] = 0; mouse(buf);
+        });
+        dispatch_resume(usrc);
         [[NSRunLoop mainRunLoop] run];
     }
     return 0;

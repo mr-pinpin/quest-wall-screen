@@ -1042,7 +1042,7 @@ void main(){
     // headset shows those displays; turning it off removes them so nothing wanders onto a monitor nobody can see.
     bool macDisplays = true; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
     void macDisplay(int id, bool create) {
-        std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200" : "/remove?id=" + std::to_string(id);
+        std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200&scale=2" : "/remove?id=" + std::to_string(id);
         std::string host = displayHost;
         std::thread([this, host, path] {
             int fd = socket(AF_INET, SOCK_STREAM, 0); bool ok = false;
@@ -1063,6 +1063,16 @@ void main(){
     std::vector<Burst> bursts;
     long spellsCw = 0, spellsCcw = 0;
     int extraBarHover = -1, extraMoving = -1; float extraHold = 0; std::chrono::steady_clock::time_point extraStart{};
+    // Pointer on an extra screen: its display is not the one Sunshine streams, so moves and clicks go to the
+    // laptop helper over UDP (:57711), which posts them at that display's place in the desktop. Typing needs
+    // nothing extra: keys from the stream reach the focused window on any display.
+    int extraPtr = -1, mouseSock = -1, sentU = -1, sentV = -1; float eu = 0.5f, ev = 0.5f; long extraClicks = 0, extraMoves = 0;
+    void sendMouse(char op, int id, float u, float v) {
+        if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57711); inet_pton(AF_INET, displayHost.c_str(), &a.sin_addr);
+        char msg[64]; int n = snprintf(msg, sizeof msg, "%c %d %d %d", op, id, (int)(u * 10000), (int)(v * 10000));
+        sendto(mouseSock, msg, n, 0, (sockaddr*)&a, sizeof a);
+    }
     bool pointing(int h) {
         auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT];
         auto far = [&](int j, float d) { return (joints[h][j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && len(v3(joints[h][j].pose.position) - v3(pj.pose.position)) > d; };
@@ -1152,7 +1162,23 @@ void main(){
             if (p.wall != w->uuid) continue;
             if (std::fabs(hx - p.x) < kBarW / 2 + 0.03f && std::fabs(hy - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
         }
-        if (extraBarHover < 0) { extraHold = 0; return false; }
+        if (extraBarHover < 0) {
+            extraHold = 0;
+            // Pointing at an extra screen: drive the Mac pointer on its display.
+            int prev = extraPtr; extraPtr = -1;
+            float ex, ey; int i = extraAt(ray[1].o, ray[1].d, ex, ey);
+            if (i < 0) return false;
+            const Placement& p = extras[i].p;
+            float u = (ex - (p.x - p.w / 2)) / p.w, v = 1 - (ey - (p.y - p.h / 2)) / p.h;
+            if (prev != i) { eu = u; ev = v; }
+            float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : std::fmin(0.08f + speed * 0.9f, 0.7f);
+            eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
+            int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
+            if (iu != sentU || iv != sentV) { sendMouse('m', extras[i].id, eu, ev); sentU = iu; sentV = iv; extraMoves++; }
+            if (p1 && !pinchPrev[1]) { sendMouse('c', extras[i].id, eu, ev); extraClicks++; }
+            return true;
+        }
+        extraPtr = -1;
         if (p1 && !pinchPrev[1]) extraStart = std::chrono::steady_clock::now();
         extraHold = p1 ? std::chrono::duration<float>(std::chrono::steady_clock::now() - extraStart).count() / kHoldToMove : 0;
         if (extraHold >= 1) { extraMoving = extraBarHover; extraHold = 0; event("moving screen " + std::to_string(extras[extraMoving].id)); }
@@ -1226,6 +1252,17 @@ void main(){
             std::string title = "SCREEN " + std::to_string(extras[i].id);
             text(b, *w, p.x, p.y + p.h * 0.08f, 0.022f, UiGrid::fit(title, 0.012f, p.w * 0.6f, p.h * 0.2f), title.c_str(), white);
             text(b, *w, p.x, p.y - p.h * 0.12f, 0.022f, UiGrid::fit("MAC DISPLAY COMING", 0.006f, p.w * 0.7f, p.h * 0.1f), "MAC DISPLAY COMING", dim);
+            }
+            if (extraPtr == (int)i) {  // cursor: constant angular size, dark outline, gold while pressing
+                V3 c = P(p.x - p.w / 2 + eu * p.w, p.y - p.h / 2 + (1 - ev) * p.h, 0.035f);
+                V3 ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0}), n = rot(w->pose.orientation, {0, 0, 1});
+                float k = std::fmax(len(c - eye), 0.3f) / 1.5f, rr = (ray[1].pinch ? 0.009f : 0.016f) * k;
+                const float sh[4] = {0, 0, 0, 0.65f}, wc[4] = {1, 1, 1, 0.95f}, gc[4] = {1.0f, 0.8f, 0.2f, 1};
+                for (int pass = 0; pass < 2; pass++) for (int s = 0; s < 20; s++) {
+                    float a0 = s * 0.31416f, a1 = (s + 1) * 0.31416f; V3 cz = c + n * (pass * 0.001f);
+                    b.line(cz + ax * (rr * std::cos(a0)) + ay * (rr * std::sin(a0)), cz + ax * (rr * std::cos(a1)) + ay * (rr * std::sin(a1)), n,
+                           (pass ? 0.004f : 0.009f) * k, pass ? (ray[1].pinch ? gc : wc) : sh);
+                }
             }
             if (!editLocked) {  // grab bar
                 float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
@@ -1904,7 +1941,7 @@ void main(){
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
-        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
+        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
