@@ -166,7 +166,9 @@ struct App {
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
-    bool bezel = false;  // BEZEL flag: a thin dark frame over the panel edge (eye buffers, 4x MSAA) hides the compositor's edge line
+    bool bezel = true;   // BEZEL flag (default: it removed the line completely): a frame over the panel edge, drawn in the eye
+                         // buffers above the layer with 4x MSAA, hides the compositor's aliased edge line
+    bool bezelFade = false, bezelGlass = false, bezelAmbi = false;  // FADE / GLASS / AMBI bezel styles (grey when all off)
     bool nativeRes = false;  // NATIVE: stream the laptop at its panel's real pixels (2880x1800) instead of 2560x1600
     float currentHz() { float hz = 0; if (xrGetDisplayRefreshRateFB_ && session) xrGetDisplayRefreshRateFB_(session, &hz); return hz; }
     GameStreamHost hostFor(int i) const {
@@ -345,11 +347,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 12;
+    static constexpr int kMenuItems = 15;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
-                                            {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"}};
+                                            {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -361,6 +364,9 @@ struct App {
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
+        if (l == "FADE") return bezelFade;
+        if (l == "GLASS") return bezelGlass;
+        if (l == "AMBI") return bezelAmbi;
         return -1;
     }
     void layoutMenu() {
@@ -431,6 +437,9 @@ struct App {
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
         else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
+        else if (l == "FADE") bezelFade = !bezelFade;                     // bezel styles; precedence AMBI > GLASS > FADE > grey
+        else if (l == "GLASS") bezelGlass = !bezelGlass;
+        else if (l == "AMBI") bezelAmbi = !bezelAmbi;
         else if (l == "CURVE") {  // curved panel (with QUAD), centred on where the user stands now
             panelLayer.curve = !panelLayer.curve;
             if (auto* w = placed.active ? wallById(placed.wall) : nullptr)
@@ -618,6 +627,10 @@ uniform sampler2DArray uDepth; uniform int uOcclude; uniform float uLayer; unifo
 out vec4 oColor;
 void main(){
   vec4 c=vCol;
+  if(vUv.x<-5.0){  // AMBI bezel: colour from the screen's nearest edge (blurred by a high mip), alpha from the vertex
+    vec3 e=uHasVideo>0 ? textureLod(uVideo,clamp(vec2(vUv.x+10.0,1.0-vUv.y),0.002,0.998),6.0).rgb : vec3(0.06);
+    c=vec4(e*0.85,vCol.a);
+  }
   if(vUv.x>=0.0){
     if(uHasVideo==2) discard;  // QUAD: the compositor quad layer underneath shows the panel
     vec2 g=fract(vUv*vec2(16.0,10.0)); float grid=step(0.965,max(g.x,g.y));
@@ -1302,6 +1315,41 @@ void main(){
         }
     }
 
+    // Frame over the panel edge. Every style keeps an opaque core from 4 mm inside to 6 mm outside the edge,
+    // which covers the compositor's line; the styles differ around it. AMBI vertices carry panel UVs shifted
+    // by -10, and the eye shader then colours them from the screen's nearest edge (a high mip of the video).
+    void bezelFrame(Batch& b, const Entity& wall) {
+        float l = placed.x - placed.w / 2, r = placed.x + placed.w / 2, bt = placed.y - placed.h / 2, t = placed.y + placed.h / 2;
+        const float z = 0.022f, in = 0.004f;
+        auto P = [&](float x, float y) { return xform(wall.pose, {x, y, z}); };
+        // A ring between distances d0 and d1 outside the panel edge (negative = inside), as four strips.
+        auto ring = [&](float d0, float d1, const float* col) {
+            float xs[4][4] = {{l - d1, t + d0, r + d1, t + d1}, {l - d1, bt - d1, r + d1, bt - d0},   // top, bottom
+                              {l - d1, bt - d0, l - d0, t + d0}, {r + d0, bt - d0, r + d1, t + d0}};  // left, right
+            for (auto& q : xs) {
+                V3 a = P(q[0], q[1]), bb = P(q[2], q[1]), c = P(q[2], q[3]), d = P(q[0], q[3]);
+                if (!bezelAmbi) { b.quad(a, bb, c, d, col); continue; }
+                auto uv = [&](float x, float y, float* o) { o[0] = std::fmin(1, std::fmax(0, (x - l) / placed.w)) - 10; o[1] = std::fmin(1, std::fmax(0, (y - bt) / placed.h)); };
+                float ua[2], ub[2], uc[2], ud[2]; uv(q[0], q[1], ua); uv(q[2], q[1], ub); uv(q[2], q[3], uc); uv(q[0], q[3], ud);
+                b.tri(a, bb, c, col, ua, ub, uc); b.tri(a, c, d, col, ua, uc, ud);
+            }
+        };
+        if (bezelAmbi) {  // the screen's own edge colours, opaque core then fading into the room
+            const float core[4] = {1, 1, 1, 1}; ring(-in, 0.006f, core);
+            for (int i = 0; i < 6; i++) { float a = 0.85f * (1 - i / 6.0f); const float c[4] = {1, 1, 1, a}; ring(0.006f + i * 0.004f, 0.010f + i * 0.004f, c); }
+        } else if (bezelGlass) {  // frosted acrylic: light core, translucent rim showing the room, faint top highlight
+            const float core[4] = {0.80f, 0.84f, 0.90f, 1}, rim[4] = {0.86f, 0.90f, 0.96f, 0.35f}, hi[4] = {1, 1, 1, 0.55f};
+            ring(-in, 0.006f, core); ring(0.006f, 0.020f, rim);
+            V3 a = P(l - 0.020f, t + 0.018f), bb = P(r + 0.020f, t + 0.018f), c = P(r + 0.020f, t + 0.020f), d = P(l - 0.020f, t + 0.020f);
+            b.quad(a, bb, c, d, hi);
+        } else if (bezelFade) {  // dark core melting into the room over ~2 cm
+            const float core[4] = {0.06f, 0.06f, 0.07f, 1}; ring(-in, 0.006f, core);
+            for (int i = 0; i < 6; i++) { float a = 0.8f * (1 - i / 6.0f); const float c[4] = {0.06f, 0.06f, 0.07f, a}; ring(0.006f + i * 0.003f, 0.009f + i * 0.003f, c); }
+        } else {  // grey: the frame that removed the line
+            const float grey[4] = {0.06f, 0.06f, 0.07f, 1}; ring(-in, 0.014f, grey);
+        }
+    }
+
     void build(Batch& occ, Batch& over) {
         const float wallCol[4] = {0.3f, 0.85f, 1.0f, 0.55f}, planeCol[4] = {1, 1, 1, 0.35f}, volCol[4] = {1.0f, 0.6f, 0.15f, 0.6f};
         bool placing = moving || !placed.active;
@@ -1318,15 +1366,7 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) {
-            const float col[4] = {0.06f, 0.06f, 0.07f, 1.0f}; const float in = 0.004f, out = 0.014f, z = 0.022f;
-            float l = placed.x - placed.w / 2, r = placed.x + placed.w / 2, b = placed.y - placed.h / 2, t = placed.y + placed.h / 2;
-            auto P = [&](float x, float y) { return xform(w->pose, {x, y, z}); };
-            occ.quad(P(l - out, t - in), P(r + out, t - in), P(r + out, t + out), P(l - out, t + out), col);  // top
-            occ.quad(P(l - out, b - out), P(r + out, b - out), P(r + out, b + in), P(l - out, b + in), col);  // bottom
-            occ.quad(P(l - out, b + in), P(l + in, b + in), P(l + in, t - in), P(l - out, t - in), col);      // left
-            occ.quad(P(r - in, b + in), P(r + out, b + in), P(r + out, t - in), P(r - in, t - in), col);      // right
-        }
+        if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w);
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawVoice(over);
