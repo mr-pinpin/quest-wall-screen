@@ -177,7 +177,7 @@ struct App {
     bool handActive[2] = {false, false}, pinchPrev[2] = {false, false};
     int handResult[2] = {0, 0};
     // Ray and pinch derived from joints: shoulder estimate -> pinch point, thumb/index tip distance.
-    struct HandRay { bool valid = false, pinch = false; V3 o{0, 0, 0}, d{0, 0, 0}; float gap = 1; };
+    struct HandRay { bool valid = false, pinch = false; V3 o{0, 0, 0}, d{0, 0, 0}, tip{0, 0, 0}; float gap = 1; };
     HandRay ray[2];
 
     PFN_xrQuerySpacesFB xrQuerySpacesFB_ = nullptr;
@@ -214,6 +214,17 @@ struct App {
     static constexpr float kHoldToMove = 0.5f, kBarW = 0.36f, kBarH = 0.035f, kBarGap = 0.045f;
     bool moving = false, barHover = false, barHolding = false; float barHold = 0;
     std::chrono::steady_clock::time_point barPinchStart{};
+    // Resize: pinch with both hands while pointing at the screen and pull apart, or drag a corner.
+    static constexpr float kMinW = 0.5f, kCorner = 0.08f;
+    bool resizing2 = false; float resizeStartW = 0, resizeStartD = 1;
+    int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
+    void resizeTo(float w, const Entity& wall) {
+        float aspect = placed.h / placed.w, m = 0.03f;
+        w = std::fmax(w, kMinW);
+        w = std::fmin(w, wall.r2.extent.width - 2 * m);
+        w = std::fmin(w, (wall.r2.extent.height - 2 * m) / aspect);
+        placed.w = w; placed.h = w * aspect;
+    }
     // Pointer on the placed panel: hand ray -> stream pixel, pinch = left button (hold to drag), like the TV remote.
     struct Pointer { bool on = false, pressed = false; float u = 0.5f, v = 0.5f; int sentX = -1, sentY = -1; long moves = 0, clicks = 0; } pointer;
     long aimFrames = 0, hitFrames = 0, pinchEdges = 0; V3 lastAimO{0, 0, 0}, lastAimD{0, 0, 0}; float lastNearest = -1; std::string lastNearestWall;
@@ -609,6 +620,7 @@ void main(){
             const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT;
             if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; continue; }
             hr.gap = len(v3(th.pose.position) - v3(ix.pose.position));
+            hr.tip = (v3(th.pose.position) + v3(ix.pose.position)) * 0.5f;
             hr.pinch = hr.pinch ? hr.gap < 0.035f : hr.gap < 0.018f;
             V3 grip = (v3(kn.pose.position) + v3(tm.pose.position)) * 0.5f;
             V3 shoulder = xform(head, {h == 1 ? 0.17f : -0.17f, -0.2f, 0.05f});
@@ -659,7 +671,48 @@ void main(){
                 for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
                 return;
             }
-            if (hit && placed.active && hit->uuid == placed.wall) {
+            Entity* pw = placed.active ? wallById(placed.wall) : nullptr;
+            if (resizing2 || cornerDrag >= 0) {
+                releasePointer();
+                if (pw && resizing2) {
+                    if (pinch[0] && pinch[1]) resizeTo(resizeStartW * len(ray[0].tip - ray[1].tip) / resizeStartD, *pw);
+                    validate(placed, *pw);
+                }
+                if (pw && cornerDrag >= 0 && hit == pw) {
+                    float aspect = placed.h / placed.w;
+                    resizeTo(std::fmax(std::fabs(hx - anchorX), std::fabs(hy - anchorY) / aspect), *pw);
+                    placed.x = anchorX + (cornerDrag & 1 ? 1 : -1) * placed.w / 2;
+                    placed.y = anchorY + (cornerDrag & 2 ? 1 : -1) * placed.h / 2;
+                    validate(placed, *pw);
+                }
+                if (resizing2 ? !(pinch[0] && pinch[1]) : !pinch[1]) {
+                    resizing2 = false; cornerDrag = -1; savePlacement(); event("resized panel to " + std::to_string(placed.w) + " m");
+                }
+                for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
+                return;
+            }
+            bool onScreen = hit && pw && hit == pw && std::fabs(hx - placed.x) < placed.w / 2 + 0.05f && std::fabs(hy - placed.y) < placed.h / 2 + kBarGap + 0.05f;
+            if (onScreen && pinch[0] && pinch[1] && (!pinchPrev[0] || !pinchPrev[1]) && handActive[0]) {
+                resizing2 = true; resizeStartW = placed.w; resizeStartD = std::fmax(len(ray[0].tip - ray[1].tip), 0.05f);
+                releasePointer(); event("two-hand resize");
+                for (int k = 0; k < 2; k++) pinchPrev[k] = pinch[k];
+                return;
+            }
+            // Corners: bit 0 = right, bit 1 = top. Grabbing one scales the screen around the opposite corner.
+            cornerHover = -1;
+            if (onScreen) for (int c = 0; c < 4; c++) {
+                float cx = placed.x + (c & 1 ? 1 : -1) * placed.w / 2, cy = placed.y + (c & 2 ? 1 : -1) * placed.h / 2;
+                if (std::fabs(hx - cx) < kCorner && std::fabs(hy - cy) < kCorner) cornerHover = c;
+            }
+            if (cornerHover >= 0) {
+                onPanel = true; releasePointer();
+                if (pinch[1] && !pinchPrev[1]) {
+                    cornerDrag = cornerHover;
+                    anchorX = placed.x - (cornerDrag & 1 ? 1 : -1) * placed.w / 2; anchorY = placed.y - (cornerDrag & 2 ? 1 : -1) * placed.h / 2;
+                    event("corner resize");
+                }
+            }
+            if (cornerHover < 0 && hit && placed.active && hit->uuid == placed.wall) {
                 float bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
                 if (std::fabs(hx - bx) < kBarW / 2 + 0.03f && std::fabs(hy - by) < kBarH / 2 + 0.03f) barHover = true;
             }
@@ -673,7 +726,7 @@ void main(){
                 }
             }
             if (!barHover || !pinch[1]) { barHolding = false; barHold = 0; }
-            if (!barHover && hit && placed.active && hit->uuid == placed.wall) {
+            if (cornerHover < 0 && !barHover && hit && placed.active && hit->uuid == placed.wall) {
                 for (int b = 0; b < 2; b++) {
                     float bx, by; buttonCenter(b, bx, by);
                     if (std::fabs(hx - bx) < kButtonW / 2 && std::fabs(hy - by) < kButtonH / 2) hoverButton = b;
@@ -683,7 +736,7 @@ void main(){
                     if (pinch[1] && !pinchPrev[1]) { launcher.launch(hosts[hoverButton]); event(std::string("switch to ") + hosts[hoverButton].name); }
                 }
             }
-            if (!barHover && hit && placed.active && hit->uuid == placed.wall && hoverButton < 0) {
+            if (cornerHover < 0 && !barHover && hit && placed.active && hit->uuid == placed.wall && hoverButton < 0) {
                 float u = (hx - (placed.x - placed.w / 2)) / placed.w, v = 1.0f - (hy - (placed.y - placed.h / 2)) / placed.h;
                 if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
                     onPanel = true;
@@ -786,7 +839,7 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
-        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); grabBar(occ, *w); }
+        if (placed.active) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); grabBar(occ, *w); corners(occ, *w); }
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -810,6 +863,19 @@ void main(){
                 const float hitCol[4] = {0.3f, 1.0f, 0.5f, 0.8f};
                 over.ray(o + d * 0.05f, o + d * L, 0.003f, candidate.active ? hitCol : rayCol);
             }
+        }
+    }
+    void corners(Batch& b, const Entity& w) {
+        bool show = pointer.on || barHover || cornerHover >= 0 || cornerDrag >= 0 || resizing2;
+        if (!show) return;
+        V3 n = rot(w.pose.orientation, {0, 0, 1});
+        const float dim[4] = {0.9f, 0.93f, 1.0f, 0.45f}, hot[4] = {0.3f, 0.75f, 1.0f, 0.95f};
+        for (int c = 0; c < 4; c++) {
+            float sx = c & 1 ? 1 : -1, sy = c & 2 ? 1 : -1, x = placed.x + sx * (placed.w / 2 + 0.012f), y = placed.y + sy * (placed.h / 2 + 0.012f), L = 0.07f;
+            const float* col = (c == cornerHover || c == cornerDrag || resizing2) ? hot : dim;
+            V3 k = xform(w.pose, {x, y, 0.024f});
+            b.line(k, xform(w.pose, {x - sx * L, y, 0.024f}), n, 0.008f, col);
+            b.line(k, xform(w.pose, {x, y - sy * L, 0.024f}), n, 0.008f, col);
         }
     }
     void grabBar(Batch& b, const Entity& w) {

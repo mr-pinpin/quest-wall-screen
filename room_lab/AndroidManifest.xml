@@ -1,8 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pinpin.wallscreen.roomlab" android:versionCode="4" android:versionName="0.4" android:installLocation="auto">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pinpin.wallscreen.roomlab" android:versionCode="5" android:versionName="0.5" android:installLocation="auto">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />
   <uses-feature android:glEsVersion="0x00030001" android:required="true" />
   <uses-feature android:name="android.hardware.vr.headtracking" android:required="true" />
   <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="true" />
+  <!-- Passthrough lets you see the real room, so no boundary: walk the whole apartment without the app pausing. -->
+  <uses-feature android:name="com.oculus.feature.BOUNDARYLESS_APP" android:required="true" />
   <uses-feature android:name="com.oculus.experimental.enabled" android:required="true" />
   <uses-feature android:name="oculus.software.handtracking" android:required="false" />
   <uses-permission android:name="android.permission.INTERNET" />
