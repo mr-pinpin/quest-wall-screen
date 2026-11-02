@@ -61,8 +61,8 @@ final class Client {
 }
 
 final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
-    let o: Options
-    let tx: Int, ty: Int
+    var o: Options
+    var tx: Int, ty: Int
     var cur: [UInt8]                 // BGRA of the latest captured frame
     var changedAt: [Double]
     var dirty: [Bool]                // changed since last sent
@@ -77,12 +77,34 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
 
     init(_ o: Options) {
         self.o = o
+        tx = 0; ty = 0; cur = []; changedAt = []; dirty = []; sent = []; busy = []
+        super.init()
+        allocate()
+    }
+    func allocate() {
         tx = (o.width + o.tile - 1) / o.tile; ty = (o.height + o.tile - 1) / o.tile
         cur = [UInt8](repeating: 0, count: o.width * o.height * 4)
         changedAt = [Double](repeating: 0, count: tx * ty)
         dirty = [Bool](repeating: false, count: tx * ty)
         sent = [Bool](repeating: false, count: tx * ty)
         busy = [Double](repeating: 0, count: tx * ty)
+    }
+    func configuration(_ w: Int, _ h: Int) -> SCStreamConfiguration {
+        let c = SCStreamConfiguration()
+        c.width = w; c.height = h
+        c.pixelFormat = kCVPixelFormatType_32BGRA
+        // No color conversion: Sunshine encodes the display's native colors, and exact tiles must match the video.
+        c.showsCursor = true
+        c.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        c.queueDepth = 5
+        return c
+    }
+    // The headset asks for the size it decodes (NATIVE switches the stream between 2560x1600 and 2880x1800).
+    func resize(_ w: Int, _ h: Int) async {
+        guard (64...8192).contains(w), (64...8192).contains(h), w != o.width || h != o.height else { return }
+        if let s = stream { try? await s.updateConfiguration(configuration(w, h)) }
+        q.sync { o.width = w; o.height = h; allocate() }
+        log("capture size now \(w)x\(h), \(tx)x\(ty) tiles")
     }
     // A tile that keeps changing (video, Dock magnification) refines only after a long pause, so moving
     // content never alternates between video and exact pixels.
@@ -96,14 +118,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
         guard o.display < content.displays.count else { throw NSError(domain: "sharp", code: 1, userInfo: [NSLocalizedDescriptionKey: "no display \(o.display)"]) }
         let display = content.displays[o.display]
         let filter = SCContentFilter(display: display, excludingWindows: [])
-        let c = SCStreamConfiguration()
-        c.width = o.width; c.height = o.height
-        c.pixelFormat = kCVPixelFormatType_32BGRA
-        // No color conversion: Sunshine encodes the display's native colors, and exact tiles must match the video.
-        c.showsCursor = true
-        c.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        c.queueDepth = 5
-        let s = SCStream(filter: filter, configuration: c, delegate: self)
+        let s = SCStream(filter: filter, configuration: configuration(o.width, o.height), delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: q)
         try await s.startCapture()
         stream = s
@@ -141,6 +156,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self) else { return }
         let stride = CVPixelBufferGetBytesPerRow(pb)
+        if CVPixelBufferGetWidth(pb) != o.width || CVPixelBufferGetHeight(pb) != o.height { return }  // mid-resize frame
         let w = min(o.width, CVPixelBufferGetWidth(pb)), h = min(o.height, CVPixelBufferGetHeight(pb))
         let t = now()
         var invalid: [UInt16] = []
@@ -229,6 +245,17 @@ func serve(_ r: Refiner, port: UInt16) {
             if fd < 0 { continue }
             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, socklen_t(MemoryLayout<Int32>.size))
             var nosig: Int32 = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
+            // Optional size request "PPSZ" u16 w, u16 h (little endian); older headsets send nothing.
+            var tv = timeval(tv_sec: 0, tv_usec: 500_000)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+            var req = [UInt8](repeating: 0, count: 8)
+            let n = recv(fd, &req, 8, MSG_WAITALL)
+            if n == 8, req[0] == 0x50, req[1] == 0x50, req[2] == 0x53, req[3] == 0x5A {
+                let w = Int(req[4]) | Int(req[5]) << 8, h = Int(req[6]) | Int(req[7]) << 8
+                let done = DispatchSemaphore(value: 0)
+                Task { await r.resize(w, h); done.signal() }
+                done.wait()
+            }
             r.attach(Client(fd: fd))
         }
     }

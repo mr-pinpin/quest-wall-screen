@@ -32,6 +32,7 @@ struct SharpLayer {
     std::thread net;
     std::atomic<bool> enabled{true};  // SHARP in the settings panel; files/sharp-off also turns it off (for A/B tests)
     std::string offPath; long frameCount = 0; bool fileOff = false;
+    std::atomic<int> wantW{0}, wantH{0}, sock{-1};  // size of the decoded video, requested from the sender on connect
 
     std::mutex lock;  // guards everything below shared with the render thread
     std::string state = "off";
@@ -90,8 +91,13 @@ struct SharpLayer {
             setState("connecting");
             int fd = connectSender();
             if (fd < 0) { setState("sender unreachable"); sleepCheck(2000); continue; }
+            if (wantW > 0 && wantH > 0) {  // protocol: "PPSZ" u16 w, u16 h asks the sender to capture at the video's size
+                uint8_t q[8] = {'P', 'P', 'S', 'Z', (uint8_t)(wantW & 0xff), (uint8_t)(wantW >> 8), (uint8_t)(wantH & 0xff), (uint8_t)(wantH >> 8)};
+                send(fd, q, sizeof q, MSG_NOSIGNAL);
+            }
+            sock = fd;
             uint8_t h[11];
-            if (!readExact(fd, h, sizeof h) || memcmp(h, "PPSH", 4) != 0 || h[4] != 1) { close(fd); setState("bad hello"); sleepCheck(2000); continue; }
+            if (!readExact(fd, h, sizeof h) || memcmp(h, "PPSH", 4) != 0 || h[4] != 1) { sock = -1; close(fd); setState("bad hello"); sleepCheck(2000); continue; }
             {
                 std::lock_guard<std::mutex> g(lock);
                 width = h[5] | h[6] << 8; height = h[7] | h[8] << 8; tile = h[9] | h[10] << 8;
@@ -110,7 +116,7 @@ struct SharpLayer {
                 if (f[0] == 1 && n >= 2) invalidate(body);
                 else if (f[0] == 2 && n >= 6 && !tileIn(body, raw)) break;
             }
-            close(fd);
+            sock = -1; close(fd);
             clear();  // lost sender: back to video everywhere
             setState("reconnecting");
             sleepCheck(1000);
@@ -151,6 +157,10 @@ struct SharpLayer {
     // Upload new tiles and the mask; true when the layer applies to a video of this size from `videoSource`.
     bool apply(int videoW, int videoH, const std::string& videoSource) {
         if (frameCount++ % 60 == 0) fileOff = !offPath.empty() && access(offPath.c_str(), F_OK) == 0;
+        if (videoW > 0 && videoH > 0 && (wantW != videoW || wantH != videoH)) {  // NATIVE switched: reconnect at the new size
+            wantW = videoW; wantH = videoH;
+            int fd = sock; if (fd >= 0) ::shutdown(fd, SHUT_RDWR);
+        }
         std::vector<Tile> up; std::vector<uint8_t> m; bool newMask = false; int w, h, t, tx, ty;
         {
             std::lock_guard<std::mutex> g(lock);

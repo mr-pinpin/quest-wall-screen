@@ -13,9 +13,10 @@ def png(path, w, h, rgb):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('host'); p.add_argument('--port', type=int, default=57700)
-    p.add_argument('--seconds', type=float, default=10); p.add_argument('--png')
+    p.add_argument('--seconds', type=float, default=10); p.add_argument('--png'); p.add_argument('--size', help='request a capture size, e.g. 2880x1800')
     a = p.parse_args()
     s = socket.create_connection((a.host, a.port), timeout=10); s.settimeout(None)
+    if a.size: s.sendall(b'PPSZ' + struct.pack('<HH', *map(int, a.size.split('x'))))
     t0 = time.time(); buf = bytearray()
 
     def read(k):

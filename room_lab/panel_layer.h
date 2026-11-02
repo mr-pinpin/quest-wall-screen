@@ -13,6 +13,10 @@
 struct PanelLayer {
     bool enabled = false;       // QUAD toggle; files/quad-on forces it on (for A/B tests)
     bool superSample = false;   // XR_FB_composition_layer_settings available
+    bool cylinder = false;      // XR_KHR_composition_layer_cylinder available
+    bool sharpen = false;       // SHARPEN: the compositor's quality sharpening on top of super-sampling
+    bool curve = false;         // CURVE: a cylinder centred on the user instead of a flat quad
+    float radius = 2.0f;        // cylinder radius, set from the head-to-panel distance when CURVE is switched on
     XrSwapchain chain = XR_NULL_HANDLE;
     std::vector<GLuint> images;
     GLuint fbo = 0;
@@ -22,6 +26,7 @@ struct PanelLayer {
     long updates = 0;
     std::string error;
     XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerCylinderKHR cyl{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
     XrCompositionLayerSettingsFB settings{XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB};
 
     void destroy() {
@@ -63,20 +68,32 @@ struct PanelLayer {
         XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(chain, &ri);
         version = mipVersion; hasImage = true; updates++;
     }
-    XrCompositionLayerBaseHeader* layer(XrSpace space, const XrPosef& pose, float width, float height) {
-        quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-        quad.space = space; quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH; quad.pose = pose; quad.size = {width, height};
-        quad.subImage.swapchain = chain; quad.subImage.imageRect = {{0, 0}, {w, h}}; quad.subImage.imageArrayIndex = 0;
+    // flatPose: panel centre on the wall. axisPose: same orientation, `radius` in front of the wall, so the
+    // cylinder's arc (centred on -Z) touches the wall at the panel centre and curves toward the user.
+    XrCompositionLayerBaseHeader* layer(XrSpace space, const XrPosef& flatPose, const XrPosef& axisPose, float width, float height) {
+        const void* next = nullptr;
         if (superSample) {
             settings = {XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB};
-            settings.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB;
-            quad.next = &settings;
+            settings.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB |
+                                  (sharpen ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB : 0);
+            next = &settings;
         }
+        XrSwapchainSubImage sub{}; sub.swapchain = chain; sub.imageRect = {{0, 0}, {w, h}}; sub.imageArrayIndex = 0;
+        if (curve && cylinder && radius > 0.1f) {
+            cyl = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
+            cyl.next = next; cyl.space = space; cyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH; cyl.subImage = sub; cyl.pose = axisPose;
+            cyl.radius = radius; cyl.centralAngle = width / radius; cyl.aspectRatio = width / height;
+            return reinterpret_cast<XrCompositionLayerBaseHeader*>(&cyl);
+        }
+        quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+        quad.next = next; quad.space = space; quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH; quad.pose = flatPose; quad.size = {width, height};
+        quad.subImage = sub;
         return reinterpret_cast<XrCompositionLayerBaseHeader*>(&quad);
     }
     std::string json() const {
         return "{\"enabled\":" + std::to_string(enabled ? 1 : 0) + ",\"image\":" + std::to_string(hasImage ? 1 : 0) + ",\"size\":[" + std::to_string(w) + "," +
-               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) +
+               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) +
+               ",\"curve\":" + std::to_string(curve && cylinder ? 1 : 0) + ",\"radius\":" + std::to_string(radius) +
                ",\"updates\":" + std::to_string(updates) + ",\"error\":\"" + error + "\"}";
     }
 };
