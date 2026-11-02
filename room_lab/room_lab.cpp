@@ -1063,9 +1063,9 @@ void main(){
     std::vector<Burst> bursts;
     long spellsCw = 0, spellsCcw = 0;
     int extraBarHover = -1, extraMoving = -1; float extraHold = 0; std::chrono::steady_clock::time_point extraStart{};
-    // Pointer on an extra screen: its display is not the one Sunshine streams, so moves and clicks go to the
-    // laptop helper over UDP (:57711), which posts them at that display's place in the desktop. Typing needs
-    // nothing extra: keys from the stream reach the focused window on any display.
+    // Pointer on an extra screen: its display is not the one Sunshine streams, so the laptop helper (UDP :57711)
+    // warps the Mac pointer to that spot on the display, and the click goes through the stream: Sunshine's
+    // virtual HID presses where the pointer is. Keys from the stream reach the focused window on any display.
     int extraPtr = -1, mouseSock = -1, sentU = -1, sentV = -1; float eu = 0.5f, ev = 0.5f; long extraClicks = 0, extraMoves = 0;
     void sendMouse(char op, int id, float u, float v) {
         if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -1175,7 +1175,16 @@ void main(){
             eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
             int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
             if (iu != sentU || iv != sentV) { sendMouse('m', extras[i].id, eu, ev); sentU = iu; sentV = iv; extraMoves++; }
-            if (p1 && !pinchPrev[1]) { sendMouse('c', extras[i].id, eu, ev); extraClicks++; }
+            if (p1 && !pinchPrev[1]) {  // put the pointer there, then click through the stream (Sunshine clicks where it is)
+                sendMouse('c', extras[i].id, eu, ev); extraClicks++;
+                if (streamInput()) std::thread([this] {
+                    std::lock_guard<std::mutex> g(keyLock);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(15));  // let the warp land first
+                    LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                    LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT);
+                }).detach();
+            }
             return true;
         }
         extraPtr = -1;

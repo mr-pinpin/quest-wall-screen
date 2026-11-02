@@ -4,7 +4,7 @@
 set -e
 mkdir -p ~/.local/share/pinpin-displays
 cd ~/.local/share/pinpin-displays
-clang -fobjc-arc -O2 -framework Foundation -framework CoreGraphics -framework ApplicationServices src/pinpin-displays.m -o pinpin-displays
+clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework Foundation -framework CoreGraphics -framework ApplicationServices src/pinpin-displays.m -o pinpin-displays
 codesign -f -s - -i io.mr-pinpin.displays pinpin-displays
 P=~/Library/LaunchAgents/io.mr-pinpin.displays.plist
 cat > $P <<PL

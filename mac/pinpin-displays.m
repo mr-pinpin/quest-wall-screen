@@ -12,10 +12,10 @@
 // Only loopback and the house network (192.168.0.0/16) may call it.
 //
 // Mouse on UDP :57711 (one datagram per event, so pointing stays low latency):
-//   "m <screen> <u> <v>"  move the pointer      u, v in 0..10000 across that display (0,0 = top left)
-//   "c <screen> <u> <v>"  click there           (down, up 40 ms later)
-// Keyboard needs nothing here: text and keys from the stream go to the focused window on any display.
-// Posting events needs Accessibility for this binary (System Settings > Privacy & Security > Accessibility).
+//   "m <screen> <u> <v>"  move the pointer there   u, v in 0..10000 across that display (0,0 = top left)
+// The pointer is warped (CGWarpMouseCursorPosition needs no permission). Clicks and keys come through the
+// main stream: Sunshine's virtual HID presses the button wherever the pointer is, and keys reach the focused
+// window on any display, so this helper needs no Accessibility grant (an ad-hoc signed tool can't keep one).
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -153,9 +153,9 @@ static void mouse(const char *msg) {
     char op = 0; int sid = 0, u = 0, v = 0;
     if (sscanf(msg, "%c %d %d %d", &op, &sid, &u, &v) != 4) return;
     BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
-    if (op == 'm') post(kCGEventMouseMoved, p);
-    else if (op == 'c') {
-        post(kCGEventMouseMoved, p); post(kCGEventLeftMouseDown, p);
+    if (op == 'm' || op == 'c') CGWarpMouseCursorPosition(p);
+    if (op == 'c' && AXIsProcessTrusted()) {  // only if someone did grant Accessibility; normally the stream clicks
+        post(kCGEventLeftMouseDown, p);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ post(kCGEventLeftMouseUp, p); });
     }
 }
@@ -186,9 +186,8 @@ int main(void) {
         int us = socket(AF_INET, SOCK_DGRAM, 0);
         struct sockaddr_in ua = {0}; ua.sin_family = AF_INET; ua.sin_port = htons(kMousePort); ua.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(us, (struct sockaddr *)&ua, sizeof ua)) { perror("bind udp"); return 1; }
-        // Ask once: macOS lists this binary under Accessibility and offers to open the setting.
-        BOOL trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES});
-        NSLog(@"mouse on udp :%d (Accessibility trusted: %d)", kMousePort, trusted);
+        CGSetLocalEventsSuppressionInterval(0.0);  // a warp must not swallow the stream's click that follows it
+        NSLog(@"mouse on udp :%d", kMousePort);
         dispatch_source_t usrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, us, 0, dispatch_get_main_queue());
         dispatch_source_set_event_handler(usrc, ^{
             char buf[128]; struct sockaddr_in peer; socklen_t len = sizeof peer;
