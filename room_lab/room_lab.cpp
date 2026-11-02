@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include "moonlight.h"
 #include "voice.h"
+#include "ui_grid.h"
 #include "gamestream.h"
 #include "panel_layer.h"
 
@@ -289,7 +290,7 @@ struct App {
     static constexpr float kMinW = 0.5f, kCorner = 0.08f;
     bool resizing2 = false; float resizeStartW = 0, resizeStartD = 1;
     // Settings: hold the back of the left wrist toward your face for kPalmHold to open (or close) a floating panel of big buttons.
-    static constexpr float kPalmHold = 0.5f, kMenuBtnW = 0.15f, kMenuBtnH = 0.075f, kMenuGap = 0.02f;
+    static constexpr float kPalmHold = 0.5f;
     // LOCK pins the screen and the settings panel: the panel is always shown where it was left, and is saved in
     // the frame of a scene wall so it comes back in the same spot. Unlocked, the watch gesture re-places it.
     bool menuOpen = false, editLocked = true, palmArmed = true; float palmHold = 0; int menuHover = -1;
@@ -297,9 +298,9 @@ struct App {
     // Unlocked, the panel has a grab bar like the screen: hold, drag, and it sticks flat to the wall you point at.
     bool menuRestored = false, menuMoving = false, menuBarHover = false; float menuBarHold = 0; std::string menuStickWall;
     std::chrono::steady_clock::time_point menuBarStart{};
-    float menuHalfW() const { return 1.5f * (kMenuBtnW + kMenuGap) + 0.02f; }
-    float menuHalfH() const { return 2.5f * (kMenuBtnH + kMenuGap) + 0.06f; }  // five rows
-    float menuBarY() const { return -menuHalfH() + 0.04f - 0.035f; }
+    float menuHalfW() const { return menuGrid.halfW; }
+    float menuHalfH() const { return menuGrid.halfH; }
+    float menuBarY() const { return menuGrid.barY; }
     Entity* rayWall(V3 o, V3 d, float& hx, float& hy) {
         float best = 1e9f; Entity* hit = nullptr;
         for (auto& e : entities) {
@@ -315,14 +316,35 @@ struct App {
     }
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
-    struct MenuItem { const char* label; int col, row; };
+    // Settings items, in order. The panel lays itself out from this list (ui_grid.h): items flow into rows of three,
+    // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
+    // its action in choose() and, for a toggle, its state in itemOn().
+    struct MenuItem { const char* label; const char* section; };
     static constexpr int kMenuItems = 14;
-    const MenuItem menuItems[kMenuItems] = {{"MINI", 0, 0}, {"LAPTOP", 1, 0}, {"SMALL", 0, 1}, {"MEDIUM", 1, 1}, {"LARGE", 2, 1},
-                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"QUAD", 1, 2},
-                                            {"NATIVE", 0, 3}, {"SHARPEN", 1, 3}, {"CURVE", 2, 3},
-                                            {"120HZ", 0, 4}, {"BOOST", 1, 4}, {"AUTO", 2, 4}};
-    void menuCenter(int i, float& x, float& y) {
-        x = (menuItems[i].col - 1) * (kMenuBtnW + kMenuGap); y = -(menuItems[i].row - 2.0f) * (kMenuBtnH + kMenuGap);
+    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
+                                            {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
+                                            {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
+                                            {"NATIVE", "DISPLAY"}, {"SHARPEN", "DISPLAY"}, {"CURVE", "DISPLAY"},
+                                            {"120HZ", "PERFORMANCE"}, {"BOOST", "PERFORMANCE"}, {"AUTO", "PERFORMANCE"}};
+    UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
+    bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
+    // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
+    int itemOn(const std::string& l) {
+        if (l == "MINI" || l == "LAPTOP") return video.source == l;
+        if (l == "LOCK") return editLocked;
+        if (l == "QUAD") return panelLayer.enabled;
+        if (l == "NATIVE") return nativeRes;
+        if (l == "SHARPEN") return panelLayer.sharpen;
+        if (l == "CURVE") return panelLayer.curve;
+        if (l == "120HZ") return hz120;
+        if (l == "BOOST") return boost;
+        if (l == "AUTO") return panelLayer.autoFilter;
+        return -1;
+    }
+    void layoutMenu() {
+        std::vector<UiGrid::Item> items; menuShown.clear();
+        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) { items.push_back({menuItems[i].label, menuItems[i].section}); menuShown.push_back(i); }
+        menuGrid.layout(items);
     }
     bool palmFacing(V3& at) {
         if (!handActive[0]) return false;
@@ -383,7 +405,6 @@ struct App {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
-        else if (l == "SHARP") video.sharp.enabled = !video.sharp.enabled;  // A/B the lossless tiles live
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
         else if (l == "NATIVE") { nativeRes = !nativeRes; if (video.source == "LAPTOP") launcher.launch(hostFor(1)); }
         else if (l == "SHARPEN") panelLayer.sharpen = !panelLayer.sharpen;  // compositor text sharpening (with QUAD)
@@ -406,9 +427,8 @@ struct App {
                 panelLayer.radius = std::fmin(4.0f, std::fmax(1.0f, len(v3(head.position) - xform(w->pose, {placed.x, placed.y, 0}))));
         }
         if (l == "LOCK") saveSettings();
-        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : l == "SHARP" ? (video.sharp.enabled ? " on" : " off") : l == "QUAD" ? (panelLayer.enabled ? " on" : " off") : l == "NATIVE" ? (nativeRes ? " on" : " off") :
-                                       l == "SHARPEN" ? (panelLayer.sharpen ? " on" : " off") : l == "CURVE" ? (panelLayer.curve ? " on" : " off") :
-                                       l == "120HZ" ? (hz120 ? " on" : " off") : l == "BOOST" ? (boost ? " on" : " off") : l == "AUTO" ? (panelLayer.autoFilter ? " on" : " off") : ""));
+        int on = itemOn(l);
+        event("settings: " + l + (on < 0 || l == "MINI" || l == "LAPTOP" ? "" : on ? " on" : " off"));
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
@@ -431,6 +451,7 @@ struct App {
             }
         } else { palmArmed = true; palmHold = 0; }
         menuHover = -1; menuBarHover = false;
+        layoutMenu();
         if (!menuOpen) return false;
         if (menuMoving) {
             if (handActive[1] && ray[1].valid) {
@@ -454,7 +475,7 @@ struct App {
         float t = -lo.z / ld.z; if (t <= 0) return false;
         float x = lo.x + ld.x * t, y = lo.y + ld.y * t;
         float hw = menuHalfW(), hh = menuHalfH();
-        if (std::fabs(x) > hw || y > hh || y < menuBarY() - 0.04f) return false;
+        if (std::fabs(x) > hw || std::fabs(y) > hh) return false;
         if (!editLocked && std::fabs(x) < 0.18f && std::fabs(y - menuBarY()) < 0.035f) {
             menuBarHover = true;
             if (ray[1].pinch && !pinchPrev[1]) menuBarStart = std::chrono::steady_clock::now();
@@ -465,10 +486,8 @@ struct App {
             return true;
         }
         menuBarHold = 0;
-        for (int i = 0; i < kMenuItems; i++) {
-            float bx, by; menuCenter(i, bx, by);
-            if (std::fabs(x - bx) < kMenuBtnW / 2 && std::fabs(y - by) < kMenuBtnH / 2) menuHover = i;
-        }
+        int cell = menuGrid.hit(x, y);
+        if (cell >= 0) menuHover = menuShown[cell];
         if (menuHover >= 0 && ray[1].pinch && !pinchPrev[1]) choose(menuHover);
         return true;
     }
@@ -1140,7 +1159,7 @@ void main(){
         y = placed.y + placed.h / 2 + 0.075f;
         if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
     }
-    // 5x7 pixel font, A-Z (bit 16 is the leftmost column).
+    // 5x7 pixel font, A-Z and 0-9 (bit 16 is the leftmost column).
     static const uint8_t* glyph(char c) {
         static const uint8_t F[26][7] = {
             {14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30}, {14, 17, 16, 16, 16, 17, 14}, {30, 17, 17, 17, 17, 17, 30},
@@ -1150,7 +1169,11 @@ void main(){
             {14, 17, 17, 17, 21, 18, 13}, {30, 17, 17, 30, 20, 18, 17}, {15, 16, 16, 14, 1, 1, 30}, {31, 4, 4, 4, 4, 4, 4},
             {17, 17, 17, 17, 17, 17, 14}, {17, 17, 17, 17, 17, 10, 4}, {17, 17, 17, 21, 21, 21, 10}, {17, 17, 10, 4, 10, 17, 17},
             {17, 17, 10, 4, 4, 4, 4}, {31, 1, 2, 4, 8, 16, 31}};
-        return c >= 'A' && c <= 'Z' ? F[c - 'A'] : nullptr;
+        static const uint8_t D[10][7] = {
+            {14, 17, 19, 21, 25, 17, 14}, {4, 12, 4, 4, 4, 4, 14}, {14, 17, 1, 2, 4, 8, 31}, {31, 2, 4, 2, 1, 17, 14},
+            {2, 6, 10, 18, 31, 2, 2}, {31, 16, 30, 1, 1, 17, 14}, {6, 8, 16, 30, 17, 17, 14}, {31, 1, 2, 4, 8, 8, 8},
+            {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 2, 12}};
+        return c >= 'A' && c <= 'Z' ? F[c - 'A'] : c >= '0' && c <= '9' ? D[c - '0'] : nullptr;
     }
     void text(Batch& b, const Entity& w, float cx, float cy, float z, float px, const char* s, const float* col) {
         int n = (int)strlen(s); float x0 = cx - (n * 6 - 1) * px / 2, y0 = cy + 3.5f * px;
@@ -1291,8 +1314,10 @@ void main(){
         auto P = [&](float x, float y, float z) { return xform(menu.pose, {x, y, z}); };
         float hw = menuHalfW(), hh = menuHalfH();
         const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
-        b.quad(P(-hw, -hh + 0.04f, 0), P(hw, -hh + 0.04f, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
-        text(b, menu, 0, hh - 0.04f, 0.003f, 0.006f, "SETTINGS", white);
+        const float dim[4] = {0.62f, 0.68f, 0.78f, 1.0f};
+        b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
+        text(b, menu, 0, menuGrid.titleY, 0.003f, UiGrid::fit("SETTINGS", menuGrid.titlePx, 2 * hw - 2 * menuGrid.pad, menuGrid.titleH * 0.6f), "SETTINGS", white);
+        for (auto& h : menuGrid.headings) text(b, menu, h.x, h.y, 0.003f, h.px, h.text.c_str(), dim);
         if (!editLocked) {
             float y = menuBarY(), bw = 0.3f, bh = 0.025f;
             const float idle[4] = {0.75f, 0.78f, 0.82f, 0.45f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.8f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
@@ -1304,17 +1329,15 @@ void main(){
             }
         }
         std::string current = video.source;
-        for (int i = 0; i < kMenuItems; i++) {
-            float x, y; menuCenter(i, x, y);
-            std::string l = menuItems[i].label;
-            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : l == "SHARP" ? video.sharp.enabled.load() : l == "QUAD" ? panelLayer.enabled : l == "NATIVE" ? nativeRes : l == "SHARPEN" ? panelLayer.sharpen : l == "CURVE" ? panelLayer.curve : l == "120HZ" ? hz120 : l == "BOOST" ? boost : l == "AUTO" ? panelLayer.autoFilter : false;
-            if (l == "CLOSE" && editLocked) continue;  // pinned: nothing to close
+        for (size_t k = 0; k < menuShown.size(); k++) {
+            int i = menuShown[k]; const UiGrid::Cell& c = menuGrid.cells[k];
+            bool on = itemOn(menuItems[i].label) > 0;
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
-            float f[4]; for (int k = 0; k < 4; k++) f[k] = on ? act[k] : idle[k];
-            if (menuHover == i) for (int k = 0; k < 3; k++) f[k] = std::fmin(1.0f, f[k] + 0.2f);
-            b.quad(P(x - kMenuBtnW / 2, y - kMenuBtnH / 2, 0.002f), P(x + kMenuBtnW / 2, y - kMenuBtnH / 2, 0.002f),
-                   P(x + kMenuBtnW / 2, y + kMenuBtnH / 2, 0.002f), P(x - kMenuBtnW / 2, y + kMenuBtnH / 2, 0.002f), f);
-            text(b, menu, x, y, 0.004f, 0.0055f, menuItems[i].label, white);
+            float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
+            if (menuHover == i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
+            b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f),
+                   P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), f);
+            text(b, menu, c.x, c.y, 0.004f, c.px, menuItems[i].label, white);
         }
         if (menuHover >= 0 && handActive[1] && ray[1].valid) {
             V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
