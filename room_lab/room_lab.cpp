@@ -181,7 +181,12 @@ struct App {
         return open >= 3;
     }
     void pressEnter() {
-        if (streamInput()) { LiSendKeyboardEvent((short)0x800D, KEY_ACTION_DOWN, 0); LiSendKeyboardEvent((short)0x800D, KEY_ACTION_UP, 0); }
+        // Hold it like a finger would: Sunshine on the Macs types through a virtual HID keyboard, and a down/up pair
+        // sent 1 ms apart can collapse into no press at all (the Unicode text path is unaffected).
+        if (streamInput()) {
+            LiSendKeyboardEvent((short)0x800D, KEY_ACTION_DOWN, 0);
+            std::thread([] { std::this_thread::sleep_for(std::chrono::milliseconds(60)); LiSendKeyboardEvent((short)0x800D, KEY_ACTION_UP, 0); }).detach();
+        }
         enters++; caption = "SENT"; captionAt = std::chrono::steady_clock::now(); event("enter sent");
     }
     GameStreamLauncher launcher;
