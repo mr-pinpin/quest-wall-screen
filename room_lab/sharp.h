@@ -30,6 +30,8 @@ struct SharpLayer {
     int port = 57700;
     std::atomic<bool> stop{false};
     std::thread net;
+    std::atomic<bool> enabled{true};  // SHARP in the settings panel; files/sharp-off also turns it off (for A/B tests)
+    std::string offPath; long frameCount = 0; bool fileOff = false;
 
     std::mutex lock;  // guards everything below shared with the render thread
     std::string state = "off";
@@ -56,6 +58,7 @@ struct SharpLayer {
         std::stringstream ss; ss << f.rdbuf(); std::string j = ss.str();
         host = field(j, "host"); source = field(j, "source");
         int p = atoi(field(j, "port").c_str()); if (p > 0) port = p;
+        offPath = dir + "/sharp-off";
         if (host.empty()) return;
         net = std::thread([this] { run(); });
     }
@@ -147,6 +150,7 @@ struct SharpLayer {
     // ------------------------------------------------------------ render thread
     // Upload new tiles and the mask; true when the layer applies to a video of this size from `videoSource`.
     bool apply(int videoW, int videoH, const std::string& videoSource) {
+        if (frameCount++ % 60 == 0) fileOff = !offPath.empty() && access(offPath.c_str(), F_OK) == 0;
         std::vector<Tile> up; std::vector<uint8_t> m; bool newMask = false; int w, h, t, tx, ty;
         {
             std::lock_guard<std::mutex> g(lock);
@@ -181,14 +185,14 @@ struct SharpLayer {
         }
         if (newMask && !m.empty()) { glBindTexture(GL_TEXTURE_2D, maskTex); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tx, ty, GL_RED, GL_UNSIGNED_BYTE, m.data()); }
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        return true;
+        return enabled && !fileOff;  // tiles keep arriving while off, so switching back is instant
     }
     std::string json() {
         std::lock_guard<std::mutex> g(lock);
         long exact = 0; for (uint8_t v : mask) exact += v ? 1 : 0;
         char b[384];
-        snprintf(b, sizeof b, "{\"state\":\"%s\",\"host\":\"%s\",\"source\":\"%s\",\"size\":[%d,%d],\"tile\":%d,\"exactTiles\":%ld,\"tiles\":%zu,\"received\":%ld,\"invalidations\":%ld,\"bytes\":%ld,\"connects\":%ld}",
-                 state.c_str(), host.c_str(), source.c_str(), width, height, tile, exact, mask.size(), tilesIn, invalidations, bytes, connects);
+        snprintf(b, sizeof b, "{\"enabled\":%d,\"state\":\"%s\",\"host\":\"%s\",\"source\":\"%s\",\"size\":[%d,%d],\"tile\":%d,\"exactTiles\":%ld,\"tiles\":%zu,\"received\":%ld,\"invalidations\":%ld,\"bytes\":%ld,\"connects\":%ld}",
+                 enabled && !fileOff ? 1 : 0, state.c_str(), host.c_str(), source.c_str(), width, height, tile, exact, mask.size(), tilesIn, invalidations, bytes, connects);
         return b;
     }
 };

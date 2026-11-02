@@ -303,9 +303,9 @@ struct App {
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
     struct MenuItem { const char* label; int col, row; };
-    static constexpr int kMenuItems = 7;
+    static constexpr int kMenuItems = 8;
     const MenuItem menuItems[kMenuItems] = {{"MINI", 0, 0}, {"LAPTOP", 1, 0}, {"SMALL", 0, 1}, {"MEDIUM", 1, 1}, {"LARGE", 2, 1},
-                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}};
+                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"SHARP", 2, 0}};
     void menuCenter(int i, float& x, float& y) {
         x = (menuItems[i].col - 1) * (kMenuBtnW + kMenuGap); y = -(menuItems[i].row - 1) * (kMenuBtnH + kMenuGap);
     }
@@ -368,8 +368,9 @@ struct App {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
+        else if (l == "SHARP") video.sharp.enabled = !video.sharp.enabled;  // A/B the lossless tiles live
         if (l == "LOCK") saveSettings();
-        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : ""));
+        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : l == "SHARP" ? (video.sharp.enabled ? " on" : " off") : ""));
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
@@ -1262,7 +1263,7 @@ void main(){
         for (int i = 0; i < kMenuItems; i++) {
             float x, y; menuCenter(i, x, y);
             std::string l = menuItems[i].label;
-            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : false;
+            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : l == "SHARP" ? video.sharp.enabled.load() : false;
             if (l == "CLOSE" && editLocked) continue;  // pinned: nothing to close
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int k = 0; k < 4; k++) f[k] = on ? act[k] : idle[k];

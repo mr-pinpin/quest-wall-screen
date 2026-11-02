@@ -67,6 +67,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
     var changedAt: [Double]
     var dirty: [Bool]                // changed since last sent
     var sent: [Bool]                 // headset currently shows our lossless pixels
+    var busy: [Double]               // decaying change count: video and animations wait longer before refining
     var client: Client?
     let q = DispatchQueue(label: "sharp.capture")
     var stream: SCStream?
@@ -81,6 +82,12 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
         changedAt = [Double](repeating: 0, count: tx * ty)
         dirty = [Bool](repeating: false, count: tx * ty)
         sent = [Bool](repeating: false, count: tx * ty)
+        busy = [Double](repeating: 0, count: tx * ty)
+    }
+    // A tile that keeps changing (video, Dock magnification) refines only after a long pause, so moving
+    // content never alternates between video and exact pixels.
+    func settle(_ idx: Int, _ t: Double) -> Double {
+        busy[idx] * exp(-(t - changedAt[idx]) / 2) > 2.5 ? 1.5 : o.settle
     }
 
     func start() async throws {
@@ -92,7 +99,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
         let c = SCStreamConfiguration()
         c.width = o.width; c.height = o.height
         c.pixelFormat = kCVPixelFormatType_32BGRA
-        c.colorSpaceName = CGColorSpace.sRGB
+        // No color conversion: Sunshine encodes the display's native colors, and exact tiles must match the video.
         c.showsCursor = true
         c.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         c.queueDepth = 5
@@ -151,6 +158,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
                 }
             }
             if changed {
+                busy[idx] = busy[idx] * exp(-(t - changedAt[idx]) / 2) + 1
                 changedAt[idx] = t; dirty[idx] = true
                 if sent[idx] { sent[idx] = false; invalid.append(UInt16(idx)) }
             }
@@ -169,7 +177,7 @@ final class Refiner: NSObject, SCStreamOutput, SCStreamDelegate {
         let t = now()
         var scratch = [UInt8](repeating: 0, count: o.tile * o.tile * 3)
         var out = [UInt8](repeating: 0, count: o.tile * o.tile * 3 + 1024)
-        for idx in 0..<(tx * ty) where dirty[idx] && t - changedAt[idx] >= o.settle {
+        for idx in 0..<(tx * ty) where dirty[idx] && t - changedAt[idx] >= settle(idx, t) {
             if c.backlog > 4 << 20 { break }
             let x0 = (idx % tx) * o.tile, y0 = (idx / tx) * o.tile
             let cw = min(o.tile, o.width - x0), ch = min(o.tile, o.height - y0)
