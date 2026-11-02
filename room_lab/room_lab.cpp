@@ -1155,9 +1155,9 @@ void main(){
             return true;
         }
         extraMoving = -1;
-        if (editLocked || !(handActive[1] && ray[1].valid)) return false;
-        float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy); if (!w) return false;
-        for (size_t i = 0; i < extras.size(); i++) {
+        if (!(handActive[1] && ray[1].valid)) { extraPtr = -1; return false; }
+        float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy); if (!w) { extraPtr = -1; return false; }
+        for (size_t i = 0; i < extras.size() && !editLocked; i++) {  // grab bars only while unlocked; pointing always
             const Placement& p = extras[i].p;
             if (p.wall != w->uuid) continue;
             if (std::fabs(hx - p.x) < kBarW / 2 + 0.03f && std::fabs(hy - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
