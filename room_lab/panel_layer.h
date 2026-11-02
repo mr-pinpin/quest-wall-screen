@@ -16,6 +16,7 @@ struct PanelLayer {
     bool cylinder = false;      // XR_KHR_composition_layer_cylinder available
     bool sharpen = false;       // SHARPEN: the compositor's quality sharpening on top of super-sampling
     bool curve = false;         // CURVE: a cylinder centred on the user instead of a flat quad
+    bool autoFilter = false;    // AUTO: let the compositor choose the layer filter per frame (Meta)
     float radius = 2.0f;        // cylinder radius, set from the head-to-panel distance when CURVE is switched on
     XrSwapchain chain = XR_NULL_HANDLE;
     std::vector<GLuint> images;
@@ -75,7 +76,8 @@ struct PanelLayer {
         if (superSample) {
             settings = {XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB};
             settings.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB |
-                                  (sharpen ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB : 0);
+                                  (sharpen ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB : 0) |
+                                  (autoFilter ? XR_COMPOSITION_LAYER_SETTINGS_AUTO_LAYER_FILTER_BIT_META : 0);
             next = &settings;
         }
         XrSwapchainSubImage sub{}; sub.swapchain = chain; sub.imageRect = {{0, 0}, {w, h}}; sub.imageArrayIndex = 0;
@@ -92,7 +94,7 @@ struct PanelLayer {
     }
     std::string json() const {
         return "{\"enabled\":" + std::to_string(enabled ? 1 : 0) + ",\"image\":" + std::to_string(hasImage ? 1 : 0) + ",\"size\":[" + std::to_string(w) + "," +
-               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) +
+               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) + ",\"auto\":" + std::to_string(autoFilter ? 1 : 0) +
                ",\"curve\":" + std::to_string(curve && cylinder ? 1 : 0) + ",\"radius\":" + std::to_string(radius) +
                ",\"updates\":" + std::to_string(updates) + ",\"error\":\"" + error + "\"}";
     }
