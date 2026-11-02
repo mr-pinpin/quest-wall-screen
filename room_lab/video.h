@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "sharp.h"
 
 struct VideoStream {
     int port = 8087;
@@ -32,6 +33,7 @@ struct VideoStream {
     double hostLatencyMs = 0, rttMs = 0;
     std::atomic<bool> stop{false};
     std::thread net;
+    SharpLayer sharp;  // exact pixels for still tiles of the source screen (docs/sharp-text.md)
 
     std::mutex lock;  // guards the fields below shared with the render thread / status
     std::string state = "idle", message;
@@ -78,6 +80,7 @@ struct VideoStream {
     void shutdown() {
         stop = true;
         if (net.joinable()) net.join();
+        sharp.shutdown();
         releaseCodec();
     }
 
@@ -228,8 +231,12 @@ void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2)); vUv=p;
         const char* fs = R"(#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
 precision highp float;
-uniform samplerExternalOES uFrame; in vec2 vUv; out vec4 o;
-void main(){ o=vec4(pow(texture(uFrame,vUv).rgb,vec3(2.2)),1.0); })";
+uniform samplerExternalOES uFrame; uniform highp sampler2D uSharp; uniform highp sampler2D uMask; uniform int uTile; uniform bool uSharpOn;
+in vec2 vUv; out vec4 o;
+void main(){
+  vec3 c=texture(uFrame,vUv).rgb;
+  if(uSharpOn){ ivec2 p=ivec2(gl_FragCoord.xy); if(texelFetch(uMask,p/uTile,0).r>0.5) c=texelFetch(uSharp,p,0).rgb; }
+  o=vec4(pow(c,vec3(2.2)),1.0); })";
         blitProgram = glCreateProgram();
         glAttachShader(blitProgram, shader(GL_VERTEX_SHADER, vs)); glAttachShader(blitProgram, shader(GL_FRAGMENT_SHADER, fs));
         glLinkProgram(blitProgram);
@@ -254,9 +261,17 @@ void main(){ o=vec4(pow(texture(uFrame,vUv).rgb,vec3(2.2)),1.0); })";
         glBindFramebuffer(GL_FRAMEBUFFER, mipFbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mipTex, 0);
         glViewport(0, 0, w, h); glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND);
+        bool exact = sharp.apply(w, h, source);
         glUseProgram(blitProgram); glBindVertexArray(emptyVao);
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture);
         glUniform1i(glGetUniformLocation(blitProgram, "uFrame"), 1);
+        glUniform1i(glGetUniformLocation(blitProgram, "uSharpOn"), exact ? 1 : 0);
+        if (exact) {
+            glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, sharp.tex);
+            glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, sharp.maskTex);
+            glUniform1i(glGetUniformLocation(blitProgram, "uSharp"), 2); glUniform1i(glGetUniformLocation(blitProgram, "uMask"), 3);
+            glUniform1i(glGetUniformLocation(blitProgram, "uTile"), sharp.tile);
+        }
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0); glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mipTex); glGenerateMipmap(GL_TEXTURE_2D);

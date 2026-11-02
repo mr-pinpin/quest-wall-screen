@@ -210,7 +210,7 @@ struct App {
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
     GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
-                               {"LAPTOP", "192.168.2.1", 57984, "server-air.pem", 2560, 1600, 60, 40000}};
+                               {"LAPTOP", "192.168.2.1", 57984, "server-air.pem", 2560, 1600, 60, 80000}};
     int hoverButton = -1;
 
     PFN_xrCreatePassthroughFB xrCreatePassthroughFB_ = nullptr;
@@ -1428,7 +1428,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
@@ -1468,6 +1468,7 @@ void main(){
         createGl();
         launcher.dir = gDir;
         video.start();  // Mac desktop relay by default; a freshly pushed Sunshine session switches to the Mini
+        video.sharp.start(gDir);  // lossless refinement of still tiles, when files/sharp.json names a sender
         if (!createSession()) { lastStatus = {}; status(); return; }
         loadPlacement();
         while (!gQuit) {

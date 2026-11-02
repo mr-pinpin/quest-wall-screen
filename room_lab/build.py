@@ -32,7 +32,7 @@ def main():
     library=sdk/'prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so'
     def run(values):subprocess.run([str(v) for v in values],check=True)
     run([tool,'-shared','-fPIC','-O2','-std=c++17','-Wall','-Wno-missing-braces','-static-libstdc++','-I'+str(sdk/'prefab/modules/headers/include'),
-         '-I'+str(ml_src/'src'),'-I'+str(_mb/'include'),'-I'+str(opus_src/'include'),SRC/'room_lab.cpp',ml_out/'libmoonlight.a',ml_out/'libmbedcrypto.a',ml_out/'libopus.a',library,'-lEGL','-lGLESv3','-llog','-landroid','-lmediandk','-laaudio','-lnativewindow','-Wl,-soname,libpinpin_room_lab.so','-o',out/'libpinpin_room_lab.so'])
+         '-I'+str(ml_src/'src'),'-I'+str(_mb/'include'),'-I'+str(opus_src/'include'),SRC/'room_lab.cpp',ml_out/'libmoonlight.a',ml_out/'libmbedcrypto.a',ml_out/'libopus.a',library,'-lEGL','-lGLESv3','-llog','-landroid','-lmediandk','-laaudio','-lz','-lnativewindow','-Wl,-soname,libpinpin_room_lab.so','-o',out/'libpinpin_room_lab.so'])
     classes=out/'classes';classes.mkdir(exist_ok=True)
     android='/usr/lib/android-sdk/platforms/android-23/android.jar'
     run(['javac','-source','8','-target','8','-classpath',android,'-d',classes,SRC/'src/com/pinpin/wallscreen/roomlab/MainActivity.java'])
