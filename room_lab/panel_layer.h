@@ -7,6 +7,7 @@
 #include <GLES3/gl3.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,9 @@ struct PanelLayer {
     bool sharpen = false;       // SHARPEN: the compositor's quality sharpening on top of super-sampling
     bool curve = false;         // CURVE: a cylinder centred on the user instead of a flat quad
     bool autoFilter = false;    // AUTO: let the compositor choose the layer filter per frame (Meta)
+    bool mipQuality = false;    // MIPQ: Lanczos-2 mip chain instead of glGenerateMipmap's 2x2 box (text stays crisper shrunk)
+    bool mipBuilt = false;      // the mode the current image's mips were built with
+    GLuint mipProgram = 0, mipVao = 0; GLint mipSrc = -1;
     float radius = 2.0f;        // cylinder radius, set from the head-to-panel distance when CURVE is switched on
     XrSwapchain chain = XR_NULL_HANDLE;
     std::vector<GLuint> images;
@@ -51,10 +55,49 @@ struct PanelLayer {
         error.clear();
         return true;
     }
+    // Lanczos-2 2:1 downsample in linear light (sRGB fetch/store), each axis as 4 bilinear taps that combine the
+    // 8 Lanczos taps pairwise: weights 0.5508 at +-0.7116 texels and -0.0508 at +-2.675 (per side, sum 1).
+    void buildMips(GLuint tex) {
+        if (!mipProgram) {
+            const char* vs = R"(#version 300 es
+void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2)); gl_Position=vec4(p*2.0-1.0,0.0,1.0); })";
+            const char* fs = R"(#version 300 es
+precision highp float;
+uniform sampler2D uSrc; out vec4 o;
+const vec2 tap[4] = vec2[4](vec2(-2.675,-0.0508), vec2(-0.7116,0.5508), vec2(0.7116,0.5508), vec2(2.675,-0.0508));
+void main(){
+  vec2 size=vec2(textureSize(uSrc,0)); vec2 c=gl_FragCoord.xy*2.0; vec4 acc=vec4(0.0);
+  for(int j=0;j<4;j++) for(int i=0;i<4;i++)
+    acc+=texture(uSrc,(c+vec2(tap[i].x,tap[j].x))/size)*(tap[i].y*tap[j].y);
+  o=clamp(acc,0.0,1.0);
+})";
+            auto sh = [](GLenum t, const char* src) { GLuint s = glCreateShader(t); glShaderSource(s, 1, &src, nullptr); glCompileShader(s); return s; };
+            mipProgram = glCreateProgram();
+            glAttachShader(mipProgram, sh(GL_VERTEX_SHADER, vs)); glAttachShader(mipProgram, sh(GL_FRAGMENT_SHADER, fs));
+            glLinkProgram(mipProgram); mipSrc = glGetUniformLocation(mipProgram, "uSrc");
+            glGenVertexArrays(1, &mipVao);
+        }
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glUseProgram(mipProgram); glBindVertexArray(mipVao); glUniform1i(mipSrc, 0); glActiveTexture(GL_TEXTURE0);
+        glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        for (int l = 1; l < levels; l++) {
+            // Sample only level l-1 while rendering level l, so there is no feedback loop.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, l - 1); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, l - 1);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, l);
+            glViewport(0, 0, std::max(1, w >> l), std::max(1, h >> l));
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); glBindVertexArray(0); glUseProgram(0); glBindTexture(GL_TEXTURE_2D, 0);
+    }
     // Copy the latest panel image (the video's mipmapped frame, exact tiles included) into the swapchain,
     // flipped to OpenXR's bottom-up image rows, and build its mip chain. Only when a new frame arrived.
     void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion) {
-        if (!srcFbo || width <= 0 || height <= 0 || mipVersion == version) return;
+        if (!srcFbo || width <= 0 || height <= 0 || (mipVersion == version && mipBuilt == mipQuality)) return;
         if (!ensure(session, width, height)) return;
         uint32_t idx = 0;
         XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -65,7 +108,9 @@ struct PanelLayer {
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, images[idx], 0);
         glBlitFramebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glBindTexture(GL_TEXTURE_2D, images[idx]); glGenerateMipmap(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, 0);
+        if (mipQuality) buildMips(images[idx]);
+        else { glBindTexture(GL_TEXTURE_2D, images[idx]); glGenerateMipmap(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, 0); }
+        mipBuilt = mipQuality;
         XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(chain, &ri);
         version = mipVersion; hasImage = true; updates++;
     }
@@ -94,7 +139,7 @@ struct PanelLayer {
     }
     std::string json() const {
         return "{\"enabled\":" + std::to_string(enabled ? 1 : 0) + ",\"image\":" + std::to_string(hasImage ? 1 : 0) + ",\"size\":[" + std::to_string(w) + "," +
-               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) + ",\"auto\":" + std::to_string(autoFilter ? 1 : 0) +
+               std::to_string(h) + "],\"levels\":" + std::to_string(levels) + ",\"superSample\":" + std::to_string(superSample ? 1 : 0) + ",\"sharpen\":" + std::to_string(sharpen ? 1 : 0) + ",\"auto\":" + std::to_string(autoFilter ? 1 : 0) + ",\"mipq\":" + std::to_string(mipBuilt ? 1 : 0) +
                ",\"curve\":" + std::to_string(curve && cylinder ? 1 : 0) + ",\"radius\":" + std::to_string(radius) +
                ",\"updates\":" + std::to_string(updates) + ",\"error\":\"" + error + "\"}";
     }

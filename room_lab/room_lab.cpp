@@ -1388,7 +1388,10 @@ void main(){
             }
         }
         bool hasVideo = video.update(display) && video.mipTex;
-        if (quadTick++ % 60 == 0) quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
+        if (quadTick++ % 60 == 0) {
+            quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
+            panelLayer.mipQuality = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // MIPQ (menu item once the grid refactor lands)
+        }
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
         if (quad) panelLayer.update(session, video.mipFbo, video.mipW, video.mipH, video.mipVersion);
         quadShown = quad && panelLayer.hasImage;
