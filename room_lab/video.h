@@ -186,15 +186,18 @@ struct VideoStream {
         int64_t pts = 0; for (int i = 0; i < 8; i++) pts = (pts << 8) | p[1 + i];
         int w = (p[9] << 8) | p[10], h = (p[11] << 8) | p[12];
         { std::lock_guard<std::mutex> g(lock); message.clear(); }
-        submit(p + 16, n - 16, key, pts, w, h, false);
+        submit(p + 16, n - 16, key, pts, w, h, false, p[0] & 2);  // bit 1: the atlas sender's repeat frames
     }
     // Feed one Annex B access unit (any source). Returns false when the caller should request a keyframe.
-    bool submit(const uint8_t* data, size_t len, bool key, int64_t pts, int w, int h, bool hevc) {
+    bool submit(const uint8_t* data, size_t len, bool key, int64_t pts, int w, int h, bool hevc, bool repeat = false) {
         double t = now();
         {
             std::lock_guard<std::mutex> g(lock);
             packets++; bytes += (long)len; if (key) keyframes++; width = w; height = h;
-            arrivals.emplace_back(pts, t); while (arrivals.size() > 240) arrivals.pop_front();
+            // A repeat waits in the decoder for the next frame (up to a second when the screen is still) but shows
+            // nothing new, so it stays out of the latency figure.
+            if (!repeat) arrivals.emplace_back(pts, t);
+            while (arrivals.size() > 240) arrivals.pop_front();
         }
         if (key && (!codec || w != codecW || h != codecH || hevc != codecHevc)) configure(w, h, data, len, hevc);
         if (!codec) return false;

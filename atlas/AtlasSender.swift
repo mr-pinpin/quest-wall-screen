@@ -38,9 +38,9 @@ struct Options {
 struct Entry: Equatable { let screen: Int; let display: CGDirectDisplayID; let w: Int; let h: Int }
 struct Cell { let entry: Entry; let x: Int, y: Int, w: Int, h: Int }
 
-private let compressionOutput: VTCompressionOutputCallback = { context, _, status, _, sample in
+private let compressionOutput: VTCompressionOutputCallback = { context, refcon, status, _, sample in
     guard status == noErr, let context = context, let sample = sample else { return }
-    Unmanaged<Atlas>.fromOpaque(context).takeUnretainedValue().encoded(sample)
+    Unmanaged<Atlas>.fromOpaque(context).takeUnretainedValue().encoded(sample, repeated: refcon != nil)
 }
 
 final class Peer { let c: NWConnection; var pending = 0; var needsKey = true; init(_ c: NWConnection) { self.c = c } }
@@ -81,7 +81,7 @@ final class Atlas {
     var layoutKey = "", layoutJSON = ""
     var encoder: VTCompressionSession?
     var peers: [UUID: Peer] = [:]
-    var forceKey = true, codecBytes: [UInt8] = [0x64, 0, 0x33], frame: Int64 = 0
+    var forceKey = true, codecBytes: [UInt8] = [0x64, 0, 0x33], frame: Int64 = 0, flushes = 0
     var lastBuffer: CVPixelBuffer?
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
     init(_ o: Options) { self.o = o }
@@ -119,7 +119,9 @@ final class Atlas {
 
     func refresh() async {
         let list = entries()
-        let key = list.map { "\($0.screen):\($0.display):\($0.w)x\($0.h)" }.joined(separator: ",")
+        // Display positions are part of the key: adding a virtual display can make macOS slide the others along
+        // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
+        let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))" }.joined(separator: ",")
         if key == layoutKey { return }
         layoutKey = key
         for c in captures { c.stop() }; captures = []
@@ -160,13 +162,17 @@ final class Atlas {
         VTCompressionSessionPrepareToEncodeFrames(e)
         encoder = e
     }
-    // Constant frame rate: hardware decoders release a frame only when the next one arrives, so sending only on
-    // change made a still screen's updates wait for the next change (~230 ms measured). Unchanged frames re-encode
-    // the previous buffer (no copy) and cost almost nothing as skip-coded P-frames.
+    // Hardware decoders release a frame only when the next one arrives, so sending only on change made a still
+    // screen's updates wait for the next change (~230 ms measured). After each change the previous buffer is
+    // re-encoded a few times (skip-coded P-frames) to push it through, then the stream goes quiet. A constant 60 fps
+    // did the same job but re-encoded the whole atlas every frame: with two screens (3840x1200) next to Sunshine's
+    // stream the laptop's encoder fell to ~40 fps and latency rose to ~125 ms.
     func tick() {
         guard let e = encoder, !peers.isEmpty, let pool = VTCompressionSessionGetPixelBufferPool(e) else { return }
         lock.lock(); let changed = dirty; dirty = false; lock.unlock()
         let key = forceKey; forceKey = false
+        // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
+        if changed { flushes = 0 } else if !key && lastBuffer != nil { flushes += 1; if flushes > 3 && flushes % o.fps != 0 { return } }
         var pb = lastBuffer
         if changed || pb == nil {
             var out: CVPixelBuffer?
@@ -182,11 +188,12 @@ final class Atlas {
             pb = fresh; lastBuffer = fresh
         }
         frame += 1
+        let repeatTag: UnsafeMutableRawPointer? = (changed || key) ? nil : UnsafeMutableRawPointer(bitPattern: 1)
         let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         VTCompressionSessionEncodeFrame(e, imageBuffer: pb!, presentationTimeStamp: CMTime(value: frame, timescale: CMTimeScale(o.fps)),
-                                        duration: CMTime(value: 1, timescale: CMTimeScale(o.fps)), frameProperties: props, sourceFrameRefcon: nil, infoFlagsOut: nil)
+                                        duration: CMTime(value: 1, timescale: CMTimeScale(o.fps)), frameProperties: props, sourceFrameRefcon: repeatTag, infoFlagsOut: nil)
     }
-    func encoded(_ sample: CMSampleBuffer) {
+    func encoded(_ sample: CMSampleBuffer, repeated: Bool) {
         guard let block = CMSampleBufferGetDataBuffer(sample), let format = CMSampleBufferGetFormatDescription(sample) else { return }
         let att = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[String: Any]]
         let key = !(att?.first?[kCMSampleAttachmentKey_NotSync as String] as? Bool ?? false)
@@ -209,7 +216,8 @@ final class Atlas {
             annex.append(contentsOf: [0, 0, 0, 1]); annex.append(avcc[off..<off + n]); off += n
         }
         let pts = UInt64(max(0, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)) * 1_000_000))
-        var p = Data([key ? 1 : 0]); var be = pts.bigEndian; Swift.withUnsafeBytes(of: &be) { p.append(contentsOf: $0) }
+        // Bit 0: keyframe. Bit 1: repeat of the previous image, so the headset leaves it out of its latency figure.
+        var p = Data([(key ? 1 : 0) | (repeated ? 2 : 0)]); var be = pts.bigEndian; Swift.withUnsafeBytes(of: &be) { p.append(contentsOf: $0) }
         var w16 = UInt16(W).bigEndian, h16 = UInt16(H).bigEndian
         Swift.withUnsafeBytes(of: &w16) { p.append(contentsOf: $0) }; Swift.withUnsafeBytes(of: &h16) { p.append(contentsOf: $0) }
         p.append(contentsOf: codecBytes); p.append(annex)
