@@ -25,6 +25,7 @@
 #include "moonlight.h"
 #include "voice.h"
 #include "gamestream.h"
+#include "panel_layer.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -163,6 +164,8 @@ struct App {
     GLuint program = 0, vao = 0, vbo = 0;
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo;
     VideoStream video;
+    PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
+    bool quadShown = false, quadFile = false; long quadTick = 0;
     MoonlightSource moonlight;
     // Raise a fist (above the chest) and hold to dictate; open the hand to finish. Text is typed into the
     // streamed Mac through Moonlight and shown as a caption.
@@ -303,9 +306,9 @@ struct App {
     std::chrono::steady_clock::time_point palmStart{};
     Entity menu;  // only its pose is used: the panel's plane, facing the user
     struct MenuItem { const char* label; int col, row; };
-    static constexpr int kMenuItems = 8;
+    static constexpr int kMenuItems = 9;
     const MenuItem menuItems[kMenuItems] = {{"MINI", 0, 0}, {"LAPTOP", 1, 0}, {"SMALL", 0, 1}, {"MEDIUM", 1, 1}, {"LARGE", 2, 1},
-                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"SHARP", 2, 0}};
+                                            {"LOCK", 0, 2}, {"CLOSE", 2, 2}, {"SHARP", 2, 0}, {"QUAD", 1, 2}};
     void menuCenter(int i, float& x, float& y) {
         x = (menuItems[i].col - 1) * (kMenuBtnW + kMenuGap); y = -(menuItems[i].row - 1) * (kMenuBtnH + kMenuGap);
     }
@@ -369,8 +372,9 @@ struct App {
         } else if (l == "LOCK") editLocked = !editLocked;
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "SHARP") video.sharp.enabled = !video.sharp.enabled;  // A/B the lossless tiles live
+        else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
         if (l == "LOCK") saveSettings();
-        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : l == "SHARP" ? (video.sharp.enabled ? " on" : " off") : ""));
+        event("settings: " + l + (l == "LOCK" ? (editLocked ? " on" : " off") : l == "SHARP" ? (video.sharp.enabled ? " on" : " off") : l == "QUAD" ? (panelLayer.enabled ? " on" : " off") : ""));
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
@@ -479,7 +483,7 @@ struct App {
             XR_FB_PASSTHROUGH_EXTENSION_NAME, XR_EXT_HAND_TRACKING_EXTENSION_NAME, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME,
             XR_FB_SPATIAL_ENTITY_EXTENSION_NAME, XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME, XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME,
             XR_FB_SPATIAL_ENTITY_CONTAINER_EXTENSION_NAME, XR_FB_SCENE_EXTENSION_NAME, XR_FB_SCENE_CAPTURE_EXTENSION_NAME,
-            XR_META_ENVIRONMENT_DEPTH_EXTENSION_NAME};
+            XR_META_ENVIRONMENT_DEPTH_EXTENSION_NAME, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME};
         std::vector<const char*> enable;
         for (auto w : wanted) for (auto& p : props) if (!strcmp(p.extensionName, w)) { enable.push_back(w); enabledExt.insert(w); }
         XrInstanceCreateInfoAndroidKHR android{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
@@ -494,6 +498,7 @@ struct App {
         if (!ok(xrCreateInstance(&ci, &instance), "xrCreateInstance")) return false;
         XrSystemGetInfo sg{XR_TYPE_SYSTEM_GET_INFO}; sg.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         if (!ok(xrGetSystem(instance, &sg, &system), "xrGetSystem")) return false;
+        panelLayer.superSample = has(XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME);
         load("xrCreatePassthroughFB", xrCreatePassthroughFB_); load("xrCreatePassthroughLayerFB", xrCreatePassthroughLayerFB_);
         load("xrCreateHandTrackerEXT", xrCreateHandTrackerEXT_); load("xrLocateHandJointsEXT", xrLocateHandJointsEXT_);
         load("xrQuerySpacesFB", xrQuerySpacesFB_); load("xrRetrieveSpaceQueryResultsFB", xrRetrieveSpaceQueryResultsFB_);
@@ -547,6 +552,7 @@ out vec4 oColor;
 void main(){
   vec4 c=vCol;
   if(vUv.x>=0.0){
+    if(uHasVideo==2) discard;  // QUAD: the compositor quad layer underneath shows the panel
     vec2 g=fract(vUv*vec2(16.0,10.0)); float grid=step(0.965,max(g.x,g.y));
     vec3 base=mix(vec3(0.05,0.08,0.16),vec3(0.16,0.30,0.52),vUv.y);
     c=vec4(mix(base,vec3(0.8,0.88,1.0),grid*0.5),0.94);
@@ -1263,7 +1269,7 @@ void main(){
         for (int i = 0; i < kMenuItems; i++) {
             float x, y; menuCenter(i, x, y);
             std::string l = menuItems[i].label;
-            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : l == "SHARP" ? video.sharp.enabled.load() : false;
+            bool on = (l == "MINI" || l == "LAPTOP") ? current == l : l == "LOCK" ? editLocked : l == "SHARP" ? video.sharp.enabled.load() : l == "QUAD" ? panelLayer.enabled : false;
             if (l == "CLOSE" && editLocked) continue;  // pinned: nothing to close
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int k = 0; k < 4; k++) f[k] = on ? act[k] : idle[k];
@@ -1321,6 +1327,10 @@ void main(){
             }
         }
         bool hasVideo = video.update(display) && video.mipTex;
+        if (quadTick++ % 60 == 0) quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
+        bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
+        if (quad) panelLayer.update(session, video.mipFbo, video.mipW, video.mipH, video.mipVersion);
+        quadShown = quad && panelLayer.hasImage;
         if (depthValid) { glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, depthTex); }
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, video.mipTex); glActiveTexture(GL_TEXTURE0);
         for (int i = 0; i < 2; i++) {
@@ -1334,7 +1344,7 @@ void main(){
             glUseProgram(program); glBindVertexArray(vao);
             M4 vp = mul(projection(views[i].fov, 0.05f, 100.0f), viewFromPose(views[i].pose));
             glUniformMatrix4fv(uViewProj, 1, GL_FALSE, vp.m);
-            glUniform1i(uDepth, 0); glUniform1i(uVideo, 1); glUniform1i(uHasVideo, hasVideo ? 1 : 0);
+            glUniform1i(uDepth, 0); glUniform1i(uVideo, 1); glUniform1i(uHasVideo, hasVideo ? (quadShown ? 2 : 1) : 0);
             if (depthValid) {
                 auto& dv = depthImage.views[i];
                 M4 dvp = mul(projection(dv.fov, depthImage.nearZ, depthImage.farZ), viewFromPose(dv.pose));
@@ -1388,6 +1398,10 @@ void main(){
                 pv[i].subImage.swapchain = eyes[i].chain; pv[i].subImage.imageRect = {{0, 0}, {eyes[i].w, eyes[i].h}};
             }
             proj.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT; proj.space = local; proj.viewCount = 2; proj.views = pv;
+            if (quadShown) if (auto* w = wallById(placed.wall)) {  // under the eye buffers, which leave the panel transparent
+                V3 c = xform(w->pose, {placed.x, placed.y, 0.02f}); XrPosef qp; qp.orientation = w->pose.orientation; qp.position = {c.x, c.y, c.z};
+                layers.push_back(panelLayer.layer(local, qp, placed.w, placed.h));
+            }
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&proj));
             frames++; framesSec++;
         }
@@ -1429,7 +1443,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";

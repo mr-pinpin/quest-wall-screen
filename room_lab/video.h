@@ -55,6 +55,7 @@ struct VideoStream {
     bool hasFrame = false;
     // Mipmapped sRGB copy of the latest frame: proper minification instead of one bilinear tap.
     GLuint mipTex = 0, mipFbo = 0, blitProgram = 0, emptyVao = 0; int mipW = 0, mipH = 0; float anisotropy = 1;
+    long mipVersion = 0;  // bumped per resolved frame (the quad layer copies only new frames)
     PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC getClientBuffer = nullptr;
     PFNEGLCREATEIMAGEKHRPROC createImage = nullptr;
     PFNEGLDESTROYIMAGEKHRPROC destroyImage = nullptr;
@@ -275,6 +276,7 @@ void main(){
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0); glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mipTex); glGenerateMipmap(GL_TEXTURE_2D);
+        mipVersion++;
     }
     // Bind the newest decoded frame to `texture`; returns true when a frame is available.
     bool update(EGLDisplay display) {
