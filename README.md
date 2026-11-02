@@ -74,6 +74,7 @@ Hand input follows one rule: the act of clicking must not move the aim.
 - **Dictation**: raise a fist above the chest and hold to talk; open the hand to finish. The headset mic is
   cut at pauses into short segments, each sent once to the Mini's speech service (`~/asr-service`, Parakeet
   TDT 0.6B on MLX, port 8765), and the text is typed into the streamed Mac where the cursor is.
+- **Send**: finish with a throw (push the arm forward and open the hand) to press Enter after the last words.
 
 ## Next
 

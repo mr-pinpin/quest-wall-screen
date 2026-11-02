@@ -99,6 +99,8 @@ struct Dictation {
         if (in) { AAudioStream_requestStop(in); AAudioStream_close(in); in = nullptr; }
         state = "transcribing";
     }
+    // Nothing recording, queued, in flight or waiting to be typed.
+    bool drained() { std::lock_guard<std::mutex> g(lock); return !recording && state == "idle" && queue.empty() && results.empty(); }
     bool take(std::string& out) {
         std::lock_guard<std::mutex> g(lock); if (results.empty()) return false;
         out = results.front(); results.pop_front(); return true;

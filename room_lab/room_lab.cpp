@@ -169,6 +169,21 @@ struct App {
     Dictation dictation;
     static constexpr float kFistHold = 0.25f, kFistRelease = 0.3f;
     float fistTime = 0, openTime = 0; std::string caption; std::chrono::steady_clock::time_point captionAt{};
+    // Throw to send: from a fist, push the arm forward and open the hand -> stop dictating and press Enter
+    // once the last words are typed. Requiring a fist just before keeps ordinary gestures from sending.
+    static constexpr int kTrail = 24;  // ~0.33 s of palm positions
+    V3 palmTrail[2][kTrail]; int trailN[2] = {0, 0}; float sinceFist[2] = {9, 9};
+    bool pendingEnter = false; float pendingFor = 0; long throws = 0, enters = 0;
+    bool handOpen(int h) {
+        auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT]; int open = 0;
+        for (int tip : {XR_HAND_JOINT_INDEX_TIP_EXT, XR_HAND_JOINT_MIDDLE_TIP_EXT, XR_HAND_JOINT_RING_TIP_EXT, XR_HAND_JOINT_LITTLE_TIP_EXT})
+            if ((joints[h][tip].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && len(v3(joints[h][tip].pose.position) - v3(pj.pose.position)) > 0.085f) open++;
+        return open >= 3;
+    }
+    void pressEnter() {
+        if (streamInput()) { LiSendKeyboardEvent((short)0x800D, KEY_ACTION_DOWN, 0); LiSendKeyboardEvent((short)0x800D, KEY_ACTION_UP, 0); }
+        enters++; caption = "SENT"; captionAt = std::chrono::steady_clock::now(); event("enter sent");
+    }
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
     GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
@@ -845,6 +860,20 @@ void main(){
             if (pj.pose.position.y > head.position.y - 0.35f) raised = true;
         }
         if (raised) { fistTime += dt; openTime = 0; } else { openTime += dt; fistTime = 0; }
+        V3 fwd = rot(head.orientation, {0, 0, -1}); fwd.y = 0; fwd = norm(fwd);
+        for (int h = 0; h < 2; h++) {
+            if (!handActive[h]) { trailN[h] = 0; sinceFist[h] = 9; continue; }
+            sinceFist[h] = ray[h].fist ? 0 : sinceFist[h] + dt;
+            palmTrail[h][trailN[h] % kTrail] = v3(joints[h][XR_HAND_JOINT_PALM_EXT].pose.position); trailN[h]++;
+            if (trailN[h] < kTrail || pendingEnter) continue;
+            V3 now = palmTrail[h][(trailN[h] - 1) % kTrail], then = palmTrail[h][trailN[h] % kTrail];
+            float push = dot(now - then, fwd);  // forward travel over the last ~0.33 s
+            if (push > 0.16f && sinceFist[h] < 0.6f && handOpen(h)) {
+                throws++; event("throw: " + std::to_string(push) + " m");
+                if (dictation.recording) dictation.stop();
+                pendingEnter = true; pendingFor = 0; trailN[h] = 0;
+            }
+        }
         if (!dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
         if (dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
         std::string t;
@@ -852,6 +881,10 @@ void main(){
             if (streamInput()) { std::string out = t + " "; LiSendUtf8TextEvent(out.c_str(), (unsigned)out.size()); }
             caption = t; captionAt = std::chrono::steady_clock::now();
             event("dictated: " + t);
+        }
+        if (pendingEnter) {
+            pendingFor += dt;
+            if (dictation.drained() || pendingFor > 10) { pendingEnter = false; pressEnter(); }
         }
     }
     void drawVoice(Batch& b) {
@@ -1352,7 +1385,7 @@ void main(){
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
         j << ",\"video\":" << video.json() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
-        j << ",\"voice\":" << dictation.json();
+        j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
         j << "]}";
