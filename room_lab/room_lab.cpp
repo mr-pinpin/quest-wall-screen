@@ -942,6 +942,58 @@ void main(){
         }
     }
 
+    // Notifications: short head-locked messages stacked in the top-right corner of the view. A toast has a key so
+    // it can be replaced or cleared; seconds = 0 keeps it until cleared.
+    struct Toast { std::string key, text; float col[4]; std::chrono::steady_clock::time_point until; bool sticky; };
+    std::vector<Toast> toasts;
+    void toast(const std::string& key, const std::string& text, const float* col, float seconds) {
+        Toast t{key, text, {col[0], col[1], col[2], col[3]}, std::chrono::steady_clock::now() + std::chrono::milliseconds((int)(seconds * 1000)), seconds <= 0};
+        for (auto& x : toasts) if (x.key == key) { x = t; return; }
+        toasts.push_back(t); event("notify: " + text);
+    }
+    void clearToast(const std::string& key) { toasts.erase(std::remove_if(toasts.begin(), toasts.end(), [&](const Toast& t) { return t.key == key; }), toasts.end()); }
+    void drawToasts(Batch& b) {
+        auto now = std::chrono::steady_clock::now();
+        toasts.erase(std::remove_if(toasts.begin(), toasts.end(), [&](const Toast& t) { return !t.sticky && now > t.until; }), toasts.end());
+        const float px = 0.0022f, h = 0.026f, right = 0.27f, top = 0.17f, z = -0.7f;
+        for (size_t k = 0; k < toasts.size(); k++) {
+            const Toast& t = toasts[k];
+            float w = UiGrid::textW(t.text, px) + 0.03f, cy = top - k * (h + 0.006f);
+            Entity hud; hud.pose = head;
+            auto P = [&](float x, float y, float dz) { return xform(head, {x, y, z + dz}); };
+            const float bg[4] = {0.05f, 0.06f, 0.08f, 0.82f}, white[4] = {0.97f, 0.97f, 1.0f, 1.0f};
+            b.quad(P(right - w, cy - h / 2, 0), P(right, cy - h / 2, 0), P(right, cy + h / 2, 0), P(right - w, cy + h / 2, 0), bg);
+            b.quad(P(right - w, cy - h / 2, 0.0005f), P(right - w + 0.006f, cy - h / 2, 0.0005f), P(right - w + 0.006f, cy + h / 2, 0.0005f), P(right - w, cy + h / 2, 0.0005f), t.col);
+            text(b, hud, right - w / 2 + 0.003f, cy, z + 0.001f, px, t.text.c_str(), white);
+        }
+    }
+    // Battery: polled from Android's BatteryManager (the app can't read /sys) every 10 s on the render thread.
+    JNIEnv* jni = nullptr; int batteryPct = -1; bool charging = false; std::chrono::steady_clock::time_point batteryAt{};
+    void pollBattery() {
+        auto now = std::chrono::steady_clock::now();
+        if (!jni || !gActivity || now - batteryAt < std::chrono::seconds(10)) return;
+        batteryAt = now;
+        JNIEnv* e = jni;
+        jclass ac = e->GetObjectClass(gActivity);
+        jmethodID gss = e->GetMethodID(ac, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+        jstring name = e->NewStringUTF("batterymanager");
+        jobject bm = gss ? e->CallObjectMethod(gActivity, gss, name) : nullptr;
+        if (bm && !e->ExceptionCheck()) {
+            jclass bc = e->GetObjectClass(bm);
+            jmethodID gip = e->GetMethodID(bc, "getIntProperty", "(I)I"), isc = e->GetMethodID(bc, "isCharging", "()Z");
+            bool was = charging;
+            if (gip) batteryPct = e->CallIntMethod(bm, gip, 4);  // BATTERY_PROPERTY_CAPACITY
+            if (isc) charging = e->CallBooleanMethod(bm, isc);
+            e->DeleteLocalRef(bc);
+            const float red[4] = {1.0f, 0.25f, 0.2f, 1}, green[4] = {0.25f, 0.85f, 0.4f, 1};
+            if (batteryPct >= 0 && batteryPct < 10 && !charging) toast("battery", "BATTERY " + std::to_string(batteryPct) + "% - CONNECT CHARGER", red, 0);
+            else clearToast("battery");
+            if (charging && !was && batteryPct >= 0) toast("charging", "CHARGING " + std::to_string(batteryPct) + "%", green, 4);
+        }
+        if (e->ExceptionCheck()) e->ExceptionClear();
+        if (bm) e->DeleteLocalRef(bm);
+        e->DeleteLocalRef(name); e->DeleteLocalRef(ac);
+    }
     void updateVoice() {
         const float dt = 1.0f / 72;
         bool raised = false;
@@ -1018,6 +1070,7 @@ void main(){
     void updatePlacement() {
         candidate.active = false;
         updateVisibility();
+        pollBattery();
         updateVoice();
         if (updateMenu()) {
             releasePointer(); barHover = false; cornerHover = -1;
@@ -1163,7 +1216,7 @@ void main(){
         y = placed.y + placed.h / 2 + 0.075f;
         if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
     }
-    // 5x7 pixel font, A-Z and 0-9 (bit 16 is the leftmost column).
+    // 5x7 pixel font, A-Z, 0-9 and % - . : ! (bit 16 is the leftmost column).
     static const uint8_t* glyph(char c) {
         static const uint8_t F[26][7] = {
             {14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30}, {14, 17, 16, 16, 16, 17, 14}, {30, 17, 17, 17, 17, 17, 30},
@@ -1177,6 +1230,9 @@ void main(){
             {14, 17, 19, 21, 25, 17, 14}, {4, 12, 4, 4, 4, 4, 14}, {14, 17, 1, 2, 4, 8, 31}, {31, 2, 4, 2, 1, 17, 14},
             {2, 6, 10, 18, 31, 2, 2}, {31, 16, 30, 1, 1, 17, 14}, {6, 8, 16, 30, 17, 17, 14}, {31, 1, 2, 4, 8, 8, 8},
             {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 2, 12}};
+        static const uint8_t PCT[7] = {24, 25, 2, 4, 8, 19, 3}, DASH[7] = {0, 0, 0, 31, 0, 0, 0}, DOT[7] = {0, 0, 0, 0, 0, 12, 12},
+                             COLON[7] = {0, 12, 12, 0, 12, 12, 0}, BANG[7] = {4, 4, 4, 4, 4, 0, 4};
+        switch (c) { case '%': return PCT; case '-': return DASH; case '.': return DOT; case ':': return COLON; case '!': return BANG; }
         return c >= 'A' && c <= 'Z' ? F[c - 'A'] : c >= '0' && c <= '9' ? D[c - '0'] : nullptr;
     }
     void text(Batch& b, const Entity& w, float cx, float cy, float z, float px, const char* s, const float* col) {
@@ -1258,6 +1314,7 @@ void main(){
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawVoice(over);
+        drawToasts(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -1515,6 +1572,7 @@ void main(){
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
+        j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
@@ -1548,6 +1606,7 @@ void main(){
     }
 
     void run(JNIEnv* env) {
+        jni = env;
         { std::ofstream(gDir + "/events.log", std::ios::trunc); }
         if (!createInstance(env) || !createEgl()) { status(); return; }
         createGl();
