@@ -9,14 +9,17 @@
 //   POST /displays?id=2&w=1920&h=1200&scale=2 -> create (or resize) the display for screen 2; w/h in points,
 //                                                 scale 2 = HiDPI (Retina-sharp text), 1 = plain
 //   POST /remove?id=2                   -> remove it (its windows move back, like unplugging a monitor)
+//   POST /place?app=com.google.Chrome&screen=2 -> move that app's focused window to fill the screen's display
 // Only loopback and the house network (192.168.0.0/16) may call it.
 //
 // Mouse on UDP :57711 (one datagram per event, so pointing stays low latency):
 //   "m <screen> <u> <v>"  move the pointer there   u, v in 0..10000 across that display (0,0 = top left)
-// The pointer is warped (CGWarpMouseCursorPosition needs no permission). Clicks and keys come through the
-// main stream: Sunshine's virtual HID presses the button wherever the pointer is, and keys reach the focused
-// window on any display, so this helper needs no Accessibility grant (an ad-hoc signed tool can't keep one).
+//   "c <screen> <u> <v>"  click there              (down, up 40 ms later)
+// Sunshine refuses clicks outside the display it streams, so clicks on extra screens are posted here, which
+// needs Accessibility. It ships as "PinPin Displays.app" because macOS keeps that grant reliably for an app
+// bundle (it would not for a bare ad-hoc binary). Keys need nothing here: they reach the focused window.
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <ApplicationServices/ApplicationServices.h>
 #include <arpa/inet.h>
@@ -102,6 +105,35 @@ static int param(NSString *q, NSString *key) {
     }
     return -1;
 }
+static NSString *place(NSString *bundle, int sid, int *code) {
+    CGVirtualDisplay *d = displays[@(sid)];
+    NSRunningApplication *app = [NSRunningApplication runningApplicationsWithBundleIdentifier:bundle].firstObject;
+    if (!d || !app) { *code = 404; return @"{\"error\":\"no such screen or app\"}"; }
+    if (!AXIsProcessTrusted()) { *code = 403; return @"{\"error\":\"needs Accessibility\"}"; }
+    AXUIElementRef ax = AXUIElementCreateApplication(app.processIdentifier);
+    CFTypeRef win = NULL;
+    if (AXUIElementCopyAttributeValue(ax, kAXFocusedWindowAttribute, &win) != kAXErrorSuccess || !win) {
+        CFArrayRef wins = NULL;
+        if (AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute, (CFTypeRef *)&wins) == kAXErrorSuccess && wins && CFArrayGetCount(wins))
+            win = CFRetain(CFArrayGetValueAtIndex(wins, 0));
+        if (wins) CFRelease(wins);
+    }
+    if (!win) { CFRelease(ax); *code = 404; return @"{\"error\":\"no window\"}"; }
+    CGRect b = CGDisplayBounds(d.displayID);
+    CGPoint pos = CGPointMake(b.origin.x, b.origin.y + 25); CGSize size = CGSizeMake(b.size.width, b.size.height - 25);
+    AXValueRef pv = AXValueCreate(kAXValueCGPointType, &pos), sv = AXValueCreate(kAXValueCGSizeType, &size);
+    AXUIElementSetAttributeValue(win, kAXPositionAttribute, pv);
+    AXUIElementSetAttributeValue(win, kAXSizeAttribute, sv);
+    CFRelease(pv); CFRelease(sv); CFRelease(win); CFRelease(ax);
+    return @"{\"ok\":true}";
+}
+static NSString *paramS(NSString *q, NSString *key) {
+    for (NSString *kv in [q componentsSeparatedByString:@"&"]) {
+        NSArray *p = [kv componentsSeparatedByString:@"="];
+        if (p.count == 2 && [p[0] isEqualToString:key]) return [p[1] stringByRemovingPercentEncoding];
+    }
+    return nil;
+}
 // Runs on the main queue (CGVirtualDisplay wants it).
 static NSString *handle(NSString *method, NSString *target, int *code) {
     NSArray *parts = [target componentsSeparatedByString:@"?"];
@@ -120,6 +152,7 @@ static NSString *handle(NSString *method, NSString *target, int *code) {
         [displays removeObjectForKey:@(sid)]; [sizes removeObjectForKey:@(sid)]; save();
         NSLog(@"screen %d removed", sid); return listJSON();
     }
+    if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/place"]) return place(paramS(q, @"app") ?: @"", param(q, @"screen"), code);
     *code = 404; return @"{\"error\":\"not found\"}";
 }
 static void serve(int fd) {
@@ -153,9 +186,9 @@ static void mouse(const char *msg) {
     char op = 0; int sid = 0, u = 0, v = 0;
     if (sscanf(msg, "%c %d %d %d", &op, &sid, &u, &v) != 4) return;
     BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
-    if (op == 'm' || op == 'c') CGWarpMouseCursorPosition(p);
-    if (op == 'c' && AXIsProcessTrusted()) {  // only if someone did grant Accessibility; normally the stream clicks
-        post(kCGEventLeftMouseDown, p);
+    if (op == 'm') CGWarpMouseCursorPosition(p);
+    if (op == 'c') {
+        post(kCGEventMouseMoved, p); post(kCGEventLeftMouseDown, p);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ post(kCGEventLeftMouseUp, p); });
     }
 }
@@ -186,8 +219,10 @@ int main(void) {
         int us = socket(AF_INET, SOCK_DGRAM, 0);
         struct sockaddr_in ua = {0}; ua.sin_family = AF_INET; ua.sin_port = htons(kMousePort); ua.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(us, (struct sockaddr *)&ua, sizeof ua)) { perror("bind udp"); return 1; }
-        CGSetLocalEventsSuppressionInterval(0.0);  // a warp must not swallow the stream's click that follows it
-        NSLog(@"mouse on udp :%d", kMousePort);
+        CGSetLocalEventsSuppressionInterval(0.0);  // a warp must not swallow the click that follows it
+        // Ask once: macOS lists the app under Accessibility and offers to open the setting.
+        BOOL trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES});
+        NSLog(@"mouse on udp :%d (Accessibility trusted: %d)", kMousePort, trusted);
         dispatch_source_t usrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, us, 0, dispatch_get_main_queue());
         dispatch_source_set_event_handler(usrc, ^{
             char buf[128]; struct sockaddr_in peer; socklen_t len = sizeof peer;

@@ -501,7 +501,6 @@ struct App {
             if (!(handActive[1] && ray[1].pinch)) { menuMoving = false; saveSettings(); event("settings moved" + std::string(menuStickWall.empty() ? "" : " onto wall " + menuStickWall)); }
             return true;
         }
-        if (!editLocked && len(v3(head.position) - v3(menu.pose.position)) > 3.0f) { menuOpen = false; return false; }  // walked away
         if (!(handActive[1] && ray[1].valid)) return false;
         V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
         if (std::fabs(ld.z) < 1e-4f) return false;
@@ -1063,9 +1062,10 @@ void main(){
     std::vector<Burst> bursts;
     long spellsCw = 0, spellsCcw = 0;
     int extraBarHover = -1, extraMoving = -1; float extraHold = 0; std::chrono::steady_clock::time_point extraStart{};
-    // Pointer on an extra screen: its display is not the one Sunshine streams, so the laptop helper (UDP :57711)
-    // warps the Mac pointer to that spot on the display, and the click goes through the stream: Sunshine's
-    // virtual HID presses where the pointer is. Keys from the stream reach the focused window on any display.
+    // Pointer on an extra screen: its display is not the one Sunshine streams (and Sunshine refuses clicks off its
+    // own display), so the laptop helper "PinPin Displays" (UDP :57711) moves the pointer and posts the click
+    // there. Keys from the stream reach the focused window on any display.
+    std::chrono::steady_clock::time_point extraClickAt{};
     int extraPtr = -1, mouseSock = -1, sentU = -1, sentV = -1; float eu = 0.5f, ev = 0.5f; long extraClicks = 0, extraMoves = 0;
     void sendMouse(char op, int id, float u, float v) {
         if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -1175,16 +1175,7 @@ void main(){
             eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
             int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
             if (iu != sentU || iv != sentV) { sendMouse('m', extras[i].id, eu, ev); sentU = iu; sentV = iv; extraMoves++; }
-            if (p1 && !pinchPrev[1]) {  // put the pointer there, then click through the stream (Sunshine clicks where it is)
-                sendMouse('c', extras[i].id, eu, ev); extraClicks++;
-                if (streamInput()) std::thread([this] {
-                    std::lock_guard<std::mutex> g(keyLock);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(15));  // let the warp land first
-                    LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(40));
-                    LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT);
-                }).detach();
-            }
+            if (p1 && !pinchPrev[1]) { sendMouse('c', extras[i].id, eu, ev); extraClicks++; extraClickAt = std::chrono::steady_clock::now(); }
             return true;
         }
         extraPtr = -1;
@@ -1271,6 +1262,10 @@ void main(){
                     float a0 = s * 0.31416f, a1 = (s + 1) * 0.31416f; V3 cz = c + n * (pass * 0.001f);
                     b.line(cz + ax * (rr * std::cos(a0)) + ay * (rr * std::sin(a0)), cz + ax * (rr * std::cos(a1)) + ay * (rr * std::sin(a1)), n,
                            (pass ? 0.004f : 0.009f) * k, pass ? (ray[1].pinch ? gc : wc) : sh);
+                }
+                if (ray[1].pinch || std::chrono::steady_clock::now() - extraClickAt < std::chrono::milliseconds(250)) {  // click mark
+                    float dd = 0.005f * k; V3 cz = c + n * 0.002f;
+                    b.quad(cz - ax * dd - ay * dd, cz + ax * dd - ay * dd, cz + ax * dd + ay * dd, cz - ax * dd + ay * dd, gc);
                 }
             }
             if (!editLocked) {  // grab bar
