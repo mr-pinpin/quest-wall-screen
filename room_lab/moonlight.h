@@ -9,9 +9,11 @@ extern "C" {
 #include <fstream>
 #include <sstream>
 #include "video.h"
+#include "audio.h"
 
 struct MoonlightSource {
     VideoStream* video = nullptr;
+    AudioOut audio;
     std::thread thread;
     std::atomic<bool> running{false};
     std::string host, url, appVersion, gfeVersion, label, stage = "idle", error;
@@ -63,8 +65,9 @@ struct MoonlightSource {
                                       self->width, self->height, self->hevc);
         return ok ? DR_OK : DR_NEED_IDR;
     }
-    static int arInit(int, const POPUS_MULTISTREAM_CONFIGURATION, void*, int) { return 0; }
-    static void arSample(char*, int) {}
+    static int arInit(int, const POPUS_MULTISTREAM_CONFIGURATION cfg, void*, int) { return self->audio.init(cfg); }
+    static void arSample(char* data, int len) { self->audio.sample(data, len); }
+    static void arCleanup() { self->audio.stop(); }
     static void clStageStarting(int s) { self->set(&self->stage, std::string("starting ") + LiGetStageName(s)); }
     static void clStageFailed(int s, int err) { self->set(&self->error, std::string(LiGetStageName(s)) + " failed " + std::to_string(err)); }
     static void clStarted() { self->set(&self->stage, "streaming"); }
@@ -91,7 +94,7 @@ struct MoonlightSource {
             DECODER_RENDERER_CALLBACKS dr; LiInitializeVideoCallbacks(&dr);
             dr.setup = drSetup; dr.submitDecodeUnit = drSubmit; dr.capabilities = CAPABILITY_DIRECT_SUBMIT;
             AUDIO_RENDERER_CALLBACKS ar; LiInitializeAudioCallbacks(&ar);
-            ar.init = arInit; ar.decodeAndPlaySample = arSample; ar.capabilities = CAPABILITY_DIRECT_SUBMIT;
+            ar.init = arInit; ar.decodeAndPlaySample = arSample; ar.cleanup = arCleanup; ar.capabilities = CAPABILITY_DIRECT_SUBMIT;
             int r = LiStartConnection(&si, &sc, &cl, &dr, &ar, nullptr, 0, nullptr, 0);
             if (r != 0) { if (get(error).empty()) set(&error, "LiStartConnection " + std::to_string(r)); set(&stage, "failed"); running = false; }
         });
@@ -102,7 +105,7 @@ struct MoonlightSource {
     }
     std::string json() {
         return "{\"stage\":\"" + get(stage) + "\",\"error\":\"" + get(error) + "\",\"host\":\"" + host + "\",\"mode\":\"" + std::to_string(width) + "x" +
-               std::to_string(height) + "@" + std::to_string(fps) + "\",\"kbps\":" + std::to_string(bitrate) + ",\"source\":\"" + label + "\"}";
+               std::to_string(height) + "@" + std::to_string(fps) + "\",\"kbps\":" + std::to_string(bitrate) + ",\"source\":\"" + label + "\",\"audio\":" + audio.json() + "}";
     }
 };
 MoonlightSource* MoonlightSource::self = nullptr;
