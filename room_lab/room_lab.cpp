@@ -25,6 +25,7 @@
 #include "moonlight.h"
 #include "voice.h"
 #include "ui_grid.h"
+#include "spell.h"
 #include "gamestream.h"
 #include "panel_layer.h"
 
@@ -347,12 +348,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 15;
+    static constexpr int kMenuItems = 16;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -361,6 +362,7 @@ struct App {
         if (l == "LOCK") return editLocked;
         if (l == "QUAD") return panelLayer.enabled;
         if (l == "CURVE") return panelLayer.curve;
+        if (l == "SPELL") return spellOn;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
@@ -432,6 +434,7 @@ struct App {
         else if (w && (l == "SMALL" || l == "MEDIUM" || l == "LARGE")) {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
+        else if (l == "SPELL") { spellOn = !spellOn; spell.clear(); }
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -451,7 +454,7 @@ struct App {
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
-        if (!settingsLoaded) { settingsLoaded = true; loadSettings(); }
+        if (!settingsLoaded) { settingsLoaded = true; loadSettings(); loadScreens(); }
         // Bring the saved panel back once its wall is located (the scene loads a moment after start).
         if (menuSaved && !menuRestored) if (auto* w = wallById(menuWall)) if (w->located) {
             menuRestored = true;
@@ -1014,6 +1017,188 @@ void main(){
         if (bm) e->DeleteLocalRef(bm);
         e->DeleteLocalRef(name); e->DeleteLocalRef(ac);
     }
+    // ---- Summoning spell and extra screens
+    // Point with the right index finger and draw a big circle in the air (spell.h). Clockwise summons a new screen
+    // where the circle was, sized to fill it as seen on the wall behind; counterclockwise cancels a move in
+    // progress, or dismisses the extra screen it was drawn over. A glowing trail shows the circle forming and a
+    // burst marks the result. Extra screens are remembered (files/screens.json); each will be a real display the
+    // Mac creates for it, and until that stream is wired they show as a placeholder.
+    struct Screen { int id; Placement p; };
+    std::vector<Screen> extras; int nextScreenId = 2;
+    bool spellOn = true; SpellRecognizer spell; float spellCooldown = 0, spellProgress = 0; int spellTurn = 0;
+    struct Burst { V3 c, ax, ay; float r; float col[4]; std::chrono::steady_clock::time_point t0; };
+    std::vector<Burst> bursts;
+    long spellsCw = 0, spellsCcw = 0;
+    int extraBarHover = -1, extraMoving = -1; float extraHold = 0; std::chrono::steady_clock::time_point extraStart{};
+    bool pointing(int h) {
+        auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT];
+        auto far = [&](int j, float d) { return (joints[h][j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && len(v3(joints[h][j].pose.position) - v3(pj.pose.position)) > d; };
+        if (!(pj.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return false;
+        return far(XR_HAND_JOINT_INDEX_TIP_EXT, 0.085f) && !far(XR_HAND_JOINT_MIDDLE_TIP_EXT, 0.075f) && !far(XR_HAND_JOINT_RING_TIP_EXT, 0.075f) && !far(XR_HAND_JOINT_LITTLE_TIP_EXT, 0.075f);
+    }
+    float now() const { return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count(); }
+    void burst(V3 c, float r, const float* col) {
+        V3 f = norm(v3(head.position) - c), ax = norm(cross({0, 1, 0}, f)), ay = cross(f, ax);
+        bursts.push_back({c, ax, ay, r, {col[0], col[1], col[2], col[3]}, std::chrono::steady_clock::now()});
+    }
+    int extraAt(V3 o, V3 d, float& hx, float& hy) {
+        Entity* w = rayWall(o, d, hx, hy); if (!w) return -1;
+        for (size_t i = 0; i < extras.size(); i++) {
+            const Placement& p = extras[i].p;
+            if (p.wall == w->uuid && std::fabs(hx - p.x) < p.w / 2 && std::fabs(hy - p.y) < p.h / 2) return (int)i;
+        }
+        return -1;
+    }
+    void summon(V3 c, float r) {
+        const float gold[4] = {1.0f, 0.8f, 0.25f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
+        V3 eye = v3(head.position), d = norm(c - eye);
+        float hx, hy; Entity* w = rayWall(eye, d, hx, hy);
+        if (!w) { burst(c, r, red); toast("spell", "POINT THE CIRCLE AT A WALL", red, 3); return; }
+        float distWall = len(xform(w->pose, {hx, hy, 0}) - eye), distHand = std::fmax(len(c - eye), 0.2f);
+        Placement np; np.active = true; np.wall = w->uuid; np.x = hx; np.y = hy;
+        np.w = std::fmin(std::fmax(0.85f * 2 * r * distWall / distHand, 0.6f), 3.0f); np.h = np.w * 0.625f;
+        validate(np, *w);
+        if (!np.valid) { burst(c, r, red); toast("spell", "NO ROOM HERE: " + np.reason, red, 3); return; }
+        int id = nextScreenId++;
+        extras.push_back({id, np}); saveScreens();
+        burst(c, r, gold); toast("spell", "SCREEN " + std::to_string(id) + " SUMMONED", gold, 3);
+        event("summoned screen " + std::to_string(id) + " on wall " + np.wall + " w " + std::to_string(np.w));
+    }
+    void counterSpell(V3 c, float r) {
+        const float violet[4] = {0.75f, 0.45f, 1.0f, 1};
+        if (moving || menuMoving || extraMoving >= 0) {
+            moving = false; candidate.active = false; extraMoving = -1;
+            if (menuMoving) { menuMoving = false; menuRestored = false; }  // the saved pose comes back next frame
+            burst(c, r, violet); toast("spell", "CANCELLED", violet, 2); event("counter-spell: cancelled move"); return;
+        }
+        V3 eye = v3(head.position); float hx, hy;
+        int i = extraAt(eye, norm(c - eye), hx, hy);
+        if (i >= 0) {
+            int id = extras[i].id; extras.erase(extras.begin() + i); saveScreens();
+            burst(c, r, violet); toast("spell", "SCREEN " + std::to_string(id) + " DISMISSED", violet, 3); event("dismissed screen " + std::to_string(id)); return;
+        }
+        burst(c, r, violet); toast("spell", "CANCELLED", violet, 2);
+    }
+    void updateSpell() {
+        float t = now(); spellProgress = 0; spellTurn = 0;
+        if (spellCooldown > 0) spellCooldown -= 1.0f / 72;
+        if (!spellOn || !handActive[1] || !pointing(1) || dictation.recording) { spell.clear(); return; }
+        V3 tip = v3(joints[1][XR_HAND_JOINT_INDEX_TIP_EXT].pose.position);
+        spell.add({tip.x, tip.y, tip.z}, t);
+        V3 rt = rot(head.orientation, {1, 0, 0}), up = rot(head.orientation, {0, 1, 0});
+        auto r = spell.analyze({rt.x, rt.y, rt.z}, {up.x, up.y, up.z});
+        spellProgress = r.progress; spellTurn = r.turn;
+        if (!r.found || spellCooldown > 0) return;
+        spell.clear(); spellCooldown = 0.8f;
+        V3 c{r.centre.x, r.centre.y, r.centre.z};
+        if (r.clockwise) { spellsCw++; summon(c, r.radius); } else { spellsCcw++; counterSpell(c, r.radius); }
+    }
+    // Moving an extra screen: the same hold-to-grab bar as the main screen, shown while unlocked.
+    bool updateExtras() {
+        extraBarHover = -1;
+        bool p1 = handActive[1] && ray[1].pinch;
+        if (extraMoving >= 0 && extraMoving < (int)extras.size()) {
+            Placement& p = extras[extraMoving].p; float hx, hy;
+            if (ray[1].valid) if (Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy)) {
+                candidate.active = true; candidate.wall = w->uuid; candidate.x = hx; candidate.y = hy + p.h / 2 + kBarGap; candidate.w = p.w; candidate.h = p.h;
+                validate(candidate, *w);
+            }
+            if (!p1) {
+                if (candidate.active && candidate.valid) { p.wall = candidate.wall; p.x = candidate.x; p.y = candidate.y; saveScreens(); event("moved screen " + std::to_string(extras[extraMoving].id)); }
+                extraMoving = -1; candidate.active = false;
+            }
+            return true;
+        }
+        extraMoving = -1;
+        if (editLocked || !(handActive[1] && ray[1].valid)) return false;
+        float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy); if (!w) return false;
+        for (size_t i = 0; i < extras.size(); i++) {
+            const Placement& p = extras[i].p;
+            if (p.wall != w->uuid) continue;
+            if (std::fabs(hx - p.x) < kBarW / 2 + 0.03f && std::fabs(hy - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
+        }
+        if (extraBarHover < 0) { extraHold = 0; return false; }
+        if (p1 && !pinchPrev[1]) extraStart = std::chrono::steady_clock::now();
+        extraHold = p1 ? std::chrono::duration<float>(std::chrono::steady_clock::now() - extraStart).count() / kHoldToMove : 0;
+        if (extraHold >= 1) { extraMoving = extraBarHover; extraHold = 0; event("moving screen " + std::to_string(extras[extraMoving].id)); }
+        return true;
+    }
+    void saveScreens() {
+        std::ofstream f(gDir + "/screens.json");
+        f << "{\"next\":" << nextScreenId << ",\"screens\":[";
+        for (size_t i = 0; i < extras.size(); i++) {
+            const Placement& p = extras[i].p;
+            f << (i ? "," : "") << "{\"id\":" << extras[i].id << ",\"wall\":\"" << p.wall << "\",\"x\":" << p.x << ",\"y\":" << p.y << ",\"w\":" << p.w << ",\"h\":" << p.h << "}";
+        }
+        f << "]}";
+    }
+    void loadScreens() {
+        std::ifstream f(gDir + "/screens.json"); if (!f) return;
+        std::string j((std::istreambuf_iterator<char>(f)), {});
+        sscanf(j.c_str(), "{\"next\":%d", &nextScreenId);
+        for (size_t at = j.find("{\"id\":"); at != std::string::npos; at = j.find("{\"id\":", at + 1)) {
+            Screen sc{}; char wall[64] = {};
+            if (sscanf(j.c_str() + at, "{\"id\":%d,\"wall\":\"%63[0-9a-f]\",\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f", &sc.id, wall, &sc.p.x, &sc.p.y, &sc.p.w, &sc.p.h) == 6) {
+                sc.p.active = true; sc.p.valid = true; sc.p.wall = wall; extras.push_back(sc);
+            }
+        }
+        event("restored " + std::to_string(extras.size()) + " extra screens");
+    }
+    void drawSpell(Batch& b) {
+        // Trail: the fingertip path glows once a quarter turn is in, warming from cyan to gold toward a full circle.
+        if (spellOn && spellProgress > 0.22f && spell.pts.size() > 2) {
+            float t = now(), pr = std::fmin((spellProgress - 0.22f) / 0.78f, 1.0f);
+            const float cyan[3] = {0.35f, 0.85f, 1.0f}, gold[3] = {1.0f, 0.8f, 0.25f}, violet[3] = {0.75f, 0.45f, 1.0f};
+            const float* to = spellTurn > 0 ? violet : gold;  // counterclockwise reads as the cancelling colour
+            for (size_t i = 1; i < spell.pts.size(); i++) {
+                auto& a = spell.pts[i - 1]; auto& c = spell.pts[i];
+                float age = t - c.t, alpha = std::fmax(0.0f, 1.0f - age / 1.6f) * (0.35f + 0.65f * pr);
+                float col[4] = {cyan[0] + (to[0] - cyan[0]) * pr, cyan[1] + (to[1] - cyan[1]) * pr, cyan[2] + (to[2] - cyan[2]) * pr, alpha};
+                V3 pa{a.p.x, a.p.y, a.p.z}, pc{c.p.x, c.p.y, c.p.z};
+                b.line(pa, pc, norm(v3(head.position) - pc), 0.004f + 0.006f * pr, col);
+            }
+        }
+        // Bursts: a ring that expands and fades over 0.7 s.
+        auto tn = std::chrono::steady_clock::now();
+        bursts.erase(std::remove_if(bursts.begin(), bursts.end(), [&](const Burst& x) { return tn - x.t0 > std::chrono::milliseconds(700); }), bursts.end());
+        for (auto& x : bursts) {
+            float f = std::chrono::duration<float>(tn - x.t0).count() / 0.7f, rr = x.r * (1 + 1.2f * f);
+            float col[4] = {x.col[0], x.col[1], x.col[2], 1 - f};
+            V3 n = norm(cross(x.ax, x.ay));
+            for (int i = 0; i < 36; i++) {
+                float a0 = i * 0.17453f, a1 = (i + 1) * 0.17453f;
+                b.line(x.c + x.ax * (rr * std::cos(a0)) + x.ay * (rr * std::sin(a0)), x.c + x.ax * (rr * std::cos(a1)) + x.ay * (rr * std::sin(a1)), n, 0.008f * (1 - f) + 0.002f, col);
+            }
+        }
+    }
+    void drawExtras(Batch& b) {
+        V3 eye = v3(head.position);
+        for (size_t i = 0; i < extras.size(); i++) {
+            const Placement& p = extras[i].p; Entity* w = wallById(p.wall); if (!w || !w->located) continue;
+            if (!seenFrom(eye, xform(w->pose, {p.x, p.y, 0.02f}), rot(w->pose.orientation, {0, 0, 1}), p.wall)) continue;
+            auto P = [&](float x, float y, float z) { return xform(w->pose, {x, y, z}); };
+            const float bg[4] = {0.07f, 0.08f, 0.11f, 0.94f}, edge[4] = {0.35f, 0.75f, 1.0f, 0.8f}, white[4] = {0.92f, 0.95f, 1.0f, 1}, dim[4] = {0.6f, 0.66f, 0.76f, 1};
+            float x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, y0 = p.y - p.h / 2, y1 = p.y + p.h / 2;
+            b.quad(P(x0, y0, 0.02f), P(x1, y0, 0.02f), P(x1, y1, 0.02f), P(x0, y1, 0.02f), bg);
+            V3 n = rot(w->pose.orientation, {0, 0, 1});
+            b.line(P(x0, y0, 0.021f), P(x1, y0, 0.021f), n, 0.006f, edge); b.line(P(x1, y0, 0.021f), P(x1, y1, 0.021f), n, 0.006f, edge);
+            b.line(P(x1, y1, 0.021f), P(x0, y1, 0.021f), n, 0.006f, edge); b.line(P(x0, y1, 0.021f), P(x0, y0, 0.021f), n, 0.006f, edge);
+            std::string title = "SCREEN " + std::to_string(extras[i].id);
+            text(b, *w, p.x, p.y + p.h * 0.08f, 0.022f, UiGrid::fit(title, 0.012f, p.w * 0.6f, p.h * 0.2f), title.c_str(), white);
+            text(b, *w, p.x, p.y - p.h * 0.12f, 0.022f, UiGrid::fit("MAC DISPLAY COMING", 0.006f, p.w * 0.7f, p.h * 0.1f), "MAC DISPLAY COMING", dim);
+            if (!editLocked) {  // grab bar
+                float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+                const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
+                const float* col = extraMoving == (int)i ? fill : extraBarHover == (int)i ? hover : idle;
+                b.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
+                if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); b.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
+            }
+        }
+        if (extraMoving >= 0 && candidate.active) if (auto* w = wallById(candidate.wall)) {
+            const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
+            panelQuad(b, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
+        }
+    }
     void updateVoice() {
         const float dt = 1.0f / 72;
         bool raised = false;
@@ -1092,7 +1277,8 @@ void main(){
         updateVisibility();
         pollBattery();
         updateVoice();
-        if (updateMenu()) {
+        updateSpell();
+        if (updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
             return;
@@ -1370,6 +1556,8 @@ void main(){
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawVoice(over);
+        drawExtras(occ);
+        drawSpell(over);
         drawToasts(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
@@ -1629,6 +1817,7 @@ void main(){
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
+        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
