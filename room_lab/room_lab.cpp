@@ -169,7 +169,7 @@ struct App {
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
     bool bezel = true;   // BEZEL flag (default: it removed the line completely): a frame over the panel edge, drawn in the eye
                          // buffers above the layer with 4x MSAA, hides the compositor's aliased edge line
-    bool bezelFade = false, bezelGlass = false, bezelAmbi = false;  // FADE / GLASS / AMBI bezel styles (grey when all off)
+    bool bezelFade = false, bezelGlass = false, bezelAmbi = true;   // FADE / GLASS / AMBI bezel styles (grey when all off); AMBI is the user pick
     bool nativeRes = false;  // NATIVE: stream the laptop at its panel's real pixels (2880x1800) instead of 2560x1600
     float currentHz() { float hz = 0; if (xrGetDisplayRefreshRateFB_ && session) xrGetDisplayRefreshRateFB_(session, &hz); return hz; }
     GameStreamHost hostFor(int i) const {
