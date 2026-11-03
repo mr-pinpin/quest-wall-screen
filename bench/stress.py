@@ -568,7 +568,7 @@ def main():
     }
     if sim:
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
-        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
+        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes', 'worstGaps')}
         r['series'] = s.get('perSecondMbps', [])
         if 'v2Layouts' in s:
             # vt: every v2 layout the stand-in saw, checked offline (bench/vt_check.py)

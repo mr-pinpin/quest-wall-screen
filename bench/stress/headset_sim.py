@@ -104,6 +104,9 @@ def main():
 
     per_sec = {}  # second -> [bytes, fresh frames, repeats]
     fresh_gaps = []; last_fresh = None
+    # The 5 longest fresh-frame gaps with their context, to tell a startup gap from a layout/level switch or a
+    # keyframe burst (VT runs over Wi-Fi each had one ~400 ms gap, 2026-11-03; localhost max 82 ms).
+    worst = []; layout_t = key_t = None
     keyframes = layouts = connects = 0; last_layout = None; sizes = set()
     last_rx = time.time(); longest_silence = 0.0; first_rx = None
     while time.time() - t0 < a.secs:
@@ -136,7 +139,7 @@ def main():
                     if f & 0x80:
                         txt = bytes(buf[pos - n + 1:pos]).decode('utf-8', 'replace')
                         if txt != last_layout:
-                            layouts += 1; last_layout = txt
+                            layouts += 1; last_layout = txt; layout_t = now
                             if v2:
                                 try: j = json.loads(txt)
                                 except ValueError: j = {}
@@ -147,7 +150,12 @@ def main():
                     if f & 2: row[2] += 1
                     else:
                         row[1] += 1
-                        if last_fresh is not None: fresh_gaps.append(now - last_fresh)
+                        if last_fresh is not None:
+                            fresh_gaps.append(now - last_fresh)
+                            worst.append((now - last_fresh, round(now - first_rx, 2), bool(f & 1),
+                                          round(now - layout_t, 2) if layout_t else None, round(now - key_t, 2) if key_t else None))
+                            if len(worst) > 64: worst = sorted(worst, reverse=True)[:5]
+                        if f & 1: key_t = now
                         last_fresh = now
                     if n >= 13: sizes.add(struct.unpack_from('>HH', pkt, 9))
                 if pos > (4 << 20) or pos == len(buf):
@@ -168,6 +176,8 @@ def main():
                        'p99': round(sorted(fresh_gaps)[int(len(fresh_gaps) * 0.99)] * 1000, 1) if fresh_gaps else None,
                        'max': round(max(fresh_gaps) * 1000, 1) if fresh_gaps else None},
         'keyframes': keyframes, 'layouts': layouts, 'lastLayout': last_layout,
+        'worstGaps': [{'ms': round(g * 1000, 1), 'atS': at, 'endsOnKey': k, 'sinceLayoutS': sl, 'sincePrevKeyS': sk}
+                      for g, at, k, sl, sk in sorted(worst, reverse=True)[:5]],
         'sizes': sorted(sizes)[-4:], 'perSecondMbps': [round(x, 1) for x in mbps],
         **({'v2Layouts': v2_layouts, 'belowWantedPct': round(100 * below[0] / below[1], 1) if below[1] else None} if v2 else {}),
     }))
