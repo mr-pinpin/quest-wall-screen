@@ -18,6 +18,9 @@ func log(_ s: String) { FileHandle.standardError.write(("pinpin-atlas: " + s + "
 struct Options {
     var port: UInt16 = 57720, demandPort: UInt16 = 57721, fps = 60, bitrate = 40_000_000, cellW = 1920, cellH = 1200, maxW = 3840, maxH = 2160
     var url = "http://127.0.0.1:57710/displays", test = ""
+    // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
+    //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
+    var flags = Set<String>()
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let a = it.next() {
@@ -30,6 +33,7 @@ struct Options {
             case "--cell": let p = v.split(separator: "x").compactMap { Int($0) }; if p.count == 2 { cellW = p[0]; cellH = p[1] }
             case "--url": url = v
             case "--test": test = v
+            case "--flags": flags = Set(v.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             default: break
             }
         }
@@ -104,6 +108,9 @@ final class Atlas {
     // one again when it comes into view. 30 screens x 2 senders of always-on streams crashed replayd.
     var hiddenAt: [Int: Date] = [:], wake = false, refreshSince: Date? = nil
     var want: [Int: Want] = [:], wantAt = Date.distantPast, budgetKbps = 0, appliedKbps = 0
+    // bpcut flag (work queue): bitrate scale under backpressure. x0.7 at most every 250 ms while held back,
+    // x1.2 per calm second back to 1.
+    var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
     var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
     static let tiers = [480, 640, 960, 1280, 1920]
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
@@ -168,7 +175,7 @@ final class Atlas {
         work.async { self.applyBudget() }
     }
     // The extras' share of the headset's budget, by gaze priority; on the work queue.
-    func applyBudget() {
+    func applyBudget(force: Bool = false) {
         guard let e = encoder else { return }
         var kbps = o.bitrate / 1000
         dlock.withLock {
@@ -178,10 +185,11 @@ final class Atlas {
             kbps = all > 0 ? Int(Double(budgetKbps) * extras / all) : 0
         }
         kbps = min(o.bitrate / 1000, max(4000, kbps))
-        if appliedKbps == 0 || abs(kbps - appliedKbps) * 100 > appliedKbps * 15 {
+        if bpScale < 1 { kbps = max(1500, Int(Double(kbps) * bpScale)) }
+        if appliedKbps == 0 || (force && kbps != appliedKbps) || abs(kbps - appliedKbps) * 100 > appliedKbps * 15 {
             appliedKbps = kbps
             VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (kbps * 1000) as CFNumber)
-            log("bitrate \(kbps) kbps")
+            log("bitrate \(kbps) kbps" + (bpScale < 1 ? String(format: " (backpressure x%.2f)", bpScale) : ""))
         }
     }
 
@@ -324,6 +332,9 @@ final class Atlas {
         // keyframe that repaired it was bigger still: 118 keyframes a minute at ~39 Mbit/s in the stress suite.
         if dlock.withLock({ busy }) {
             busyTicks += 1; heldTicks += 1
+            if o.flags.contains("bpcut"), Date().timeIntervalSince(bpCutAt) > 0.25 {
+                bpScale = max(0.25, bpScale * 0.7); bpCutAt = Date(); applyBudget(force: true)
+            }
             // Held back for over half a second: a peer is stuck, not just slow. Cut it loose (it skips to the next
             // keyframe, the old behaviour) so it can't freeze the stream for everyone else.
             if heldTicks > o.fps / 2 {
@@ -334,6 +345,9 @@ final class Atlas {
             return
         }
         heldTicks = 0
+        if bpScale < 1, Date().timeIntervalSince(bpCutAt) > 1, Date().timeIntervalSince(bpRiseAt) > 1 {
+            bpScale = min(1, bpScale * 1.2); bpRiseAt = Date(); applyBudget(force: true)
+        }
         lock.lock(); let changed = dirty; dirty = false; lock.unlock()
         let key = forceKey; forceKey = false
         // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
@@ -440,6 +454,7 @@ final class Atlas {
 let atlas = Atlas(Options())
 atlas.listen()
 atlas.listenDemand()
+if !atlas.o.flags.isEmpty { log("flags: " + atlas.o.flags.sorted().joined(separator: ",")) }
 // One refresh loop (refresh is not reentrant): every 2 s, or at once when demand reveals a screen.
 // When replayd (ScreenCaptureKit's daemon) crashes, an await on it can hang forever and the sender silently stops
 // (seen 2026-11-03 13:11 under 30 screens). A refresh pass stuck for 20 s exits; the supervisor restarts us clean.
