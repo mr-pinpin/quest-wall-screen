@@ -18,6 +18,11 @@
 // Sunshine refuses clicks outside the display it streams, so clicks on extra screens are posted here, which
 // needs Accessibility. It ships as "PinPin Displays.app" because macOS keeps that grant reliably for an app
 // bundle (it would not for a bare ad-hoc binary). Keys need nothing here: they reach the focused window.
+//
+// Still wallpaper (flag: the file ~/.local/share/pinpin-displays/still-wallpaper exists): each display this helper
+// creates gets a plain dark image as its desktop picture. macOS's aerial (video) wallpapers animate every "idle"
+// virtual desktop, so a screen nobody touches still costs a full capture and encode on every frame (work-09,
+// 2026-11-03: 1-2% identical frames). The user's own displays are never touched.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -50,7 +55,37 @@
 static const int kPort = 57710, kMousePort = 57711;
 static NSMutableDictionary<NSNumber *, CGVirtualDisplay *> *displays;
 static NSMutableDictionary<NSNumber *, NSArray<NSNumber *> *> *sizes;  // points w, h, scale
-static NSString *statePath;
+static NSString *statePath, *dataDir;
+
+// A small solid dark-grey PNG, written once; macOS scales it to fill the display.
+static NSURL *stillImage(void) {
+    NSString *path = [dataDir stringByAppendingPathComponent:@"still.png"];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef c = CGBitmapContextCreate(NULL, 64, 64, 8, 0, cs, kCGImageAlphaPremultipliedLast);
+        CGContextSetRGBFillColor(c, 0.125, 0.129, 0.141, 1); CGContextFillRect(c, CGRectMake(0, 0, 64, 64));
+        CGImageRef img = CGBitmapContextCreateImage(c);
+        CGImageDestinationRef dst = CGImageDestinationCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], CFSTR("public.png"), 1, NULL);
+        if (dst) { CGImageDestinationAddImage(dst, img, NULL); CGImageDestinationFinalize(dst); CFRelease(dst); }
+        CGImageRelease(img); CGContextRelease(c); CGColorSpaceRelease(cs);
+    }
+    return [NSURL fileURLWithPath:path];
+}
+static void stillWallpaper(CGDirectDisplayID did, int sid) {
+    if (![[NSFileManager defaultManager] fileExistsAtPath:[dataDir stringByAppendingPathComponent:@"still-wallpaper"]]) return;
+    // The NSScreen for a new display appears a moment after it is created.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        for (NSScreen *scr in NSScreen.screens) {
+            if ([scr.deviceDescription[@"NSScreenNumber"] unsignedIntValue] != did) continue;
+            NSError *err = nil;
+            BOOL ok = [[NSWorkspace sharedWorkspace] setDesktopImageURL:stillImage() forScreen:scr
+                options:@{NSWorkspaceDesktopImageScalingKey: @(NSImageScaleAxesIndependently), NSWorkspaceDesktopImageFillColorKey: [NSColor colorWithSRGBRed:0.125 green:0.129 blue:0.141 alpha:1]} error:&err];
+            NSLog(@"screen %d: still wallpaper %@", sid, ok ? @"set" : err.localizedDescription);
+            return;
+        }
+        NSLog(@"screen %d: no NSScreen for display %u yet, wallpaper unchanged", sid, did);
+    });
+}
 
 static void save(void) {
     NSMutableArray *a = [NSMutableArray array];
@@ -89,6 +124,7 @@ static CGDirectDisplayID create(int sid, unsigned w, unsigned h, unsigned scale)
     }
     displays[@(sid)] = v; sizes[@(sid)] = @[@(w), @(h), @(scale)];
     NSLog(@"screen %d -> display %u (%ux%u points @%ux)", sid, v.displayID, w, h, scale);
+    stillWallpaper(v.displayID, sid);
     return v.displayID;
 }
 static NSString *listJSON(void) {
@@ -195,7 +231,7 @@ static void mouse(const char *msg) {
 int main(void) {
     @autoreleasepool {
         displays = [NSMutableDictionary dictionary]; sizes = [NSMutableDictionary dictionary];
-        NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@".local/share/pinpin-displays"];
+        NSString *dir = dataDir = [NSHomeDirectory() stringByAppendingPathComponent:@".local/share/pinpin-displays"];
         [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
         statePath = [dir stringByAppendingPathComponent:@"displays.json"];
         NSArray *saved = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:statePath] ?: [NSData data] options:0 error:nil];
