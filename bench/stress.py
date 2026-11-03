@@ -279,8 +279,13 @@ def main():
     ds = {d['screen']: d['display'] for d in displays()}
     missing = [i for i in ids if i not in ds]
     if missing: print('  warning: displays not created:', missing)
-    # --static K: the last K created screens keep a still desktop (no pattern), like real idle screens
-    moving = created[:max(0, len(created) - a.static)]
+    # The pattern animates only the screens the scenario shows (cinema: the focused screen and its two neighbours;
+    # vr: none; wall/ring: all). With all 10 animated, WindowServer redrew each at only ~8.6 fps (work-09,
+    # 2026-11-03), so earlier runs measured an overloaded source, not the sender. Hidden screens stay still, like a
+    # real desktop. --static K: the last K of those keep a still desktop too.
+    shown = {'cinema': [2, 3, a.n + 1], 'vr': []}.get(a.scenario, ids)
+    moving = [i for i in ids if i in shown]
+    moving = moving[:max(0, len(moving) - a.static)]
     pattern = [str(ds[i]) for i in moving if i in ds]
     if pattern:
         # Run the binary directly: through `open` it got no arguments. Windows still reach the GUI session.
@@ -425,6 +430,7 @@ def main():
         'captureFps': capture_fps,
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if pattern else None,
+        'patternScreens': moving,  # the screens animated (the source); gate.py judges fresh fps against them
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {

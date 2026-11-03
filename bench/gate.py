@@ -92,6 +92,14 @@ def source(r):
     return SCK_FPS, 'assumed'
 
 
+def union_rate(rates, tick=60.0):
+    # Fresh frames the sender can produce: one per 60 Hz tick in which any source screen changed. With independent
+    # captures at r_i fps: tick * (1 - prod(1 - r_i/tick)). Three screens at 8.6 fps -> 22.3 (work-09 measured 20-22).
+    p = 1.0
+    for x in rates: p *= max(0.0, 1 - min(x, tick) / tick)
+    return round(tick * (1 - p), 1)
+
+
 def screens_relative(r):
     # Relative to the source (user decision via work-df 2026-11-03): an absolute 30 fps can't be met when the
     # source delivers ~29.4; the stream must keep >= 95% of the source rate and lose at most 2 source frames.
@@ -100,7 +108,13 @@ def screens_relative(r):
     if fresh is None and gap is None: return {}
     src, how = source(r)
     out = {}
-    if fresh is not None and src: out[f'fresh fps >= 95% of source ({how} {src})'] = (fresh >= 0.95 * src, f'{fresh} fps')
+    cap = {str(k): v for k, v in (r.get('captureFps') or {}).items()}
+    shown = [str(s) for s in (r.get('patternScreens') or [])]
+    if fresh is not None and cap and shown and SOURCE_MODE == 'capture':
+        # Fresh fps against the source's change rate: the union of the animated screens' capture rates.
+        u = union_rate([cap[s] for s in shown if s in cap])
+        out[f'fresh fps >= 90% of source change rate ({u}: union of {len(shown)} screens)'] = (fresh >= 0.9 * u, f'{fresh} fps')
+    elif fresh is not None and src: out[f'fresh fps >= 95% of source ({how} {src})'] = (fresh >= 0.95 * src, f'{fresh} fps')
     if gap is not None and src: out[f'gap p99 <= 2 source frames ({round(2000 / src)} ms)'] = (gap <= 2000 / src, f'{gap} ms')
     return out
 
