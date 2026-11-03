@@ -26,7 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
-import argparse, atexit, base64, json, math, pathlib, shlex, statistics, subprocess, sys, time
+import argparse, atexit, base64, contextlib, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent / 'stress'
@@ -80,17 +80,41 @@ def headset_status():
     except ValueError: return None
 
 
+# Our own simulated wear (prox_close) makes dumpsys report HEADSET_MOUNTED. Every script that sends it and every
+# real-sensor probe takes this lock, so a probe never reads a prox_close another process sent a moment earlier
+# (2026-11-03: the headset sat in the kitchen while two of our processes raced into "someone is wearing it").
+# Every override we send is logged, so a MOUNTED reading can be checked against what we did.
+PROX_LOCK, PROX_LOG = '/tmp/pinpin-prox.lock', '/tmp/pinpin-prox.log'
+
+
+@contextlib.contextmanager
+def prox_lock():
+    with open(PROX_LOCK, 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try: yield
+        finally: fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def prox(action, who=''):
+    # action: 'prox_close' (simulate wear) or 'automation_disable' (real sensor); call with prox_lock held.
+    with open(PROX_LOG, 'a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {action} {who or sys.argv[0]} pid {os.getpid()}\n")
+    return headset(f'am broadcast -a com.oculus.vrpowermanager.{action} >/dev/null', timeout=30)
+
+
 def headset_worn():
-    # The real proximity sensor: drop any virtual "worn" override (prox_close) and read the power state. The app's
-    # own state can't tell, because a simulated wear makes it VISIBLE/FOCUSED too.
-    out = headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null; sleep 2; '
-                  'dumpsys vrpowermanager | grep -m1 "^State:"')
-    return 'HEADSET_MOUNTED' in out
+    # The real proximity sensor: drop our override, then a person is only someone the sensor reports as MOUNTED for
+    # a full 5 s (sampled each second); any unmounted/standby sample means nobody. App state can't tell, because
+    # simulated wear makes it VISIBLE/FOCUSED too. Callers that were holding wear re-apply it themselves.
+    with prox_lock():
+        prox('automation_disable', 'headset_worn')
+        out = headset('sleep 1; for i in 1 2 3 4 5; do dumpsys vrpowermanager | grep -m1 "^State:"; sleep 1; done', timeout=40)
+    states = [l.split(':', 1)[1].strip() for l in out.splitlines() if l.startswith('State:')]
+    return len(states) >= 3 and all(s == 'HEADSET_MOUNTED' for s in states)
 
 
 def simulate_wear(on):
     # Unworn, with prox_close the Quest renders exactly as when worn (measured: state 5, 72 fps, no throttling).
-    headset('am broadcast -a com.oculus.vrpowermanager.' + ('prox_close' if on else 'automation_disable') + ' >/dev/null')
+    with prox_lock(): prox('prox_close' if on else 'automation_disable', 'simulate_wear')
 
 
 def pct(xs, p):
@@ -290,7 +314,7 @@ def main():
             stdin = (HERE / 'headset_sim.py').read_text()
         else:
             probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
-                      f"perl -e 'alarm 5; exec @ARGV' {ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")  # 5 s cap: a sleeping headset hangs adb
+                      f"LC_ALL=C LANG=C perl -e 'alarm 5; exec @ARGV' {ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")  # 5 s cap: a sleeping headset hangs adb
             stdin = None
         proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-mini', probe], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

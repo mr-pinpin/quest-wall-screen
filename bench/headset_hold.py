@@ -40,7 +40,9 @@ def worn_now():
 
 
 def hold_on():
-    stress.headset('am broadcast -a com.oculus.vrpowermanager.prox_close >/dev/null; input keyevent KEYCODE_WAKEUP', timeout=30)
+    with stress.prox_lock():
+        stress.prox('prox_close', 'headset_hold')
+        stress.headset('input keyevent KEYCODE_WAKEUP', timeout=30)
 
 
 def installed_version():
@@ -74,7 +76,9 @@ def main():
     try:
         if a.install and installed_version() != apk_version():
             log(f'installing {a.install} (installed {installed_version()}, apk {apk_version()})')
-            r = subprocess.run(['python3', str(ROOT / 'room_lab' / 'deploy.py'), 'install', a.install], capture_output=True, text=True, timeout=600)
+            with stress.prox_lock():  # deploy.py's launch sends prox_close too: no probe may read it as a person
+                with open(stress.PROX_LOG, 'a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} prox_close deploy.py install (launch) pid {os.getpid()}\n")
+                r = subprocess.run(['python3', str(ROOT / 'room_lab' / 'deploy.py'), 'install', a.install], capture_output=True, text=True, timeout=600)
             log(r.stdout.strip()[-600:] or r.stderr.strip()[-600:])
             hold_on()
             log(f'installed version now {installed_version()}')
@@ -91,7 +95,7 @@ def main():
     finally:
         try: os.unlink(stress.HOLD_STATUS)
         except OSError: pass
-        stress.headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null', timeout=30)
+        with stress.prox_lock(): stress.prox('automation_disable', 'headset_hold exit')
         log('real sensor restored')
 
 
