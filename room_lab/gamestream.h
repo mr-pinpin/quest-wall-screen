@@ -2,6 +2,7 @@
 // paired client certificate (pinned to the server certificate captured at pairing), then writes
 // files/moonlight/session.json for the app's session watcher. Lets the user switch Mini <-> Laptop by pinching.
 #pragma once
+#include <atomic>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/net_sockets.h>
@@ -32,6 +33,7 @@ static std::string hex(const uint8_t* d, size_t n) { static const char* h = "012
 
 struct GameStreamLauncher {
     std::string dir;
+    std::atomic<bool> h264{false};  // CODEC flag: ask for H.264 only (VideoToolbox's low-latency rate control is H.264-only)
     std::thread worker;
     std::atomic<bool> busy{false};
     std::mutex m; std::string status = "idle", active;
@@ -112,7 +114,7 @@ struct GameStreamLauncher {
                 j << "{\"host\": \"" << h.address << "\", \"rtspSessionUrl\": \"" << url << "\", \"appVersion\": \"" << xmlTag(info, "appversion")
                   << "\", \"gfeVersion\": \"" << xmlTag(info, "GfeVersion") << "\", \"serverCodecModeSupport\": " << atoi(xmlTag(info, "ServerCodecModeSupport").c_str())
                   << ", \"width\": " << h.width << ", \"height\": " << h.height << ", \"fps\": " << h.fps << ", \"bitrateKbps\": " << h.kbps
-                  << ", \"hevc\": true, \"rikey\": \"" << hex(rikey, 16) << "\", \"rikeyid\": " << rid << ", \"source\": \"" << h.name << "\"}";
+                  << ", \"hevc\": " << (h264 ? "false" : "true") << ", \"rikey\": \"" << hex(rikey, 16) << "\", \"rikeyid\": " << rid << ", \"source\": \"" << h.name << "\"}";
                 std::string tmp = dir + "/moonlight/.session.json";
                 { std::ofstream f(tmp); f << j.str(); }
                 rename(tmp.c_str(), (dir + "/moonlight/session.json").c_str());

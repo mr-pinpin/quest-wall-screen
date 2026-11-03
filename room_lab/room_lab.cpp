@@ -188,6 +188,7 @@ struct App {
     // files/gputime-on force the flags for self-tests.
     bool budgetMenu = false, budgetFile = false; bool budgetOn() const { return budgetMenu || budgetFile; }
     budget::Arbiter arbiter; budget::Output lastBudget; double frameWorkMs = 0;
+    bool codecMenu = false, codecFile = false;  // CODEC flag: game streams in H.264 instead of HEVC (applies at the next launch)
     GpuTimer gpuTimer; bool gpuTimeMenu = false, gpuTimeFile = false; bool gpuTime() const { return gpuTimeMenu || gpuTimeFile; }
     double frameMsForBudget() const { return gpuTime() && gpuTimer.valid() ? gpuTimer.ms : frameWorkMs; }
     std::map<int, vt::Level> vtLevels;
@@ -382,8 +383,8 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 20;
-    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
+    static constexpr int kMenuItems = 21;
+    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
@@ -401,6 +402,7 @@ struct App {
         if (l == "VT") return vt();
         if (l == "BUDGET") return budgetOn();
         if (l == "GPUTIME") return gpuTime();
+        if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
@@ -482,6 +484,7 @@ struct App {
         else if (l == "VT") vtMenu = !vtMenu;                                 // virtual texturing for the extra screens
         else if (l == "BUDGET") budgetMenu = !budgetMenu;                     // one arbiter for atlas / game / assets
         else if (l == "GPUTIME") gpuTimeMenu = !gpuTimeMenu;                  // GPU timer queries for the budget's frame time
+        else if (l == "H264") codecMenu = !codecMenu;                         // CODEC: next game stream in H.264
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
         else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
@@ -1293,7 +1296,11 @@ void main(){
             else snprintf(b + n, sizeof b - n, "}");
             j += b;
         }
-        j += "]}";
+        j += "]";
+        // "game":1 while a game/desktop stream plays: the sender's gameyield flag then halves the atlas encode rate
+        // so the shared media engine serves the game first (docs/gaming-latency-laptop.md).
+        if (moonlight.get(moonlight.stage) == "streaming") j += ",\"game\":1";
+        j += "}";
         if (demandSock < 0) demandSock = socket(AF_INET, SOCK_DGRAM, 0);
         sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57721); inet_pton(AF_INET, displayHost.c_str(), &a.sin_addr);
         sendto(demandSock, j.data(), j.size(), 0, (sockaddr*)&a, sizeof a);
@@ -1945,6 +1952,8 @@ void main(){
             vtFile = access((gDir + "/vt-on").c_str(), F_OK) == 0;      // forces VT for self-tests
             budgetFile = access((gDir + "/budget-on").c_str(), F_OK) == 0;  // forces BUDGET for self-tests
             gpuTimeFile = access((gDir + "/gputime-on").c_str(), F_OK) == 0;  // forces GPUTIME for self-tests
+            codecFile = access((gDir + "/codec-h264").c_str(), F_OK) == 0;    // forces CODEC (H.264) for bench pairs
+            launcher.h264 = codecMenu || codecFile;
         }
         panelLayer.mipQuality = mipqMenu || mipqFile;
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;

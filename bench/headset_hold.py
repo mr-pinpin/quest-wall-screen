@@ -6,9 +6,12 @@
 Waits until adb answers (the Quest drops off Wi-Fi when it sleeps unworn), then reads the real proximity sensor.
 Only when nobody wears it: simulates wear (prox_close; unworn it then renders exactly as worn, 72 fps), wakes the
 screen, optionally installs an APK when the installed version differs, runs each --then command (e.g. a
-`bench/stress.py --headset ...` run), and holds the headset awake until --minutes have passed. Every 20 s it
-re-reads the sensor; HEADSET_MOUNTED appears only for a real wearer, so the moment someone puts it on, it lets go
-(automation_disable restores the real sensor) and stops. It always restores the sensor on exit.
+`bench/stress.py --headset ...` run), and holds the headset awake until --minutes have passed. Simulated wear
+makes dumpsys report HEADSET_MOUNTED too (checked 2026-11-03), so a real wearer can only be seen with the
+override dropped: once a minute, and before each command (never during one), it drops it for about a second
+(automation_disable), reads the real state, and re-applies it unless someone is wearing the headset; then it lets
+go and stops. Unworn, the Quest waits ~15 s before sleeping, so the probe never loses the window. It always
+restores the real sensor on exit.
 """
 import argparse, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -27,8 +30,10 @@ def reachable():
     return out.strip()
 
 
-def worn_now():  # without dropping the override: HEADSET_MOUNTED is the real wearer
-    return 'HEADSET_MOUNTED' in stress.headset('dumpsys vrpowermanager | grep -m1 "^State:"', timeout=30)
+def worn_now():
+    # The real sensor (drops the override for ~1 s); re-apply the hold only if nobody is wearing it.
+    if stress.headset_worn(): return True
+    hold_on(); return False
 
 
 def hold_on():
@@ -78,7 +83,7 @@ def main():
             hold_on()  # stress.py --headset restores the sensor at its end
         while time.time() - t0 < a.minutes * 60:
             if worn_now(): log('worn: letting go'); return
-            hold_on(); time.sleep(20)
+            for _ in range(3): hold_on(); time.sleep(20)
         log('hold time over')
     finally:
         stress.headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null', timeout=30)
