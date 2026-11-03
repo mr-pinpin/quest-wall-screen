@@ -46,25 +46,37 @@ private let compressionOutput: VTCompressionOutputCallback = { context, refcon, 
 
 final class Peer { let c: NWConnection; var pending = 0; var needsKey = true; init(_ c: NWConnection) { self.c = c } }
 
-/// Captures one display into its cell of the atlas buffer.
+/// Captures one display into its cell of the atlas buffer. A capture lives as long as its display stays put: layout
+/// changes only move its cell (`cell`, guarded by atlas.lock) and resize its output with updateConfiguration, because
+/// restarting every stream on each resize froze the atlas for seconds in the 10-screen stress test.
 final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
-    let cell: Cell; weak var atlas: Atlas?; var stream: SCStream?
-    init(_ cell: Cell, _ atlas: Atlas) { self.cell = cell; self.atlas = atlas }
-    func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
+    var cell: Cell; let origin: CGPoint; weak var atlas: Atlas?; var stream: SCStream?; var dead = false
+    var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cell moves without resizing
+    init(_ cell: Cell, _ atlas: Atlas) { self.cell = cell; self.atlas = atlas; origin = CGDisplayBounds(cell.entry.display).origin }
+    func config(_ w: Int, _ h: Int, fps: Int) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        c.width = cell.w; c.height = cell.h; c.pixelFormat = kCVPixelFormatType_32BGRA; c.showsCursor = true
+        c.width = w; c.height = h; c.pixelFormat = kCVPixelFormatType_32BGRA; c.showsCursor = true
         c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps)); c.queueDepth = 5
-        let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: c, delegate: self)
+        return c
+    }
+    func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
+        let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config(cell.w, cell.h, fps: fps), delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture(); stream = s
     }
+    func resize(_ w: Int, _ h: Int, fps: Int) async {
+        do { try await stream?.updateConfiguration(config(w, h, fps: fps)) } catch { log("resize screen \(cell.entry.screen): \(error.localizedDescription)"); dead = true }
+    }
     func stop() { if let s = stream { stream = nil; Task { try? await s.stopCapture() } } }
-    func stream(_ stream: SCStream, didStopWithError error: Error) { log("screen \(cell.entry.screen) capture stopped: \(error.localizedDescription)"); atlas?.layoutKey = "" }
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        log("screen \(cell.entry.screen) capture stopped: \(error.localizedDescription)"); dead = true; atlas?.layoutKey = ""
+    }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
-        let seen = a.visible(cell.entry.screen)
         a.lock.lock(); defer { a.lock.unlock() }
-        if seen { a.stash[cell.entry.screen] = nil; a.blit(pb, cell) } else { a.stash[cell.entry.screen] = pb }
+        let screen = cell.entry.screen
+        latest = pb
+        if a.visible(screen) { a.stash[screen] = nil; a.blit(pb, cell) } else { a.stash[screen] = pb }
     }
 }
 
@@ -72,7 +84,7 @@ final class Atlas {
     let o: Options
     let lock = NSLock()
     var W = 0, H = 0, pixels: [UInt8] = [], dirty = false
-    var cells: [Cell] = [], captures: [CellCapture] = []
+    var cells: [Cell] = [], captures: [CGDirectDisplayID: CellCapture] = [:], lastRefit = Date.distantPast
     var layoutKey = "", layoutJSON = ""
     var encoder: VTCompressionSession?
     var peers: [UUID: Peer] = [:]
@@ -212,28 +224,54 @@ final class Atlas {
         let now = Date()
         let tiers: [Int: Int] = dlock.withLock {
             if now.timeIntervalSince(wantAt) > 2 { tier = [:]; tierWant = [:] }  // no headset: back to full size
-            for (id, t) in tierWant where now.timeIntervalSince(t.since) > (t.w > (tier[id] ?? o.cellW) ? 2 : 5) { tier[id] = t.w; tierWant[id] = nil }
+            // At most one size refit per 5 s (each is a keyframe); between refits only the bitrate follows gaze.
+            if now.timeIntervalSince(lastRefit) >= 5 {
+                for (id, t) in tierWant where now.timeIntervalSince(t.since) > (t.w > (tier[id] ?? o.cellW) ? 2 : 5) { tier[id] = t.w; tierWant[id] = nil; lastRefit = now }
+            }
             return tier
         }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
         // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
         let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
-        if key == layoutKey { return }
-        layoutKey = key
-        for c in captures { c.stop() }; captures = []
+        if key == layoutKey && !captures.values.contains(where: { $0.dead }) && captures.count == list.count { return }
         let (w, h, cells) = layout(list, tiers)
-        lock.withLock { stash = [:]; W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4); self.cells = cells; dirty = true }
+        let resized = w != W || h != H
         let cj = cells.map { "{\"screen\":\($0.entry.screen),\"x\":\($0.x),\"y\":\($0.y),\"w\":\($0.w),\"h\":\($0.h)}" }.joined(separator: ",")
-        layoutJSON = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
-        work.sync { lastBuffer = nil; makeEncoder() }
-        guard let content = try? await SCShareableContent.current else { log("no shareable content"); layoutKey = ""; return }
-        for c in cells {
-            guard let d = content.displays.first(where: { $0.displayID == c.entry.display }) else { log("display \(c.entry.display) not found"); continue }
-            let cap = CellCapture(c, self)
-            do { try await cap.start(d, fps: o.fps, queue: capQ); captures.append(cap) } catch { log("capture \(c.entry.screen): \(error.localizedDescription)") }
+        let json = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
+        // Stop captures whose display is gone, died, or moved (a capture started mid-move shows only the wallpaper).
+        for (d, c) in captures where c.dead || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
+            c.stop(); captures[d] = nil
         }
-        log("layout \(layoutJSON)")
-        forceKey = true
+        var resizes: [(CellCapture, Cell)] = []
+        lock.withLock {
+            stash = [:]; self.cells = cells; dirty = true
+            if resized { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4) }
+            for c in cells {
+                guard let cap = captures[c.entry.display] else { continue }
+                let old = cap.cell; cap.cell = c
+                if old.w != c.w || old.h != c.h { resizes.append((cap, c)) }
+                else if let pb = cap.latest { blit(pb, c) }  // same size, new place: copy the last frame now
+            }
+        }
+        for (cap, c) in resizes { await cap.resize(c.w, c.h, fps: o.fps) }
+        let changed = json != layoutJSON || resized
+        if changed {
+            layoutJSON = json
+            work.sync { if resized || encoder == nil { lastBuffer = nil; makeEncoder() } }
+        }
+        let missing = cells.filter { captures[$0.entry.display] == nil }
+        if !missing.isEmpty {
+            if let content = try? await SCShareableContent.current {
+                for c in missing {
+                    // A display created moments ago may not be capturable yet; it is retried on the next pass.
+                    guard let d = content.displays.first(where: { $0.displayID == c.entry.display }) else { log("display \(c.entry.display) not found yet"); continue }
+                    let cap = CellCapture(c, self)
+                    do { try await cap.start(d, fps: o.fps, queue: capQ); captures[c.entry.display] = cap } catch { log("capture \(c.entry.screen): \(error.localizedDescription)") }
+                }
+            } else { log("no shareable content") }
+        }
+        layoutKey = captures.count == cells.count ? key : ""  // anything missing: try again in 2 s
+        if changed { log("layout \(layoutJSON)"); forceKey = true }
     }
 
     // ---- encoding
