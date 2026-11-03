@@ -286,7 +286,11 @@ def main():
     if why: sys.exit(f'stress: not running, {why}')
     # Benchmarks are pinned to the M1 Air for stability (user direction 2026-11-03): the sender host is recorded in
     # every result and anything else is refused; verdict.py never compares runs from different hosts.
-    hw = air('sysctl -n machdep.cpu.brand_string hw.model; sw_vers -productVersion', timeout=20).split('\n')
+    for attempt in range(3):  # a transient empty ssh read (seen 2026-11-03) is not a wrong host
+        try: hw = air('sysctl -n machdep.cpu.brand_string hw.model; sw_vers -productVersion', timeout=20).split('\n')
+        except subprocess.TimeoutExpired: hw = []
+        if hw and hw[0].strip(): break
+        time.sleep(5)
     host = {'name': 'pinpin-air', 'chip': hw[0].strip() if hw else '', 'model': hw[1].strip() if len(hw) > 1 else '',
             'macos': hw[2].strip() if len(hw) > 2 else ''}
     if host['chip'] != BENCH_CHIP or host['model'] != BENCH_MODEL:
