@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -181,7 +182,18 @@ struct VideoStream {
     }
     void sleepCheck(int ms) { for (int i = 0; i < ms / 50 && !stop; i++) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
 
+    // Hero streams (docs/virtual-texturing.md v3): 0x81 packets carry one screen's own stream on the atlas connection;
+    // they go to onHero (room_lab demuxes them into per-screen decoders) and never to this decoder.
+    std::function<void(int, const uint8_t*, size_t)> onHero;
+    void heroPacket(const uint8_t* p, size_t n) {  // p: flags, pts u64, w u16, h u16, 3 codec bytes, Annex B
+        if (n < 16) return;
+        bool key = p[0] & 1, hevc = p[0] & 4;
+        int64_t pts = 0; for (int i = 0; i < 8; i++) pts = (pts << 8) | p[1 + i];
+        int w = (p[9] << 8) | p[10], h = (p[11] << 8) | p[12];
+        submit(p + 16, n - 16, key, pts, w, h, hevc);
+    }
     void packet(const uint8_t* p, size_t n) {
+        if (p[0] == 0x81) { if (onHero && n >= 3 + 16) onHero((p[1] << 8) | p[2], p + 3, n - 3); return; }
         if (p[0] == 0x80) {
             std::lock_guard<std::mutex> g(lock);
             if (n > 1 && p[1] == '{') meta.assign((const char*)p + 1, n - 1); else message.assign((const char*)p + 1, n - 1);

@@ -183,6 +183,34 @@ struct App {
     // shown ("have"). files/vt-on forces it for self-tests.
     bool vtMenu = false, vtFile = false; bool vt() const { return vtMenu || vtFile; }
     std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0; std::map<int, vt::Resident> vtResident;
+    // HERO flag (docs/virtual-texturing.md v3): screens chosen by vt::Heroes leave the atlas for their own stream,
+    // demuxed from 0x81 packets into a decoder-only VideoStream each (created on the render thread; packets that
+    // arrive first wait from their last IDR). files/hero-on forces it.
+    bool heroMenu = false, heroFile = false; bool heroOn() const { return heroMenu || heroFile; }
+    vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
+    std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
+    long heroPackets = 0;
+    void onHeroPacket(int s, const uint8_t* p, size_t n) {  // atlas network thread
+        std::lock_guard<std::mutex> g(heroLock); heroPackets++;
+        auto it = heroStreams.find(s);
+        if (it != heroStreams.end()) { it->second->heroPacket(p, n); return; }
+        auto& q = heroPending[s];
+        if (p[0] & 1) q.clear();
+        if (!q.empty() || (p[0] & 1)) q.emplace_back(p, p + n);
+        while (q.size() > 240) q.pop_front();
+    }
+    void syncHeroStreams() {  // render thread: a decoder for every hero in the layout, none for the rest
+        std::lock_guard<std::mutex> g(heroLock);
+        for (int s : heroLayout) if (!heroStreams.count(s)) {
+            auto v = std::make_unique<VideoStream>(); v->relay = false; v->source = "hero " + std::to_string(s); v->start();
+            for (auto& pk : heroPending[s]) v->heroPacket(pk.data(), pk.size());
+            heroPending.erase(s); heroStreams[s] = std::move(v);
+        }
+        for (auto it = heroStreams.begin(); it != heroStreams.end();) {
+            if (heroLayout.count(it->first)) { ++it; continue; }
+            it->second->shutdown(); it = heroStreams.erase(it);
+        }
+    }
     // BUDGET flag (docs/3d-content.md, room_lab/budget.h): one arbiter splits the link between the atlas, the game
     // stream and asset downloads by mode (wall / cinema / game) and, under frame-time pressure, makes unfocused
     // screens one or two levels coarser (with VT). Frame time: the GPU's (GPUTIME flag, gpu_timer.h) when the driver
@@ -416,12 +444,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 25;
+    static constexpr int kMenuItems = 26;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}, {"HERO", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -439,6 +467,7 @@ struct App {
         if (l == "HOSTRES") return hostResMenu;
         if (l == "MODELS") return models();
         if (l == "LODPOSE") return lodPose();
+        if (l == "HERO") return heroOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -525,6 +554,7 @@ struct App {
         else if (l == "WIFILL") wifiLlMenu = !wifiLlMenu;                     // Wi-Fi low-latency lock while streaming
         else if (l == "MODELS") modelsMenu = !modelsMenu;                     // headset-rendered 3D model (files/model.json)
         else if (l == "LODPOSE") lodPoseMenu = !lodPoseMenu;                  // detail from the screen's projection, both axes
+        else if (l == "HERO") heroMenu = !heroMenu;                           // big in-gaze screens get their own stream
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1384,12 +1414,18 @@ void main(){
             budgetKbps = lastBudget.atlasKbps;
         } else budgetKbps = 60000;
         model.kbps = budgetOn() ? lastBudget.assetKbps : 20000;  // 0 while a game streams: assets yield
-        bool v2 = vt();
-        std::string j = std::string(v2 ? "{\"v\":2," : "{") + "\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
+        bool v2 = vt() || heroOn(), v3 = heroOn();
+        std::vector<int> heroes;
+        if (v3) {
+            std::vector<vt::HeroIn> hin; for (auto& d : ds) if (d.id != 1) hin.push_back({d.id, d.vis, d.px, d.pri});
+            heroes = heroPicker.pick(hin, now());
+        }
+        std::string j = std::string(v3 ? "{\"v\":3,\"heroOk\":1,\"heroCodec\":\"hevc\"," : v2 ? "{\"v\":2," : "{") + "\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
         for (size_t i = 0; i < ds.size(); i++) {
             char b[160]; int n = snprintf(b, sizeof b, "%s{\"id\":%d,\"vis\":%d,\"px\":%d,\"pri\":%.2f", i ? "," : "", ds[i].id, ds[i].vis ? 1 : 0, ds[i].px, ds[i].pri);
             int bias = budgetOn() && ds[i].pri < 0.5f ? lastBudget.lvlBias : 0;  // unfocused screens shed detail first
-            if (v2 && ds[i].id != 1) snprintf(b + n, sizeof b - n, ",\"lvl\":%d,\"have\":%d}", std::min(4, vtWant(ds[i].id, ds[i].px, ds[i].vis) + bias), vtHave(ds[i].id));
+            bool hero = std::find(heroes.begin(), heroes.end(), ds[i].id) != heroes.end();
+            if (v2 && ds[i].id != 1) snprintf(b + n, sizeof b - n, ",\"lvl\":%d,\"have\":%d%s}", std::min(4, vtWant(ds[i].id, ds[i].px, ds[i].vis) + bias), vtHave(ds[i].id), hero ? ",\"hero\":1" : "");
             else snprintf(b + n, sizeof b - n, "}");
             j += b;
         }
@@ -1816,13 +1852,18 @@ void main(){
         atlasLaptop = hostResMenu || atlasVideo.directHost == "laptop";
         if (atlasLaptop && atlasVideo.directPort > 0) atlasVideo.directHost = laptop();
         if (atlasVideo.directHost.empty() || atlasVideo.directPort <= 0) { atlasVideo.directHost.clear(); return; }
-        atlasVideo.source = "atlas"; atlasVideo.start();
+        atlasVideo.source = "atlas";
+        atlasVideo.onHero = [this](int s, const uint8_t* p, size_t n) { onHeroPacket(s, p, n); };
+        atlasVideo.start();
     }
     // Layout text from the sender: {"atlas":[W,H],"cells":[{"screen":2,"x":0,"y":0,"w":1920,"h":1200},...]}
     void parseAtlas() {
         std::string m; { std::lock_guard<std::mutex> g(atlasVideo.lock); m = atlasVideo.meta; }
         if (m == atlasMeta) return;
         vt::Layout L = vt::parse(m);
+        heroLayout.clear();  // v3: "hero":[ids] (screens streamed on their own, no atlas cell)
+        size_t hp = m.find("\"hero\":[");
+        if (hp != std::string::npos) for (const char* q = m.c_str() + hp + 8; *q && *q != ']'; q++) if (isdigit((unsigned char)*q)) { heroLayout.insert(atoi(q)); while (isdigit((unsigned char)q[1])) q++; }
         atlasMeta = m; atlasW = L.W; atlasH = L.H; atlasTiles = L.screens; atlasCells.clear();
         for (auto& [id, cells] : atlasTiles) atlasCells[id] = cells.front();  // the first tile: bezel colours, v1 paths
         event("atlas layout: " + std::to_string(atlasCells.size()) + " screens");
@@ -2025,8 +2066,18 @@ void main(){
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
         bool atlasOk = !atlasVideo.directHost.empty() && atlasVideo.update(display) && atlasVideo.mipTex;
         extraLive.clear();
+        if (heroOn() || !heroLayout.empty()) syncHeroStreams();
+        for (auto& e : extras) {  // hero screens: their own decoder, straight into their layer
+            if (!heroLayout.count(e.id)) continue;
+            VideoStream* hv = nullptr; { std::lock_guard<std::mutex> g(heroLock); auto it = heroStreams.find(e.id); if (it != heroStreams.end()) hv = it->second.get(); }
+            if (!hv || !hv->update(display) || !hv->mipTex) continue;
+            PanelLayer& L = extraLayers[e.id]; L.superSample = panelLayer.superSample; L.super = panelLayer.super;
+            L.update(session, hv->mipFbo, hv->mipW, hv->mipH, hv->mipVersion);
+            if (L.hasImage) extraLive.insert(e.id);
+        }
         if (atlasOk) {
             for (auto& e : extras) {
+                if (heroLayout.count(e.id)) continue;  // streamed on its own
                 auto it = atlasCells.find(e.id); if (it == atlasCells.end()) continue;
                 PanelLayer& L = extraLayers[e.id]; L.superSample = panelLayer.superSample; L.super = panelLayer.super;
                 if (!vt()) {
@@ -2061,6 +2112,7 @@ void main(){
             wifiLlFile = access((gDir + "/wifill-on").c_str(), F_OK) == 0;    // forces WIFILL for bench pairs
             modelsFile = access((gDir + "/models-on").c_str(), F_OK) == 0;    // forces MODELS for self-tests
             lodPoseFile = access((gDir + "/lodpose-on").c_str(), F_OK) == 0;  // forces LODPOSE for self-tests
+            heroFile = access((gDir + "/hero-on").c_str(), F_OK) == 0;        // forces HERO for self-tests
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
                 if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
@@ -2216,7 +2268,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << ",\"hero\":" << (heroOn() ? 1 : 0) << ",\"heroScreens\":" << heroLayout.size() << ",\"heroPackets\":" << heroPackets << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";

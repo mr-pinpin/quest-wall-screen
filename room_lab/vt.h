@@ -132,6 +132,28 @@ inline int projectedPx(Vec3 eye, Vec3 c, Vec3 right, Vec3 up, float w, float h, 
 // levels would need non-uniform tiles: a possible later step, not done.
 
 
+// Hero streams (docs/virtual-texturing.md v3): which screens leave the atlas for their own stream. A candidate is
+// visible, at least 1280 px across (projected) and in gaze (pri >= 0.8); at most `max` heroes, best (pri * px)
+// first. A hero joins at once and stays until it has failed the rule for 3 s (each change costs keyframes).
+struct HeroIn { int id; bool vis; int px; float pri; };
+struct Heroes {
+    std::map<int, double> failingSince; std::vector<int> cur;
+    std::vector<int> pick(const std::vector<HeroIn>& in, double now, int max = 3) {
+        auto ok = [](const HeroIn& h) { return h.vis && h.px >= 1280 && h.pri >= 0.8f; };
+        std::vector<int> keep;
+        for (int id : cur) {
+            const HeroIn* h = nullptr; for (auto& x : in) if (x.id == id) h = &x;
+            if (h && ok(*h)) { failingSince.erase(id); keep.push_back(id); continue; }
+            double& t = failingSince.emplace(id, now).first->second;
+            if (h && now - t < 3) keep.push_back(id); else failingSince.erase(id);
+        }
+        std::vector<HeroIn> cand; for (auto& x : in) if (ok(x) && std::find(keep.begin(), keep.end(), x.id) == keep.end()) cand.push_back(x);
+        std::sort(cand.begin(), cand.end(), [](const HeroIn& a, const HeroIn& b) { return a.pri * a.px > b.pri * b.px; });
+        for (auto& c : cand) if ((int)keep.size() < max) keep.push_back(c.id);
+        cur = keep; return cur;
+    }
+};
+
 // Hold rule: a screen that shows an image and gets a new panel size keeps the old image until the new one exists.
 inline bool needsHold(bool hasImage, int cw, int ch, int contentW, int contentH) { return hasImage && (cw != contentW || ch != contentH); }
 
