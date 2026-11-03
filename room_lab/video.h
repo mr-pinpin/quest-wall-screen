@@ -122,7 +122,8 @@ struct VideoStream {
         int rcv = 8 << 20; setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof rcv);
         timeval tv{3, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons((uint16_t)directPort);
-        if (inet_pton(AF_INET, directHost.c_str(), &a.sin_addr) != 1 || connect(fd, (sockaddr*)&a, sizeof a) < 0) { close(fd); return -1; }
+        std::string host; { std::lock_guard<std::mutex> g(lock); host = directHost; }  // the laptop's address can change (hosts.h)
+        if (inet_pton(AF_INET, host.c_str(), &a.sin_addr) != 1 || connect(fd, (sockaddr*)&a, sizeof a) < 0) { close(fd); return -1; }
         timeval idle{10, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &idle, sizeof idle);
         return fd;
     }

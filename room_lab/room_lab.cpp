@@ -30,6 +30,7 @@
 #include "panel_layer.h"
 #include "budget.h"
 #include "gpu_timer.h"
+#include "hosts.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -169,7 +170,7 @@ struct App {
     GLint uViewProj, uDepthViewProj, uDepth, uOcclude, uLayer, uDepthParams, uVideo, uHasVideo, uAtlas = -1;
     // Extra screens (summoned): one H.264 atlas of the laptop's virtual displays (sharp/../AtlasSender.swift),
     // cropped per screen into its own compositor layer. files/atlas.json: {"host": "<Mac IP>", "port": 57720}.
-    VideoStream atlasVideo;
+    VideoStream atlasVideo; bool atlasLaptop = false;
     // lvl and src (the part of the Mac display the cell covers) are protocol v2 (docs/virtual-texturing.md); a v1
     // sender leaves lvl -1 and sw 0. A screen may come as several cells (tiles).
     using AtlasCell = vt::Cell;
@@ -207,8 +208,33 @@ struct App {
     bool bezelFade = false, bezelGlass = false, bezelAmbi = true;   // FADE / GLASS / AMBI bezel styles (grey when all off); AMBI is the user pick
     bool nativeRes = false;  // NATIVE: stream the laptop at its panel's real pixels (2880x1800) instead of 2560x1600
     float currentHz() { float hz = 0; if (xrGetDisplayRefreshRateFB_ && session) xrGetDisplayRefreshRateFB_(session, &hz); return hz; }
+    // HOSTRES flag (default on): the laptop's address is resolved, not hard-coded (room_lab/hosts.h): files/hosts.json
+    // override, then mDNS <LocalHostName>.local, then the last address that worked, then kLaptopDefault. Re-resolved
+    // every 30 s on its own thread; the game stream, the extra displays, the demand and the atlas all follow it.
+    static constexpr const char* kLaptopDefault = "192.168.0.104";
+    bool hostResMenu = true; mutable std::mutex laptopLock; std::string laptopIp = kLaptopDefault, laptopVia = "default";
+    std::thread hostThread; std::atomic<bool> hostStop{false};
+    std::string laptop() const { std::lock_guard<std::mutex> g(laptopLock); return laptopIp; }
+    std::string laptopViaNow() const { std::lock_guard<std::mutex> g(laptopLock); return laptopVia; }
+    void resolveLaptop() {
+        hosts::Result r = hosts::laptop(gDir, hostResMenu, kLaptopDefault);
+        bool changed;
+        { std::lock_guard<std::mutex> g(laptopLock); changed = r.ip != laptopIp; laptopIp = r.ip; laptopVia = r.via; }
+        if (atlasLaptop) { std::lock_guard<std::mutex> g(atlasVideo.lock); atlasVideo.directHost = r.ip; }
+        if (changed) event("laptop at " + r.ip + " (" + r.via + ")");
+    }
+    void startHostResolver() {
+        resolveLaptop();  // before the streams start (up to ~1 s)
+        hostThread = std::thread([this] {
+            while (!hostStop) {
+                for (int i = 0; i < 300 && !hostStop; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (!hostStop) resolveLaptop();
+            }
+        });
+    }
     GameStreamHost hostFor(int i) const {
         GameStreamHost h = hosts[i];
+        if (i == 1) h.address = laptop();
         if (nativeRes && i == 1) { h.width = 2880; h.height = 1800; h.kbps = 100000; }
         return h;
     }
@@ -260,7 +286,7 @@ struct App {
     GameStreamLauncher launcher;
     // Pinch a button above the panel to switch sources. The Air is reached through lan_relay.py on the Mini.
     GameStreamHost hosts[2] = {{"MINI", "192.168.2.1", 47984, "server.pem", 2560, 1440, 72, 60000},
-                               {"LAPTOP", "192.168.0.102", 57984, "server-air.pem", 2560, 1600, 60, 80000}};  // direct: the Mini relay is retired
+                               {"LAPTOP", kLaptopDefault, 57984, "server-air.pem", 2560, 1600, 60, 80000}};  // direct: the Mini relay is retired
     int hoverButton = -1;
 
     PFN_xrCreatePassthroughFB xrCreatePassthroughFB_ = nullptr;
@@ -383,12 +409,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 21;
-    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"},
+    static constexpr int kMenuItems = 23;
+    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -402,6 +428,8 @@ struct App {
         if (l == "VT") return vt();
         if (l == "BUDGET") return budgetOn();
         if (l == "GPUTIME") return gpuTime();
+        if (l == "WIFILL") return wifiLl();
+        if (l == "HOSTRES") return hostResMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -485,6 +513,8 @@ struct App {
         else if (l == "BUDGET") budgetMenu = !budgetMenu;                     // one arbiter for atlas / game / assets
         else if (l == "GPUTIME") gpuTimeMenu = !gpuTimeMenu;                  // GPU timer queries for the budget's frame time
         else if (l == "H264") codecMenu = !codecMenu;                         // CODEC: next game stream in H.264
+        else if (l == "WIFILL") wifiLlMenu = !wifiLlMenu;                     // Wi-Fi low-latency lock while streaming
+        else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
         else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
@@ -1039,6 +1069,48 @@ void main(){
             text(b, hud, right - w / 2 + 0.003f, cy, z + 0.001f, px, t.text.c_str(), white);
         }
     }
+    // WIFILL flag: while a stream plays (game stream or extra screens), hold a WifiLock in WIFI_MODE_FULL_LOW_LATENCY
+    // (Android 10+): Wi-Fi power save off and the driver's low-latency mode, so packets don't wait for the next
+    // beacon wake-up (idle Quest pings: 50-100 ms, half lost). Released when nothing streams. files/wifill-on forces it.
+    bool wifiLlMenu = false, wifiLlFile = false; bool wifiLl() const { return wifiLlMenu || wifiLlFile; }
+    jobject wifiLock = nullptr; bool wifiLockHeld = false; std::string wifiLockErr; std::chrono::steady_clock::time_point wifiAt{};
+    void pollWifiLock() {
+        auto t = std::chrono::steady_clock::now();
+        if (!jni || !gActivity || t - wifiAt < std::chrono::seconds(2)) return;
+        wifiAt = t;
+        bool want = wifiLl() && (moonlight.get(moonlight.stage) == "streaming" || !extraLive.empty());
+        if (want == wifiLockHeld) return;
+        JNIEnv* e = jni;
+        if (!wifiLock) {
+            jclass ac = e->GetObjectClass(gActivity);
+            jmethodID gss = e->GetMethodID(ac, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+            jstring name = e->NewStringUTF("wifi"), tag = e->NewStringUTF("pinpin-stream");
+            jobject wm = gss ? e->CallObjectMethod(gActivity, gss, name) : nullptr;
+            if (wm && !e->ExceptionCheck()) {
+                jclass wc = e->GetObjectClass(wm);
+                jmethodID cwl = e->GetMethodID(wc, "createWifiLock", "(ILjava/lang/String;)Landroid/net/wifi/WifiManager$WifiLock;");
+                jobject lock = cwl ? e->CallObjectMethod(wm, cwl, 4, tag) : nullptr;  // 4 = WIFI_MODE_FULL_LOW_LATENCY
+                if (lock && !e->ExceptionCheck()) {
+                    jclass lc = e->GetObjectClass(lock);
+                    jmethodID rc = e->GetMethodID(lc, "setReferenceCounted", "(Z)V");
+                    if (rc) e->CallVoidMethod(lock, rc, (jboolean)false);
+                    wifiLock = e->NewGlobalRef(lock); e->DeleteLocalRef(lc);
+                }
+                if (lock) e->DeleteLocalRef(lock);
+                e->DeleteLocalRef(wc);
+            }
+            if (e->ExceptionCheck()) { e->ExceptionClear(); wifiLockErr = "createWifiLock failed"; }
+            if (wm) e->DeleteLocalRef(wm);
+            e->DeleteLocalRef(name); e->DeleteLocalRef(tag); e->DeleteLocalRef(ac);
+            if (!wifiLock) return;
+        }
+        jclass lc = e->GetObjectClass(wifiLock);
+        jmethodID m = e->GetMethodID(lc, want ? "acquire" : "release", "()V");
+        if (m) e->CallVoidMethod(wifiLock, m);
+        if (e->ExceptionCheck()) { e->ExceptionClear(); wifiLockErr = want ? "acquire failed" : "release failed"; }
+        else { wifiLockHeld = want; wifiLockErr.clear(); event(std::string("wifi low-latency lock ") + (want ? "held" : "released")); }
+        e->DeleteLocalRef(lc);
+    }
     // Battery: polled from Android's BatteryManager (the app can't read /sys) every 10 s on the render thread.
     JNIEnv* jni = nullptr; int batteryPct = -1; bool charging = false; std::chrono::steady_clock::time_point batteryAt{};
     void pollBattery() {
@@ -1076,11 +1148,11 @@ void main(){
     // Each extra screen can be a real display on the laptop (mac/pinpin-displays: CGVirtualDisplay behind a small
     // HTTP API on :57710), streamed back through the atlas (AtlasSender.swift). MACDISP is on by default now that the
     // headset shows those displays; turning it off removes them so nothing wanders onto a monitor nobody can see.
-    bool macDisplays = true; std::string displayHost = "192.168.0.102"; std::atomic<long> displayCalls{0}, displayFailures{0};
+    bool macDisplays = true; std::atomic<long> displayCalls{0}, displayFailures{0};
     void macDisplay(int id, bool create) {
         // 1x: the atlas cell is 1920x1200 anyway, and a 2x display makes YouTube pull 1440p/4K over a ~30 Mbps house line.
         std::string path = create ? "/displays?id=" + std::to_string(id) + "&w=1920&h=1200&scale=1" : "/remove?id=" + std::to_string(id);
-        std::string host = displayHost;
+        std::string host = laptop();
         std::thread([this, host, path] {
             int fd = socket(AF_INET, SOCK_STREAM, 0); bool ok = false;
             timeval tv{5, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
@@ -1107,7 +1179,7 @@ void main(){
     int extraPtr = -1, mouseSock = -1, sentU = -1, sentV = -1; float eu = 0.5f, ev = 0.5f; long extraClicks = 0, extraMoves = 0;
     void sendMouse(char op, int id, float u, float v) {
         if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
-        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57711); inet_pton(AF_INET, displayHost.c_str(), &a.sin_addr);
+        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57711); inet_pton(AF_INET, laptop().c_str(), &a.sin_addr);
         char msg[64]; int n = snprintf(msg, sizeof msg, "%c %d %d %d", op, id, (int)(u * 10000), (int)(v * 10000));
         sendto(mouseSock, msg, n, 0, (sockaddr*)&a, sizeof a);
     }
@@ -1302,7 +1374,7 @@ void main(){
         if (moonlight.get(moonlight.stage) == "streaming") j += ",\"game\":1";
         j += "}";
         if (demandSock < 0) demandSock = socket(AF_INET, SOCK_DGRAM, 0);
-        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57721); inet_pton(AF_INET, displayHost.c_str(), &a.sin_addr);
+        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57721); inet_pton(AF_INET, laptop().c_str(), &a.sin_addr);
         sendto(demandSock, j.data(), j.size(), 0, (sockaddr*)&a, sizeof a);
         demandSent++; lastDemand = j;
     }
@@ -1482,6 +1554,7 @@ void main(){
         updateVisibility();
         sendDemand();
         pollBattery();
+        pollWifiLock();
         updateVoice();
         updateSpell();
         if (updateMenu() || updateExtras()) {
@@ -1714,6 +1787,9 @@ void main(){
         std::ifstream f(gDir + "/atlas.json"); if (!f) return;
         std::stringstream ss; ss << f.rdbuf(); std::string j = ss.str();
         atlasVideo.directHost = SharpLayer::field(j, "host"); atlasVideo.directPort = atoi(SharpLayer::field(j, "port").c_str());
+        // The atlas sender runs on the laptop: "host": "laptop" (or any address, with HOSTRES on) follows the resolver.
+        atlasLaptop = hostResMenu || atlasVideo.directHost == "laptop";
+        if (atlasLaptop && atlasVideo.directPort > 0) atlasVideo.directHost = laptop();
         if (atlasVideo.directHost.empty() || atlasVideo.directPort <= 0) { atlasVideo.directHost.clear(); return; }
         atlasVideo.source = "atlas"; atlasVideo.start();
     }
@@ -1953,6 +2029,7 @@ void main(){
             budgetFile = access((gDir + "/budget-on").c_str(), F_OK) == 0;  // forces BUDGET for self-tests
             gpuTimeFile = access((gDir + "/gputime-on").c_str(), F_OK) == 0;  // forces GPUTIME for self-tests
             codecFile = access((gDir + "/codec-h264").c_str(), F_OK) == 0;    // forces CODEC (H.264) for bench pairs
+            wifiLlFile = access((gDir + "/wifill-on").c_str(), F_OK) == 0;    // forces WIFILL for bench pairs
             launcher.h264 = codecMenu || codecFile;
         }
         panelLayer.mipQuality = mipqMenu || mipqFile;
@@ -2088,7 +2165,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
@@ -2130,6 +2207,7 @@ void main(){
         if (!createInstance(env) || !createEgl()) { status(); return; }
         createGl();
         launcher.dir = gDir;
+        startHostResolver();
         video.start();  // Mac desktop relay by default; a freshly pushed Sunshine session switches to the Mini
         video.sharp.start(gDir);  // lossless refinement of still tiles, when files/sharp.json names a sender
         startAtlas();             // extra screens' atlas, when files/atlas.json names a sender
@@ -2145,6 +2223,7 @@ void main(){
         event("exiting");
         dictation.shutdown();
         moonlight.stop();
+        hostStop = true; if (hostThread.joinable()) hostThread.join();
         launcher.shutdown();
         video.shutdown();
         if (session) xrDestroySession(session);

@@ -17,7 +17,7 @@
 
 struct GameStreamHost {
     const char* name;      // shown on the button
-    const char* address;   // as seen from the headset (direct on the house LAN since 2026-11-03)
+    std::string address;   // as seen from the headset (direct on the house LAN since 2026-11-03); the laptop's is resolved (hosts.h)
     int httpsPort;
     const char* serverPem; // pinned certificate from pairing
     int width, height, fps, kbps;
@@ -56,7 +56,7 @@ struct GameStreamLauncher {
         else if ((r = mbedtls_x509_crt_parse(&own, (const unsigned char*)cert.c_str(), cert.size() + 1))) fail("client cert", r);
         else if ((r = mbedtls_pk_parse_key(&pk, (const unsigned char*)key.c_str(), key.size() + 1, nullptr, 0, mbedtls_ctr_drbg_random, &drbg))) fail("client key", r);
         else if ((r = mbedtls_x509_crt_parse(&pinned, (const unsigned char*)pin.c_str(), pin.size() + 1))) fail("server pin", r);
-        else if ((r = mbedtls_net_connect(&net, h.address, port, MBEDTLS_NET_PROTO_TCP))) fail("connect", r);
+        else if ((r = mbedtls_net_connect(&net, h.address.c_str(), port, MBEDTLS_NET_PROTO_TCP))) fail("connect", r);
         else {
             mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
             mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE);  // self-signed: verified below by exact pin

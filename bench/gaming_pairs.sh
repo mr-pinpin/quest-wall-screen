@@ -22,6 +22,8 @@ PAIRS=(
   "--flags gameyield"                       #    atlas yields encoder slots while "game":1 (headset v0.39+)
   "--codec HEVC"                            # 3. HEVC (OFF half of codec-h264)
   "--codec H264"                            #    H.264, low-latency rate control (headset v0.39+ CODEC flag)
+  ""                                        # 4. baseline again
+  "--headset-flag wifill"                   #    Wi-Fi low-latency lock while streaming (headset v0.40+ WIFILL flag)
 )
 # Verdicts: python3 bench/verdict.py vt_realtime|gameyield|codec-h264 OFF.json ON.json (docs/bench-scoreboard.md)
 THEN=()
