@@ -52,7 +52,10 @@ def probe():
     return sh("for ns in global secure system; do settings list $ns | grep -iE 'sleep|stay_on|timeout|screen_off|doze|wifi_.*(idle|sleep)|power' | sed \"s/^/$ns: /\"; done; "
               "getprop | grep -iE 'sleep|proximity|power|stay' | head -30; dumpsys battery | grep -E 'powered|level|status'; "
               "dumpsys power | grep -E 'mWakefulness=|mStayOn|Display Power|mHoldingWakeLockSuspendBlocker' | head -8; "
-              "dumpsys vrpowermanager | grep -m1 '^State:'", 60)
+              "dumpsys vrpowermanager | grep -m1 '^State:'; echo '--- vrpowermanager (full)'; dumpsys vrpowermanager | head -120; "
+              "echo '--- autosleep mentions'; dumpsys vrpowermanager | grep -iE 'autosleep|sleep.?time|timeout|idle' | head -30; "
+              "echo '--- receivers'; dumpsys package | grep -oE 'com\\.oculus\\.vrpowermanager\\.[A-Za-z_.]+' | sort -u | head -60; "
+              "echo '--- oculus settings'; for ns in global secure system; do settings list $ns | grep -iE 'oculus|vr_|sleep|proximity' | sed \"s/^/$ns: /\"; done", 90)
 
 
 def state():
