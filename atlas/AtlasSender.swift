@@ -36,6 +36,9 @@ struct Options {
     //          ordered queue per peer (bursts on a contended Wi-Fi channel cost retries and head-of-line delay)
     //   hero   v3 hero streams: screens the headset marks "hero" (with "heroOk") leave the atlas and get their own HEVC
     //          (or H.264) stream at their level's size, packets 0x81 + screen id (docs/virtual-texturing.md)
+    //   noperiodic  no periodic keyframes at all (infinite GOP); keyframes only on forced events (new or stuck peer,
+    //          layout change) and when the headset asks: demand "keyReq" is a counter, any change forces one (atlas and
+    //          every hero). VideoToolbox offers no gradual intra refresh for H.264/HEVC on the M1, so none.
     //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
@@ -193,7 +196,9 @@ final class HeroEncoder {
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (kbps * 1000) as CFNumber)
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: fps as CFNumber)
-        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (fps * 10) as CFNumber)
+        let noperiodic = atlas.o.flags.contains("noperiodic")
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (noperiodic ? 0 : fps * 10) as CFNumber)
+        if noperiodic { VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 0 as CFNumber) }
         VTCompressionSessionPrepareToEncodeFrames(e)
         session = e
     }
@@ -382,7 +387,8 @@ final class Atlas {
     // vt: the last demand was protocol v2; each screen's display width (levels are octaves of it).
     var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
     var heroes = Set<Int>(), heroHevc = true  // dlock: the hero screens demand asks for (v3)
-    var heroKeyGen = 0                         // lock: bumped when a peer connects
+    var heroKeyGen = 0                         // lock: bumped when a peer connects or the headset requests a keyframe
+    var lastKeyReq: Int? = nil, keyRequested = false  // dlock: demand's keyReq counter; a change asks for a keyframe
     // vt, under lock: last frame of a paused capture, for its mip tail and, scaled up, as the placeholder in its new
     // cells after a reveal until the restarted capture's first frame lands (no black or foreign pixels meanwhile).
     var resident: [CGDirectDisplayID: CVPixelBuffer] = [:]
@@ -506,6 +512,12 @@ final class Atlas {
             }
             if heroNext != heroes || heroCodecHevc != heroHevc { wake = true }  // move screens atlas <-> hero now
             heroes = heroNext; heroHevc = heroCodecHevc
+            // keyReq: the headset asks for a keyframe (a decoder error or recovery) by changing this counter; the
+            // first datagram only sets the baseline, so a fresh sender doesn't treat the headset's count as a request
+            if let k = num(j["keyReq"]).map({ Int($0) }) {
+                if let last = lastKeyReq, k != last { keyRequested = true; log("keyframe requested by the headset (keyReq \(k))") }
+                lastKeyReq = k
+            }
             want = next; wantAt = now; wantV2 = vt; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
             let game = (num(j["game"]) ?? 0) != 0
             if game != gameOn && o.flags.contains("gameyield") { log(game ? "game stream on: atlas yields the encoder" : "game stream off") }
@@ -878,9 +890,11 @@ final class Atlas {
         // longgop: a keyframe every 10 s instead of 2 s. Over TCP nothing is lost, and keyframes are already forced
         // when needed (new or stuck peer, layout change); every periodic one is a burst of a whole atlas (cinema-10:
         // 27 a minute, with 130 ms fresh-frame gaps p99 on the Air's Wi-Fi, 2026-11-03).
-        let gop = o.flags.contains("longgop") ? 10 : 2
+        // noperiodic: no periodic keyframe at all (an infinite GOP, like Moonlight/WebRTC): 0 means no limit to
+        // VideoToolbox. Keyframes then come only from the forced events and the headset's keyReq.
+        let gop = o.flags.contains("noperiodic") ? 0 : o.flags.contains("longgop") ? 10 : 2
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (o.fps * gop) as CFNumber)
-        if gop > 2 { VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: Double(gop) as CFNumber) }
+        if gop != 2 { VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: Double(gop) as CFNumber) }
         VTCompressionSessionPrepareToEncodeFrames(e)
         encoder = e
     }
@@ -919,6 +933,7 @@ final class Atlas {
            lock.withLock({ dirty && !fullRateDirty }) { lock.withLock { prof.priHeld += 1 }; return }
         lock.lock(); let changed = dirty; dirty = false; fullRateDirty = false; lock.unlock()
         if changed { lastEncodeAt = Date() }
+        if dlock.withLock({ let r = keyRequested; keyRequested = false; return r }) { forceKey = true; lock.withLock { heroKeyGen += 1 } }
         let key = forceKey; forceKey = false
         // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
         ticks += 1
