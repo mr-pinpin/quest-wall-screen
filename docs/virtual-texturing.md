@@ -156,3 +156,8 @@ session (or forwarded cached segments for video, no encoding), where a rung swit
   min(20 Mbit/s, applied atlas bitrate / (heroes + 1)); the BUDGET per-screen split comes later. A peer connect
   forces a keyframe on every hero; a screen moving into or out of the atlas is an atlas layout change plus a fresh
   hero encoder.
+- **Cell width (2026-11-03 finding)**: octave levels are too coarse for small screens. A wall screen spanning ~500 px
+  gets level 1 = 960 px from `floor(log2(1920/500))`, where v1's tier is 640, and synth wall-10 vt over Wi-Fi sent
+  3840x1808 instead of 3840x800 (fresh 62 -> 39 fps, gap p99 32 -> 114 ms). The sender sizes each cell as the
+  smallest of its finer widths (480, 640, 960, 1280, 1920, ..., srcW) that covers the demand's `px`; `lvl` stays
+  the rounded log2 level for the headset's residency and hold rules.
