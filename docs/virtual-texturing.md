@@ -141,3 +141,12 @@ session (or forwarded cached segments for video, no encoding), where a rung swit
   offline over vt.h: walk 4.0/min, random walk 2.8/min, standing jitter 0, cinema 0, < 1% of time below wanted.
 - **Fallback**: a sender without hero support never sends 0x81 or "hero"; a headset without it sends no
   `"hero":1` capability in demand (`"v":3` demand adds `"heroOk":1`), so the sender keeps everything in the atlas.
+- **Who is a hero (decided by the headset)**: v3 demand per screen adds `"hero":1` when the screen is visible, its
+  projected width (`projectedPx`) is >= 1280 and its gaze priority >= 0.8, at most 3 heroes (the decoder budget
+  above), with the level hysteresis (becomes hero at once, stops being one after 3 s). The sender follows demand;
+  with stale demand everything returns to the atlas.
+- **Codec**: HEVC for heroes by default (the 2026-11-03 headset pair dropped H.264 for the game stream: 36 vs 43 fps,
+  p99 95 vs 60 ms); v3 demand may carry `"heroCodec":"h264"|"hevc"`.
+- **Sender side** (work-09, `--flags hero`): the hero's frames (any source) feed its own VTCompressionSession at the
+  level size, zero copy, no atlas blit; a level change recreates only that session (one IDR on that stream, none in
+  the atlas); pacing and pend1 apply per stream on the shared connection.
