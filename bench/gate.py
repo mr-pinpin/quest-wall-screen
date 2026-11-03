@@ -37,7 +37,7 @@ def pct(xs, p):
 
 
 def gaming(r):
-    series = r.get('series') or []
+    series = [x for x in (r.get('series') or []) if isinstance(x, dict)]  # sim runs store plain per-second numbers
     g = [x.get('game') or {} for x in series]
     if not g or not any('displayed' in x for x in g):
         return None

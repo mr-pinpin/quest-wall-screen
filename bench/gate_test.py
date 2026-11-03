@@ -31,4 +31,6 @@ old = variant(lambda r: [x['game'].pop(k) for x in r['series'] for k in ('latHis
 check(old['pass'] and any('approx' in k for k in old['gaming']), 'pre-v0.38 results pass flagged approx')
 nogame = copy.deepcopy(good); [x.pop('game') for x in nogame['series']]
 check('gaming' not in gate.judge(nogame), 'runs without a game stream have no gaming section')
+sim = copy.deepcopy(good); sim['series'] = [1.5, 2.0, 0.3]
+check('gaming' not in gate.judge(sim), 'sim runs (numeric series) judge without a gaming section')
 print(f'gate self-test: {fails} failures'); sys.exit(1 if fails else 0)
