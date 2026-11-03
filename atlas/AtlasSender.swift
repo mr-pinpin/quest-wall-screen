@@ -11,6 +11,7 @@
 import CoreMedia
 import CoreVideo
 import Foundation
+import IOKit.pwr_mgt
 import Network
 import ScreenCaptureKit
 import VideoToolbox
@@ -23,6 +24,10 @@ struct Options {
     // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
     //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
     //   vt     virtual texturing (protocol v2): levels, tiles past the 1920 cell cap, mip-tail thumbnails
+    //   nowake  turn OFF the display wake (on by default, a fix): while a headset is connected the sender holds a
+    //          PreventUserIdleDisplaySleep assertion, and declares user activity on connect to wake a sleeping display.
+    //          With the Air's display asleep, WindowServer stops driving the virtual displays and they drop out of
+    //          ScreenCaptureKit ("display not found", 0 fps; work-c4, 2026-11-03 14:37).
     //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
@@ -721,13 +726,36 @@ final class Atlas {
             l.start(queue: net); log("listening on \(o.port)")
         } catch { log("listen failed: \(error)"); exit(1) }
     }
+    // Display wake (see nowake): held while any peer is connected; on the net queue.
+    var wakeAssertion: IOPMAssertionID = 0
+    func updateWake() {
+        guard !o.flags.contains("nowake") else { return }
+        if !peers.isEmpty && wakeAssertion == 0 {
+            var activity: IOPMAssertionID = 0
+            IOPMAssertionDeclareUserActivity("pinpin-atlas: headset connected" as CFString, kIOPMUserActiveLocal, &activity)  // wakes it now
+            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                           "pinpin-atlas: extra screens streaming" as CFString, &wakeAssertion) == kIOReturnSuccess {
+                log("display kept awake while a headset is connected")
+            } else { wakeAssertion = 0 }
+        } else if peers.isEmpty && wakeAssertion != 0 {
+            IOPMAssertionRelease(wakeAssertion); wakeAssertion = 0; log("display may sleep again (no headset)")
+        }
+    }
+    // The headset never sends on this connection; reading anyway is how a close is noticed (EOF), which cancels the
+    // connection so the peer and the display-wake assertion go away (otherwise they lingered until a send failed).
+    func watchClose(_ c: NWConnection) {
+        c.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] _, _, done, error in
+            if done || error != nil { c.cancel() } else { self?.watchClose(c) }
+        }
+    }
     func accept(_ c: NWConnection) {
         let id = UUID(), peer = Peer(c); peers[id] = peer; forceKey = true
         c.stateUpdateHandler = { [weak self] st in
-            switch st { case .failed, .cancelled: self?.net.async { self?.peers.removeValue(forKey: id) }; default: break }
+            switch st { case .failed, .cancelled: self?.net.async { self?.peers.removeValue(forKey: id); self?.updateWake() }; default: break }
         }
         c.start(queue: net)
-        log("headset connected")
+        watchClose(c)
+        log("headset connected"); updateWake()
     }
     // On the net queue: whether any peer still has 2+ frames queued in its socket. Read by tick() under dlock.
     func updateBusy() { let b = peers.values.contains { $0.pending >= 2 && !$0.needsKey }; dlock.withLock { busy = b } }
