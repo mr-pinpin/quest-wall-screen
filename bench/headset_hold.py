@@ -13,7 +13,7 @@ override dropped: once a minute, and before each command (never during one), it 
 go and stops. Unworn, the Quest waits ~15 s before sleeping, so the probe never loses the window. It always
 restores the real sensor on exit.
 """
-import argparse, pathlib, re, subprocess, sys, time
+import argparse, json, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import stress  # ssh/adb helpers and the real-sensor check
 
@@ -31,8 +31,11 @@ def reachable():
 
 
 def worn_now():
-    # The real sensor (drops the override for ~1 s); re-apply the hold only if nobody is wearing it.
-    if stress.headset_worn(): return True
+    # The real sensor (drops the override for ~2 s); re-apply the hold only if nobody is wearing it. The result goes
+    # to stress.HOLD_STATUS so sim runs trust it instead of dropping the override themselves.
+    worn = stress.headset_worn()
+    pathlib.Path(stress.HOLD_STATUS).write_text(json.dumps({'t': time.time(), 'worn': worn, 'pid': os.getpid()}))
+    if worn: return True
     hold_on(); return False
 
 
@@ -86,6 +89,8 @@ def main():
             for _ in range(3): hold_on(); time.sleep(20)
         log('hold time over')
     finally:
+        try: os.unlink(stress.HOLD_STATUS)
+        except OSError: pass
         stress.headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null', timeout=30)
         log('real sensor restored')
 

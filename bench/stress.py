@@ -83,7 +83,7 @@ def headset_status():
 def headset_worn():
     # The real proximity sensor: drop any virtual "worn" override (prox_close) and read the power state. The app's
     # own state can't tell, because a simulated wear makes it VISIBLE/FOCUSED too.
-    out = headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null; sleep 1; '
+    out = headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null; sleep 2; '
                   'dumpsys vrpowermanager | grep -m1 "^State:"')
     return 'HEADSET_MOUNTED' in out
 
@@ -156,9 +156,23 @@ def plugin_restore(name, orig):
     air(f"printf %s {shlex.quote(orig)} > {HOST_PLUGINS}/{name}.json; curl -s -m10 -X POST '127.0.0.1:57790/restart?name={name}'")
 
 
-def busy(force):
+HOLD_STATUS = '/tmp/pinpin-headset-hold.json'  # written by bench/headset_hold.py while it holds the headset awake
+
+
+def hold_says_unworn():
+    # While headset_hold.py simulates wear it probes the real sensor itself once a minute and records the result.
+    # Dropping its override again here (headset_worn) would fight it, and our own simulated wear must never read as
+    # a person: trust a fresh hold probe instead.
+    try:
+        st = json.loads(pathlib.Path(HOLD_STATUS).read_text())
+        return time.time() - st['t'] < 150 and not st['worn']
+    except (OSError, ValueError, KeyError):
+        return False
+
+
+def busy(force, sim=False):
     """Why the gear is in use right now, or '' when the test may run."""
-    if headset_worn(): return 'someone is wearing the headset'
+    if not (sim and hold_says_unworn()) and headset_worn(): return 'someone is wearing the headset'
     idle = laptop_idle_s()
     if not force and idle < IDLE_NEEDED: return f'the laptop was used {idle} s ago (needs {IDLE_NEEDED} s idle)'
     return ''
@@ -194,7 +208,7 @@ def main():
         sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
     sim = not a.headset
     test_plugin = dict(TEST_PLUGIN, args=TEST_PLUGIN['args'] + (['--flags', a.flags] if a.flags else []))
-    why = busy(a.force)
+    why = busy(a.force, sim)
     if why: sys.exit(f'stress: not running, {why}')
     holder = lock_take(f'stress.py {" ".join(sys.argv[1:])} since {time.strftime("%H:%M:%S")}')
     if holder: sys.exit(f'stress: not running, the bench lock is held ({holder})')
@@ -292,7 +306,7 @@ def main():
             except ValueError: pass
             idle = laptop_idle_s()
             if not a.force and idle < idle_before: aborted = 'the laptop was touched'
-            elif sim and headset_worn(): aborted = 'someone put the headset on'
+            elif sim and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break

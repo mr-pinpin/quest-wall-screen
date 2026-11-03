@@ -26,7 +26,7 @@ RUNS=(
 SECS=${SECS:-60}
 EXTRA=${EXTRA:-}   # e.g. EXTRA=--force to run while the laptop is in use
 i=0
-for attempt in $(seq 1 60); do
+for attempt in $(seq 1 600); do   # up to 10 h of 1-min retries
   while [ $i -lt ${#RUNS[@]} ]; do
     out=$(timeout 600 python3 bench/stress.py ${RUNS[$i]} --secs $SECS $EXTRA 2>&1)
     case "$out" in
@@ -39,6 +39,6 @@ for attempt in $(seq 1 60); do
     esac
   done
   [ $i -ge ${#RUNS[@]} ] && { echo "suite done"; tail -12 bench/results/stress.md; exit 0; }
-  sleep 600
+  sleep 60   # the 10-idle-minute rule lives in stress.py; no extra latency here
 done
 echo "suite incomplete: $i of ${#RUNS[@]} runs"; exit 1
