@@ -138,7 +138,10 @@ def main():
     ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
+    ap.add_argument('--allow-over-20', action='store_true', help='allow more than 20 screens (30 crashed replayd and wedged WindowServer)')
     a = ap.parse_args()
+    if a.n > 20 and not a.allow_over_20:
+        sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
     sim = not a.headset
     why = busy(a.force)
     if why: sys.exit(f'stress: not running, {why}')
