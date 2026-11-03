@@ -114,3 +114,30 @@ Each extra screen has one quad layer (`PanelLayer`) whose swapchain is the resid
 
 3D models are rendered on the headset from streamed assets (glTF with LODs, KTX2/Basis textures), the same
 VT idea applied to meshes and textures; the video atlas stays for Mac screens and remote-rendered heavy scenes.
+
+## v3: hero streams (video LOD ladder; docs/sources.md roadmap 2 and 4)
+
+Agreed 2026-11-03 (work-c4 headset/spec, work-09 sender). Inside the atlas a cell's size is its level, and every level
+change costs a whole-frame IDR, so they stay rare (3 s headset hysteresis, 5 s sender refit gate). A screen that
+deserves it (the focused cinema screen, a video) leaves the atlas and becomes a **hero stream**: its own encoder
+session (or forwarded cached segments for video, no encoding), where a rung switch is an IDR on that stream only.
+
+- **Transport: multiplexed on the atlas TCP connection** (one connection, the existing pacing). Packet type
+  `0x81`: `u32 length, 0x81, u16 screen, then flags, pts u64, w u16, h u16, 3 codec bytes, Annex B` (the v1 video
+  packet with a screen id). SPS/PPS in-band with every IDR, so a rung switch needs nothing else.
+- **Layout**: v2 layout plus `"hero": [ids]`: those screens have no atlas cell; the headset decodes their 0x81
+  packets. A screen moves atlas <-> hero only at a layout change (keyframe on both).
+- **Rungs**: the hero's width follows the same level rule (`vt::levelFor` from `projectedPx`, hysteresis in
+  `vt::Level`); switches only at a closed-GOP boundary (1 s GOPs for cached video). Bitrate per rung comes out of the
+  BUDGET arbiter's atlas share (per-screen shares already exist in `budget::Output.screenKbps`).
+- **Headset decoders**: one MediaCodec per hero, configured with `max-width`/`max-height` (adaptive playback; all
+  Quest c2.qti avc/hevc decoders declare it), so a rung switch is an IDR at the new size on the same decoder with
+  an `OUTPUT_FORMAT_CHANGED` (new size -> the screen's PanelLayer; the VT hold rule shows the old image until the
+  new size has a frame). Budget (media_codecs_anorak.xml): 16 instances; low-latency throughput 3,916,800
+  macroblocks/s (~4K@120). With the game stream (2560x1440@60, ~0.86M) and the atlas (2400x1200@60, ~0.68M), about
+  3-4 heroes at 1080p60 (0.49M each) or one 4K60 hero (1.94M); to be measured on the headset.
+- **Prototype evidence** (work-09, bench/ladder_proto.sh, bench/ladder_sim.cpp): 3 rungs, 1 s closed GOPs, walk-up /
+  orbit / walk-away: 4 switches/min, 0 decode errors across resolution changes, 62% of the always-full bytes;
+  offline over vt.h: walk 4.0/min, random walk 2.8/min, standing jitter 0, cinema 0, < 1% of time below wanted.
+- **Fallback**: a sender without hero support never sends 0x81 or "hero"; a headset without it sends no
+  `"hero":1` capability in demand (`"v":3` demand adds `"heroOk":1`), so the sender keeps everything in the atlas.
