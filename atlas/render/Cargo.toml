@@ -1,0 +1,19 @@
+[package]
+name = "pinpin_render"
+version = "0.1.0"
+edition = "2021"
+description = "WebGPU (wgpu) renderer drawing into IOSurfaces owned by the atlas sender (atlas/AtlasSender.swift SurfaceSource)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wgpu = { version = "26", default-features = false, features = ["metal", "wgsl"] }
+wgpu-hal = { version = "26", features = ["metal"] }
+metal = "0.32"
+objc = "0.2"
+pollster = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

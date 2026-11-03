@@ -99,9 +99,14 @@ rendering each screen into a texture backed by an **IOSurface**, shared with the
 4. The sender tells the renderer the wanted size per screen (the VT level from demand), so the renderer draws exactly
    the detail the headset can show — virtual texturing driving a renderer we own.
 
-Why out of process: the renderer can be a Chrome/Dawn build or a web page's WebGPU (through a small native host) and
-crash or restart without taking the sender down; IOSurfaces are designed for cross-process sharing. In-process
-(linking wgpu into the sender) is simpler to start but couples the sender to the renderer's dependencies.
+**Built (2026-11-03): in process first.** Sharing an IOSurface across processes by ID needs the deprecated global
+flag (`kIOSurfaceIsGlobal`) or passing mach ports over XPC; so the first renderer is a Rust wgpu dylib
+(atlas/render/, `libpinpin_render.dylib`) that the sender loads with dlopen and calls on its capture queue:
+`pp_render_frame(renderer, iosurface, w, h, screen, t)` draws one frame into a buffer of the sender's own IOSurface
+pool, at the size the layout asks for (the screen's VT level), then the sender calls `deliver()`. A missing or broken
+dylib only disables the "surface" source. Out of process (Dawn or Chrome WebGPU) stays the next step when a renderer
+needs isolation: same frame contract, with mach-port IOSurface handoff over XPC. Rust is built on the Mini (it already
+had a toolchain); nothing was installed on the Air.
 
 Not via SCK: capturing a WebGPU page's window through ScreenCaptureKit would put WindowServer back in the loop,
 the very cost this source avoids.
