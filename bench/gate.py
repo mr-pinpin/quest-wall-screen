@@ -134,7 +134,8 @@ def judge(r):
     a = r.get('atlas') or {}
     if 'atlas within 40 Mbit/s' in checks:  # the budget, with 5% for rate-control overshoot (work-df, 2026-11-03)
         mb = a.get('mbps')
-        v['screens'][f'atlas average <= {ATLAS_BUDGET * 1.05:g} Mbit/s (budget {ATLAS_BUDGET:g} + 5%)'] = (mb is not None and mb <= ATLAS_BUDGET * 1.05, f'{mb} Mbit/s')
+        ok = bool(checks['atlas within 40 Mbit/s']) if mb is None else mb <= ATLAS_BUDGET * 1.05  # no bitrate recorded: stress.py's own verdict
+        v['screens'][f'atlas average <= {ATLAS_BUDGET * 1.05:g} Mbit/s (budget {ATLAS_BUDGET:g} + 5%)'] = (ok, f'{mb} Mbit/s')
     rel = screens_relative(r) if any(k in checks for k in ABSOLUTE[:2]) else {}
     v['screens'].update(rel)
     info = {k: (bool(checks[k]), 'informational') for k in ABSOLUTE if k in checks}
