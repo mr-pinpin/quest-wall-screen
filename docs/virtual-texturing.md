@@ -150,3 +150,9 @@ session (or forwarded cached segments for video, no encoding), where a rung swit
 - **Sender side** (work-09, `--flags hero`): the hero's frames (any source) feed its own VTCompressionSession at the
   level size, zero copy, no atlas blit; a level change recreates only that session (one IDR on that stream, none in
   the atlas); pacing and pend1 apply per stream on the shared connection.
+- **0x81 packet, exactly** (work-09): `[0x81][u16 BE screen][flags: bit0 key, bit2 HEVC][pts u64][w u16][h u16]`
+  `[3 codec bytes: H.264 profile/compat/level, zeros for HEVC][Annex B, VPS/SPS/PPS before every IDR]`. The codec is
+  per packet because the atlas path assumes H.264. `"v":3` demand also means vt on. Hero bitrate for now:
+  min(20 Mbit/s, applied atlas bitrate / (heroes + 1)); the BUDGET per-screen split comes later. A peer connect
+  forces a keyframe on every hero; a screen moving into or out of the atlas is an atlas layout change plus a fresh
+  hero encoder.
