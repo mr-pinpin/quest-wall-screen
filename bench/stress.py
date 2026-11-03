@@ -413,6 +413,14 @@ def main():
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if stdin: proc.stdin.write(stdin)
         proc.stdin.close()
+        # Drain the probe's output while it runs: a headset probe prints the app's status JSON every 2 s (kilobytes
+        # each since v0.41), and an unread pipe fills at ~64 KB, blocks the remote side and the probe never ends
+        # (2026-11-03: two gaming runs aborted with "probe overran").
+        import threading
+        drained = {}
+        def drain(name, stream): drained[name] = stream.read()
+        readers = [threading.Thread(target=drain, args=(n, st), daemon=True) for n, st in (('out', proc.stdout), ('err', proc.stderr))]
+        for t in readers: t.start()
         idle_before = laptop_idle_s()  # logged only: no gate (see busy)
         sender = 'pinpin-atlas-test' if sim else 'pinpin-atlas'
         probe_deadline = time.time() + a.secs + 90  # a probe that overruns never ends on its own (2026-11-03: 23 min)
@@ -435,7 +443,8 @@ def main():
             else:
                 try: air_proc.wait(timeout=60)
                 except subprocess.TimeoutExpired: air_proc.kill()
-        out = ((air_proc or proc).stdout.read()) if not aborted else ''
+        for t in readers: t.join(timeout=10)
+        out = (air_proc.stdout.read() if air_proc else drained.get('out', '')) if not aborted else ''
         rx1, tx1 = link_bytes(air, 'en0'); w1 = link_bytes(mini, 'en1'); dt = time.time() - st0
         wan, lan = pings(mini('cat /tmp/stress-wan.txt')), pings(mini('cat /tmp/stress-lan.txt'))
         lap = pings(mini('cat /tmp/stress-laptop.txt'))  # the stand-in's own link (the headset may be asleep: lanPingMs)
