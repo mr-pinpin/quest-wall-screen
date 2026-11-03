@@ -177,7 +177,7 @@ final class Plugin {
         if let f = spec.argsFile, let s = try? String(contentsOfFile: expand(f), encoding: .utf8) {
             args = s.split(whereSeparator: { $0.isWhitespace }).map(String.init) + args
         }
-        p.arguments = args
+        p.arguments = args.map(expand)  // "~/..." works in args too
         if let env = spec.env { p.environment = ProcessInfo.processInfo.environment.merging(env) { $1 } }
         p.currentDirectoryURL = URL(fileURLWithPath: expand(spec.cwd ?? "~"))
         let logPath = expand(spec.log ?? logDir + "/\(name).log")
