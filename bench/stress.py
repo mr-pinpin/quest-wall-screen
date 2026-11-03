@@ -26,7 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
-import argparse, atexit, base64, contextlib, re, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
+import argparse, atexit, base64, calendar, contextlib, re, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent / 'stress'
@@ -201,6 +201,29 @@ def busy(force, sim=False):
     since our own Sunshine's input tickle resets it). Agents coordinate through the bench lock and bench/activity.log.
     The headset still never runs while a person really wears it."""
     if not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
+    net = network_change()
+    if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
+    return ''
+
+
+NET_AGENTS = ('work-42',)  # router/network sessions: a channel change drops Wi-Fi for ~30 s
+
+
+def network_change(now=None):
+    # A run must not straddle a router change: refuse while a network agent has an open START in activity.log, and
+    # for 2 minutes after its END (work-df, 2026-11-03).
+    now = now or time.time(); open_, last_end = {}, 0
+    try: lines = ACTIVITY_LOG.read_text().splitlines()[-400:]
+    except OSError: return ''
+    for l in lines:
+        p = l.split()
+        if len(p) < 4 or p[1] not in NET_AGENTS: continue
+        try: t = calendar.timegm(time.strptime(p[0], '%Y-%m-%dT%H:%M:%SZ'))
+        except ValueError: continue
+        if 'START' in p[3] and 'END' not in p[3]: open_[p[2]] = t
+        elif 'END' in p[3]: open_.pop(p[2], None); last_end = max(last_end, t)
+    if open_: return f'network change in progress by {", ".join(sorted({x.split("[")[0] for x in open_}))}'
+    if now - last_end < 120: return f'network change ended {int(now - last_end)} s ago (2 min settle)'
     return ''
 
 
