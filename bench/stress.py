@@ -423,6 +423,8 @@ def main():
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
+        # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
+        'contentHz': 60 if pattern else None,
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {

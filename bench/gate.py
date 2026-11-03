@@ -4,6 +4,7 @@ screens" bar, judged from a result file alone, so suites and humans read the sam
 
     python3 bench/gate.py bench/results/stress-*.json        # one verdict block per file; exit 1 if any fails
     python3 bench/gate.py --json FILE                         # machine-readable
+    python3 bench/gate.py --source content FILE               # judge screens against the content rate (60 Hz)
 
 Gaming (runs with --game; the headset plays the main stream while the extra screens load the network):
   stream ran              frames were displayed
@@ -75,8 +76,14 @@ ABSOLUTE = ('stream kept 30+ fresh frames/s (median)', 'fresh-frame gap p99 < 50
 SCK_FPS = 29.4  # ScreenCaptureKit's measured per-display delivery, used when a run did not record its capture rate
 
 
+SOURCE_MODE = 'capture'  # 'content' (--source content) once ScreenCaptureKit is shown to deliver the content rate
+
+
 def source(r):
-    # The focused screen's capture rate: screen 2 in cinema, else the fastest screen; measured or assumed.
+    # The focused screen's source rate: by default its capture rate (screen 2 in cinema, else the fastest screen;
+    # measured, or assumed when a run predates captureFps); with --source content, the content rate (60 Hz pattern).
+    if SOURCE_MODE == 'content' and r.get('contentHz'): return float(r['contentHz']), 'content'
+    if SOURCE_MODE == 'content': return 60.0, 'assumed content'
     cap = {str(k): v for k, v in (r.get('captureFps') or {}).items()}
     if cap:
         sc = r.get('scenario', '')
@@ -105,6 +112,9 @@ def judge(r):
     rel = screens_relative(r) if any(k in checks for k in ABSOLUTE[:2]) else {}
     v['screens'].update(rel)
     info = {k: (bool(checks[k]), 'informational') for k in ABSOLUTE if k in checks}
+    cap = r.get('captureFps') or {}
+    if cap and r.get('contentHz'):  # a capture-side shortfall must stay visible whatever the gate judges against
+        c = max(cap.values()); info[f'capture {c} of content {r["contentHz"]} fps'] = (c >= 0.95 * r['contentHz'], 'informational')
     if info: v['info'] = info
     g = gaming(r)
     if g is not None: v['gaming'] = g
@@ -113,7 +123,9 @@ def judge(r):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != '--json']
+    global SOURCE_MODE
+    if '--source' in sys.argv: SOURCE_MODE = sys.argv[sys.argv.index('--source') + 1]
+    args = [a for i, a in enumerate(sys.argv[1:], 1) if a != '--json' and a != '--source' and sys.argv[i - 1] != '--source']
     as_json, failed, out = '--json' in sys.argv, False, {}
     for path in args:
         r = json.load(open(path)); v = judge(r); out[path] = v; failed |= not v['pass']

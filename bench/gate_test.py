@@ -45,4 +45,9 @@ slow = copy.deepcopy(scr); slow['atlas']['freshGapMs']['p99'] = 80
 check(not gate.judge(slow)['pass'], '80 ms > 2 frames at 29.4 fps fails')
 old = copy.deepcopy(scr); old.pop('captureFps')
 check(any('assumed' in k for k in gate.judge(old)['screens']), 'runs without captureFps use the assumed SCK rate')
+c60 = copy.deepcopy(scr); c60['contentHz'] = 60
+check(gate.judge(c60)['pass'] and any('content 60' in k and not ok for k, (ok, _) in gate.judge(c60)['info'].items()), 'capture 29.4 of content 60 shows as an informational shortfall')
+gate.SOURCE_MODE = 'content'
+check(not gate.judge(c60)['pass'], 'against the content rate, 28.5 fps fails')
+gate.SOURCE_MODE = 'capture'
 print(f'gate self-test: {fails} failures'); sys.exit(1 if fails else 0)
