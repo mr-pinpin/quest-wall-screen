@@ -1,8 +1,9 @@
 #!/bin/bash
 # The benchmark suite (bench/suite.sh): cinema, VR, wall and moving-gaze scenarios at 10 and 20 screens (30 wedged macOS screen capture on 2026-11-03; re-add only after visibility-only capture is proven),
 # plus one with heavy internet load. Every run is guarded by stress.py itself: it starts only while the laptop
-# has been idle 10 min and nobody wears the headset, and aborts (cleaning up) when either is picked up.
-# Waits for an idle window (checks every 10 min, up to 10 h), then runs what is left; an aborted run is retried.
+# holds the bench lock and nobody really wears the headset (no laptop idle gate: user decision 2026-11-03).
+# Retries every minute (up to 10 h) while the lock is held by someone else; an aborted run is retried.
+# Every run is recorded in bench/activity.log (start/end, UTC).
 cd "$(dirname "$0")/.."
 RUNS=(
   "--scenario vr --n 10"
@@ -39,6 +40,6 @@ for attempt in $(seq 1 600); do   # up to 10 h of 1-min retries
     esac
   done
   [ $i -ge ${#RUNS[@]} ] && { echo "suite done"; tail -12 bench/results/stress.md; exit 0; }
-  sleep 60   # the 10-idle-minute rule lives in stress.py; no extra latency here
+  sleep 60   # waiting only for the bench lock (another agent's test)
 done
 echo "suite incomplete: $i of ${#RUNS[@]} runs"; exit 1

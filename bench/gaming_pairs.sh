@@ -4,7 +4,7 @@
 #   [APK=room-lab.apk] bash bench/gaming_pairs.sh   # (install APK if its version differs, then) wait for the headset's wake window (bench/headset_hold.py), run all pairs
 #   bash bench/gaming_pairs.sh run ARGS   # one stress.py --headset --game LAPTOP run with ARGS, then its gate
 # Nobody wears anything: headset_hold.py simulates wear only while the real sensor says unworn and lets go the moment
-# someone puts it on; stress.py takes the shared bench lock and checks the laptop is idle.
+# someone puts it on; stress.py takes the shared bench lock and logs to bench/activity.log (no laptop idle gate).
 cd "$(dirname "$0")/.."
 SECS=${SECS:-120}
 if [ "$1" = run ]; then

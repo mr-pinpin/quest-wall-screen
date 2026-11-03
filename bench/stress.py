@@ -195,11 +195,23 @@ def hold_says_unworn():
 
 
 def busy(force, sim=False):
-    """Why the gear is in use right now, or '' when the test may run."""
+    """Why the gear is in use right now, or '' when the test may run.
+    The laptop has no idle gate (user decision 2026-11-03: agents use the Air freely; HID idle was false anyway,
+    since our own Sunshine's input tickle resets it). Agents coordinate through the bench lock and bench/activity.log.
+    The headset still never runs while a person really wears it."""
     if not (sim and hold_says_unworn()) and headset_worn(): return 'someone is wearing the headset'
-    idle = laptop_idle_s()
-    if not force and idle < IDLE_NEEDED: return f'the laptop was used {idle} s ago (needs {IDLE_NEEDED} s idle)'
     return ''
+
+
+ACTIVITY_LOG = pathlib.Path(__file__).resolve().parent / 'activity.log'
+
+
+def activity(what, who=None):
+    # The shared, append-only action log (bench/activity.log): every script and agent records what it does to the
+    # Air, the headset or the Mini, start and end, in UTC. Check its tail and the bench lock before acting on a device.
+    who = who or os.environ.get('PINPIN_WHO', 'work-c4')
+    with ACTIVITY_LOG.open('a') as f:
+        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {who} {pathlib.Path(sys.argv[0]).name}[{os.getpid()}] {what}\n")
 
 
 def main():
@@ -236,6 +248,9 @@ def main():
     if why: sys.exit(f'stress: not running, {why}')
     holder = lock_take(f'stress.py {" ".join(sys.argv[1:])} since {time.strftime("%H:%M:%S")}')
     if holder: sys.exit(f'stress: not running, the bench lock is held ({holder})')
+    run_desc = f'{"headset" if a.headset else "sim"} run: ' + ' '.join(sys.argv[1:])
+    activity(f'START {run_desc} (bench lock taken; Air: test displays + sender' + (', headset: simulated wear' if a.headset else '') + ')')
+    atexit.register(lambda: activity(f'END {run_desc} (bench lock released)'))
     atexit.register(lock_release)
     lap_ip = laptop_ip()
     ids = list(range(2, a.n + 2))
@@ -320,7 +335,7 @@ def main():
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if stdin: proc.stdin.write(stdin)
         proc.stdin.close()
-        idle_before = laptop_idle_s()
+        idle_before = laptop_idle_s()  # logged only: no gate (see busy)
         sender = 'pinpin-atlas-test' if sim else 'pinpin-atlas'
         probe_deadline = time.time() + a.secs + 90  # a probe that overruns never ends on its own (2026-11-03: 23 min)
         while proc.poll() is None:
@@ -333,8 +348,7 @@ def main():
             try: cpu.append(float(air(f"ps -Ao %cpu,comm | awk '$2 ~ /{sender}$/ {{print $1; exit}}'", timeout=15).strip()))
             except ValueError: pass
             idle = laptop_idle_s()
-            if not a.force and idle < idle_before: aborted = 'the laptop was touched'
-            elif sim and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
+            if sim and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break

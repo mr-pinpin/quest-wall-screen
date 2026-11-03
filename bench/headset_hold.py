@@ -72,13 +72,16 @@ def main():
     if stress.headset_worn():  # the strict check: drops any override first
         log('someone is wearing it: not touching it'); sys.exit(3)
     hold_on(); log('holding awake (simulated wear)')
+    stress.activity(f'START headset hold (simulated wear, real-sensor probe each minute) for up to {a.minutes} min')
     t0 = time.time()
     try:
         if a.install and installed_version() != apk_version():
             log(f'installing {a.install} (installed {installed_version()}, apk {apk_version()})')
             with stress.prox_lock():  # deploy.py's launch sends prox_close too: no probe may read it as a person
                 with open(stress.PROX_LOG, 'a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} prox_close deploy.py install (launch) pid {os.getpid()}\n")
+                stress.activity(f'START headset install {a.install}')
                 r = subprocess.run(['python3', str(ROOT / 'room_lab' / 'deploy.py'), 'install', a.install], capture_output=True, text=True, timeout=600)
+                stress.activity(f'END headset install (exit {r.returncode})')
             log(r.stdout.strip()[-600:] or r.stderr.strip()[-600:])
             hold_on()
             log(f'installed version now {installed_version()}')
@@ -97,6 +100,7 @@ def main():
         except OSError: pass
         with stress.prox_lock(): stress.prox('automation_disable', 'headset_hold exit')
         log('real sensor restored')
+        stress.activity('END headset hold (real sensor restored)')
 
 
 if __name__ == '__main__':
