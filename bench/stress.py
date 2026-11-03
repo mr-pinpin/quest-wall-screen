@@ -234,6 +234,8 @@ def main():
     ap.add_argument('--sim-on', choices=['mini', 'air'], default='mini',
                     help='where the stand-in headset runs: mini (over the house Wi-Fi, default) or air (on the laptop itself, '
                          'receiving from 127.0.0.1: no Wi-Fi in the path; the control that separates sender from network)')
+    ap.add_argument('--source', choices=['sck', 'synth'], default='sck',
+                    help='sck: macOS screen source (virtual displays + ScreenCaptureKit); synth: the sender renders the screens itself (pipeline benchmark)')
     ap.add_argument('--cover-idle', action='store_true', help='cover the non-animated test screens with a static window (hides the aerial wallpaper)')
     ap.add_argument('--static', type=int, default=0, help='leave the last K created screens without the moving pattern (still desktops)')
     ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
@@ -263,38 +265,50 @@ def main():
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
 
-    # 0. keep the Air's display awake for the run: when its built-in display sleeps, WindowServer stops driving the
-    #    virtual displays and they drop out of ScreenCaptureKit entirely (measured 2026-11-03 14:38 UTC: 29.5 fps
-    #    awake vs "display not found" asleep). Released in teardown. -u wakes a display that already slept.
-    air(f"(nohup caffeinate -u -d -t {a.secs + 900} >/dev/null 2>&1 &)")
-    atexit.register(lambda: air("pkill -f 'caffeinate -u -d -t' || true"))
-    # 1. displays and pattern
-    have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
-    if cinema and 2 in have and have[2] != cinema:  # a leftover screen 2 of another size: recreate it
-        air("curl -s -m40 -X POST 'localhost:57710/remove?id=2'", timeout=60); del have[2]
-    created = [i for i in ids if i not in have]
-    for i in created:
-        w, h = cinema if i == 2 and cinema else (1920, 1200)
-        air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w={w}&h={h}&scale=1'", timeout=60)
-    time.sleep(3)
-    ds = {d['screen']: d['display'] for d in displays()}
-    missing = [i for i in ids if i not in ds]
-    if missing: print('  warning: displays not created:', missing)
-    # The pattern animates only the screens the scenario shows (cinema: the focused screen and its two neighbours;
-    # vr: none; wall/ring: all). With all 10 animated, WindowServer redrew each at only ~8.6 fps (work-09,
-    # 2026-11-03), so earlier runs measured an overloaded source, not the sender. Hidden screens stay still, like a
-    # real desktop. --static K: the last K of those keep a still desktop too.
     shown = {'cinema': [2, 3, a.n + 1], 'vr': []}.get(a.scenario, ids)
-    moving = [i for i in ids if i in shown]
-    moving = moving[:max(0, len(moving) - a.static)]
-    pattern = [str(ds[i]) for i in moving if i in ds]
-    # --cover-idle: every other test screen gets a static full-screen window, hiding the animated aerial wallpaper.
-    cover = [str(ds[i]) for i in ids if i in ds and i not in moving] if a.cover_idle else []
-    if pattern or cover:
-        # Run the binary directly: through `open` it got no arguments. Windows still reach the GUI session.
-        air(f"(nohup {APP.replace(' ', chr(92) + ' ')}/Contents/MacOS/stresspattern {' '.join(pattern)} {('--cover ' + ','.join(cover)) if cover else ''} "
-            f"> ~/.local/share/pinpin-stress/pattern.log 2>&1 &); sleep 2; cat ~/.local/share/pinpin-stress/pattern.log")
-    print(f'  displays: {sorted(ds)} (created {created}, pattern on {len(pattern)})')
+    if a.source == 'synth':
+        # The pipeline benchmark (docs/sources.md): the test sender renders the screens itself at 60 Hz, no virtual
+        # displays and no ScreenCaptureKit, so the result measures encoder + network + receiver, not macOS capture.
+        if not sim: sys.exit('stress: --source synth needs the stand-in (sim mode)')
+        size = lambda i: f'{cinema[0]}x{cinema[1]}' if i == 2 and cinema else '1920x1200'
+        moving = [i for i in ids if i in shown]; moving = moving[:max(0, len(moving) - a.static)]
+        test_plugin['args'] += ['--synth', ','.join(f'{i}:{size(i)}' for i in ids), '--synth-animate', ','.join(map(str, moving)) or 'none']
+        ds, created, pattern, cover = {}, [], [], []
+        print(f'  synthetic source: screens {ids}, animated {moving}')
+    else:
+        moving = None
+    if a.source == 'sck':  # the macOS screen source: virtual displays captured by ScreenCaptureKit
+        # 0. keep the Air's display awake for the run: when its built-in display sleeps, WindowServer stops driving the
+        #    virtual displays and they drop out of ScreenCaptureKit entirely (measured 2026-11-03 14:38 UTC: 29.5 fps
+        #    awake vs "display not found" asleep). Released in teardown. -u wakes a display that already slept.
+        air(f"(nohup caffeinate -u -d -t {a.secs + 900} >/dev/null 2>&1 &)")
+        atexit.register(lambda: air("pkill -f 'caffeinate -u -d -t' || true"))
+        # 1. displays and pattern
+        have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
+        if cinema and 2 in have and have[2] != cinema:  # a leftover screen 2 of another size: recreate it
+            air("curl -s -m40 -X POST 'localhost:57710/remove?id=2'", timeout=60); del have[2]
+        created = [i for i in ids if i not in have]
+        for i in created:
+            w, h = cinema if i == 2 and cinema else (1920, 1200)
+            air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w={w}&h={h}&scale=1'", timeout=60)
+        time.sleep(3)
+        ds = {d['screen']: d['display'] for d in displays()}
+        missing = [i for i in ids if i not in ds]
+        if missing: print('  warning: displays not created:', missing)
+        # The pattern animates only the screens the scenario shows (cinema: the focused screen and its two neighbours;
+        # vr: none; wall/ring: all). With all 10 animated, WindowServer redrew each at only ~8.6 fps (work-09,
+        # 2026-11-03), so earlier runs measured an overloaded source, not the sender. Hidden screens stay still, like a
+        # real desktop. --static K: the last K of those keep a still desktop too.
+        moving = [i for i in ids if i in shown]
+        moving = moving[:max(0, len(moving) - a.static)]
+        pattern = [str(ds[i]) for i in moving if i in ds]
+        # --cover-idle: every other test screen gets a static full-screen window, hiding the animated aerial wallpaper.
+        cover = [str(ds[i]) for i in ids if i in ds and i not in moving] if a.cover_idle else []
+        if pattern or cover:
+            # Run the binary directly: through `open` it got no arguments. Windows still reach the GUI session.
+            air(f"(nohup {APP.replace(' ', chr(92) + ' ')}/Contents/MacOS/stresspattern {' '.join(pattern)} {('--cover ' + ','.join(cover)) if cover else ''} "
+                f"> ~/.local/share/pinpin-stress/pattern.log 2>&1 &); sleep 2; cat ~/.local/share/pinpin-stress/pattern.log")
+    if a.source == 'sck': print(f'  displays: {sorted(ds)} (created {created}, pattern on {len(pattern)})')
 
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
@@ -422,7 +436,7 @@ def main():
             if float(fps) > 0: cap.setdefault(sid, []).append(float(fps))
     capture_fps = {s: round(statistics.median(v), 1) for s, v in cap.items()}
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~covered' if a.cover_idle else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~covered' if a.cover_idle else '') + ('~synth' if a.source == 'synth' else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
@@ -433,7 +447,7 @@ def main():
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
-        'contentHz': 60 if pattern else None,
+        'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,
         'patternScreens': moving,  # the screens animated (the source); gate.py judges fresh fps against them
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
