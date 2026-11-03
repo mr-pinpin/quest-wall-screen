@@ -66,7 +66,7 @@ def gaming(r):
     out['frame latency p99 <= 50 ms' + tag] = (lat99 is not None and lat99 <= 50, f'{lat99} ms')
     out['motion-to-photon p50 <= 50 ms (estimate)' + tag] = (m2p is not None and m2p <= 50, f'{m2p} ms (host {host}, rtt {rtt})')
     if s100 is not None:
-        out['no stall over 100 ms'] = (s100 == 0, f'{s100} stalls, longest {last.get("gapMaxMs")} ms')
+        out['no stall over 100 ms'] = (s100 == 0, f'{s100} stalls in the run (longest gap since the stream started: {last.get("gapMaxMs")} ms)')
         out['stalls over 50 ms <= 1/min'] = (s50 <= max(1, span / 60), f'{s50} in {round(span)} s')
     out['headset >= 70 fps'] = (hfps is not None and hfps >= 70, f'min {hfps}')
     return out
