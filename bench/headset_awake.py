@@ -8,6 +8,11 @@ A persistent, reversible headset setting (headset flags rule): `apply` records t
     python3 bench/headset_awake.py probe                      # wait for adb, print every sleep-related setting
     python3 bench/headset_awake.py unmounted [--watch-min 40] # Quest-level: hold the power manager's unmounted wake lock
     python3 bench/headset_awake.py release                    # drop that wake lock again
+    python3 bench/headset_awake.py autosleep [--seconds 14400] [--watch-min 40]  # the Quest auto-sleep delay
+    python3 bench/headset_awake.py restore-autosleep          # put the recorded delay back
+
+The working knob (2026-11-03): `oculuspreferences --getc/--setc autosleep_time` (seconds; was 15), read by the
+power manager as AutoSleepTime. unmounted_wake does not take from adb (lock count stays 0; system callers only).
 
 Android's stay_on (apply) does NOT hold on the Quest: its own power manager (oculus-system-services.jar,
 service vrpowermanager) sleeps 15 s after unmount (AutoSleepTime). Its controls, read from the jar 2026-11-03:
@@ -85,6 +90,30 @@ def main():
     log('reachable')
     if mode == 'probe':
         print(probe()); return
+    if mode in ('autosleep', 'restore-autosleep'):
+        OP = "/debug_ramdisk/su -c 'oculuspreferences {}'"
+        origf = RES / 'headset-autosleep-original.txt'
+        if mode == 'restore-autosleep':
+            v = origf.read_text().strip() if origf.exists() else '15'
+            log('restore: ' + sh(OP.format(f'--setc autosleep_time {v}')).strip() + ' | ' + sh("dumpsys vrpowermanager | grep -m1 AutoSleepTime").strip()); return
+        secs = sys.argv[sys.argv.index('--seconds') + 1] if '--seconds' in sys.argv else '14400'
+        cur = re.search(r'autosleep_time\s*:\s*(-?\d+)', sh(OP.format('--getc autosleep_time')))
+        if cur and not origf.exists(): RES.mkdir(exist_ok=True); origf.write_text(cur.group(1))
+        log(f'original autosleep_time: {origf.read_text().strip() if origf.exists() else "?"} s; setting {secs} s')
+        log('set: ' + sh(OP.format(f'--setc autosleep_time {secs}')).strip())
+        time.sleep(2)
+        log('power manager now: ' + sh("dumpsys vrpowermanager | head -4").strip().replace('\n', ' | '))
+        stress.activity(f'START headset autosleep_time {secs} s (was {origf.read_text().strip() if origf.exists() else "?"}); restore: headset_awake.py restore-autosleep')
+        out = RES / f'headset-awake-{datetime.date.today()}.jsonl'
+        t0, up, down = time.time(), 0, 0
+        while time.time() - t0 < watch * 60:
+            ok = reachable()
+            r = {'t': datetime.datetime.now().isoformat(timespec='seconds'), 'mode': f'autosleep {secs}', 'adb': ok, **(state() if ok else {})}
+            up += ok; down += not ok
+            with out.open('a') as f: f.write(json.dumps(r) + '\n')
+            log(json.dumps(r)); time.sleep(60)
+        log(f'watch over (autosleep {secs}): reachable {up} of {up + down} minutes')
+        stress.activity(f'END headset autosleep watch: reachable {up} of {up + down} minutes (setting stays; restore-autosleep reverts)'); return
     if mode == 'release':
         sh('am broadcast -a com.oculus.vrpowermanager.release_unmounted_wake >/dev/null')
         log('released: ' + sh("dumpsys vrpowermanager | grep -E 'UnmountedWakeLock|^State:'").strip().replace('\n', ' | ')); return
