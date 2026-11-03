@@ -200,7 +200,7 @@ def busy(force, sim=False):
     The laptop has no idle gate (user decision 2026-11-03: agents use the Air freely; HID idle was false anyway,
     since our own Sunshine's input tickle resets it). Agents coordinate through the bench lock and bench/activity.log.
     The headset still never runs while a person really wears it."""
-    if not (sim and hold_says_unworn()) and headset_worn(): return 'someone is wearing the headset'
+    if not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     return ''
 
 

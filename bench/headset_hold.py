@@ -38,19 +38,28 @@ def worn_now():
     # The real sensor (drops the override for ~2 s); re-apply the hold only if nobody is wearing it. The result goes
     # to stress.HOLD_STATUS so sim runs trust it instead of dropping the override themselves.
     worn = stress.headset_worn()
-    pathlib.Path(stress.HOLD_STATUS).write_text(json.dumps({'t': time.time(), 'worn': worn, 'pid': os.getpid()}))
+    status(worn)
     if worn: return True
     hold_on(); return False
+
+
+def status(worn=False):
+    # Tells every other script (stress.py busy/mid-run checks) that this hold probes the real sensor itself, so they
+    # must not drop the override (2026-11-03: their probes every ~25 s let the headset fall asleep under the hold).
+    pathlib.Path(stress.HOLD_STATUS).write_text(json.dumps({'t': time.time(), 'worn': worn, 'pid': os.getpid()}))
 
 
 def hold_on():
     with stress.prox_lock():
         stress.prox('prox_close', 'headset_hold')
         stress.headset('input keyevent KEYCODE_WAKEUP', timeout=30)
+    status()
 
 
 def on_charger():
+    # True / False when the headset answers; None when it can't be asked (asleep, adb gap): unknown is not "unplugged".
     out = stress.headset("dumpsys battery | grep -E 'AC powered|USB powered|Wireless powered'", timeout=30)
+    if 'powered' not in out: return None
     return 'true' in out
 
 
@@ -80,9 +89,16 @@ def main():
     log(f'reachable: {st}')
     if stress.headset_worn():  # the strict check: drops any override first
         log('someone is wearing it: not touching it'); sys.exit(3)
-    if not on_charger():  # user policy: simulated wear only on the charger
+    if on_charger() is False:  # user policy: simulated wear only on the charger
         log('not on the charger: no simulated wear (user policy)'); sys.exit(4)
     hold_on(); log('holding awake (simulated wear)')
+    import threading
+    keep = threading.Event()
+    def keeper():  # re-apply the hold and refresh the status every 20 s, also while a queued run waits or runs
+        while not keep.wait(20):
+            try: hold_on()
+            except Exception: pass
+    threading.Thread(target=keeper, daemon=True).start()
     stress.activity(f'START headset hold (simulated wear, real-sensor probe each minute) for up to {a.minutes} min')
     t0 = time.time()
     try:
@@ -98,7 +114,7 @@ def main():
             log(f'installed version now {installed_version()}')
         for cmd in a.then:
             if worn_now(): log('worn: letting go'); return
-            if not on_charger(): log('taken off the charger: letting go (user policy)'); return
+            if on_charger() is False: log('taken off the charger: letting go (user policy)'); return
             log(f'run: {cmd}')
             r = subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True, timeout=1800)
             log(f'exit {r.returncode}: {(r.stdout + r.stderr).strip()[-1500:]}')
@@ -107,10 +123,11 @@ def main():
             log('queued runs done: releasing'); return
         while time.time() - t0 < a.minutes * 60:  # a bare hold (no runs) keeps the old timed behaviour
             if worn_now(): log('worn: letting go'); return
-            if not on_charger(): log('taken off the charger: letting go (user policy)'); return
+            if on_charger() is False: log('taken off the charger: letting go (user policy)'); return
             for _ in range(3): hold_on(); time.sleep(20)
         log('hold time over')
     finally:
+        keep.set()
         try: os.unlink(stress.HOLD_STATUS)
         except OSError: pass
         with stress.prox_lock(): stress.prox('automation_disable', 'headset_hold exit')
