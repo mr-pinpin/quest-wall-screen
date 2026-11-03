@@ -98,3 +98,27 @@ crash or restart without taking the sender down; IOSurfaces are designed for cro
 
 Not via SCK: capturing a WebGPU page's window through ScreenCaptureKit would put WindowServer back in the loop,
 the very cost this source avoids.
+
+## Roadmap: owning the rendering, game-engine style (user direction 2026-11-03), ordered by value
+
+Gaming pairs on the real headset and the router-channel before/after come first; then, in this order:
+
+1. **LOD by viewer pose (headset, next build; feeds the sender's VT).** Each screen's detail follows its
+   projected size from the headset pose: distance, viewing angle (a screen seen edge-on needs fewer texels across)
+   and field of view, both axes, with hysteresis (up at once, down after 3 s). Today `demandFor()` already uses
+   distance and gaze angle for `px` and the level rule has hysteresis, but it ignores obliquity and the vertical
+   extent; the new rule projects the screen's corners into the view and takes the larger texel span. Pure function in
+   room_lab/vt.h with an offline test that walks a pose path (approach, orbit, turn away) and checks levels change
+   monotonically, never flicker, and match the analytic projection.
+2. **Video LOD ladder (sender + headset).** Per screen, resolution and bitrate from the projected size: VT levels
+   already pick the resolution; add the bitrate rung per level (and per gaze priority) so a distant screen costs
+   proportionally fewer bits, inside the BUDGET arbiter's atlas share.
+3. **How far SCK goes on this Air (benchmark, cheap).** The macOS screen source, honestly: the most screens that
+   capture at near 30 fps (1-4 displays ~29 fps measured; 10 animated ~8.6 fps). Fine if macOS can't do 10: SCK is
+   for 1-2 real Mac screens; synthetic and our own rendering carry the rest.
+4. **Cached video at several LODs (sender, with work-09).** For video content (a film, YouTube): keep the stream
+   pre-encoded or cached at a few resolutions, so a level change switches rungs instead of re-encoding (no keyframe
+   storm, no encoder load). Needs a per-screen segment source next to the atlas, and the headset switching rungs on
+   a keyframe boundary with the hold rule.
+5. **Impostors for 3D models (headset, MODELS flag).** Octahedral impostors (a baked atlas of views) at distance,
+   the real mesh up close, chosen by the same projected-size rule as 1; baked offline by assets/make_asset.py.
