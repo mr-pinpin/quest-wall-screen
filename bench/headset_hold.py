@@ -34,10 +34,20 @@ def reachable():
     return out.strip()
 
 
+FIRST_WORN = [None]  # time of an unconfirmed MOUNTED reading
+
+
 def worn_now():
-    # The real sensor (drops the override for ~2 s); re-apply the hold only if nobody is wearing it. The result goes
-    # to stress.HOLD_STATUS so sim runs trust it instead of dropping the override themselves.
+    # The real sensor (drops the override for ~2 s). A person counts only when two probes at least 60 s apart both read
+    # MOUNTED (user rule 2026-11-03: a single false reading stopped the session at 16:55); a single reading is logged,
+    # the hold continues, and the probe repeats after 60 s. The result goes to stress.HOLD_STATUS for other scripts.
     worn = stress.headset_worn()
+    if worn and FIRST_WORN[0] is None:
+        FIRST_WORN[0] = time.time(); log('real sensor read MOUNTED once: confirming in 60 s (hold continues)')
+        stress.activity('headset: single MOUNTED reading, re-probing in 60 s (not stopping)')
+        hold_on(); time.sleep(62); worn = stress.headset_worn()
+        if not worn: FIRST_WORN[0] = None; log('second probe: not worn, a false reading'); stress.activity('headset: second probe not worn, continuing')
+    elif not worn: FIRST_WORN[0] = None
     status(worn)
     if worn: return True
     hold_on(); return False
@@ -87,8 +97,10 @@ def main():
         if time.time() > deadline: log('headset never reachable'); sys.exit(2)
         time.sleep(30)
     log(f'reachable: {st}')
-    if stress.headset_worn():  # the strict check: drops any override first
-        log('someone is wearing it: not touching it'); sys.exit(3)
+    if stress.headset_worn():  # the strict check (drops any override first), confirmed after 60 s like worn_now()
+        log('real sensor read MOUNTED: confirming in 60 s'); time.sleep(62)
+        if stress.headset_worn(): log('someone is wearing it (two readings 60 s apart): not touching it'); sys.exit(3)
+        log('second reading: not worn, a false reading; going on')
     if on_charger() is False:  # user policy: simulated wear only on the charger
         log('not on the charger: no simulated wear (user policy)'); sys.exit(4)
     hold_on(); log('holding awake (simulated wear)')

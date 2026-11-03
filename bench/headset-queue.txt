@@ -1,0 +1,26 @@
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --headset-flag wifill
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --headset-flag wifill
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --headset-flag wifill
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags vt,gamecap,gameyield --headset-flag vt
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags vt,gamecap,gameyield --headset-flag vt
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags vt,gamecap,gameyield --headset-flag vt
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --sunshine vt_realtime=enabled
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --sunshine vt_realtime=enabled
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --sunshine vt_realtime=enabled
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags gameyield,gamecap
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags gameyield,gamecap
+--game LAPTOP --n 3 --scenario cinema
+--game LAPTOP --n 3 --scenario cinema --flags gameyield,gamecap
+--n 10 --scenario cinema
+--n 10 --scenario cinema --flags vt --headset-flag vt
