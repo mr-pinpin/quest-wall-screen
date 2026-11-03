@@ -65,7 +65,9 @@ def check(now, events, lock, procs, prox_lines):
     if queues and not lock and now - last > 300:
         found.append(('stalled queue', f"queue@{last}", f"queue running ({', '.join(sorted({q for q in QUEUES for c in procs.values() if q in c}))}), lock free, nothing started for {(now - last) // 60} min"))
     for s in opened:
-        if s['pid'].isdigit() and s['pid'] not in procs and s['who'] == 'work-c4':
+        # a process is in its exit window for a few seconds (lock release, then its END line): only a START older than
+        # 2 minutes counts, and report() needs it on two consecutive passes
+        if s['pid'].isdigit() and s['pid'] not in procs and s['who'] == 'work-c4' and now - s['t'] > 120:
             found.append(('ghost job', f"{s['script']}[{s['pid']}]@{s['t']}", f"{s['script']}[{s['pid']}] START at {time.strftime('%H:%M:%SZ', time.gmtime(s['t']))} has no END and its process is gone"))
     for s in opened:
         if 'headset hold' in s['text'] and now - s['t'] > 2700:
@@ -99,11 +101,14 @@ def gather():
 
 def report(findings, now):
     seen = json.loads(STATE.read_text()) if STATE.exists() else {}
-    new = []
+    pending = seen.pop('_pending', {})  # ghost jobs need two consecutive passes
+    new, still = [], {}
     for kind, key, detail in findings:
+        if kind == 'ghost job' and key not in pending: still[key] = now; continue
         if now - seen.get(key, 0) >= 3600:
             seen[key] = now; new.append((kind, detail))
             with ACTIVITY.open('a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))} watchdog watchdog.py[{__import__('os').getpid()}] WATCHDOG {kind}: {detail}\n")
+    seen['_pending'] = still
     STATE.write_text(json.dumps(seen))
     return new
 

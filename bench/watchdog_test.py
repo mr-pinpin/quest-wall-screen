@@ -31,7 +31,8 @@ check(w.check(T + 8 * 60, ev3, None, procs, []) == [], 'queue waiting under 5 mi
 check(w.check(T + 10 * 60, ev3, {'owner': 'work-09 test', 'age_s': 60}, procs, []) == [], 'queue waiting on another holder: fine')
 # Ghost job: our START, pid gone, no lock.
 ev4 = w.parse([f"{at(0)} work-c4 stress.py[400] START sim run: --secs 60"])
-check('ghost job' in kinds(w.check(T + 2 * 60, ev4, None, {}, [])), 'ghost job')
+check('ghost job' in kinds(w.check(T + 3 * 60, ev4, None, {}, [])), 'ghost job')
+check('ghost job' not in kinds(w.check(T + 60, ev4, None, {}, [])), 'a run ending right now is not a ghost (exit window)')
 check('ghost job' not in kinds(w.check(T + 2 * 60, ev4, None, {'400': 'python3 bench/stress.py'}, [])), 'live job is not a ghost')
 check(w.check(T + 2 * 60, w.parse([f"{at(0)} work-09 ectest.sh[manual] START Air: test"]), None, {}, []) == [], 'manual entries are not checked for pids')
 # Long hold: prox_close without automation_disable for 46 min; a later disable clears it.
@@ -45,5 +46,7 @@ import tempfile, os
 d = pathlib.Path(tempfile.mkdtemp()); w.ACTIVITY, w.STATE = d / 'a.log', d / 's.json'
 f = [('hung run', 'k1', 'detail')]
 check(len(w.report(f, T)) == 1 and len(w.report(f, T + 600)) == 0 and len(w.report(f, T + 3700)) == 1, 'hourly dedupe')
+g = [('ghost job', 'g1', 'gone')]
+check(len(w.report(g, T)) == 0 and len(w.report(g, T + 60)) == 1, 'ghost needs two consecutive passes')
 check(w.ACTIVITY.read_text().count('WATCHDOG hung run: detail') == 2 and w.parse(w.ACTIVITY.read_text().splitlines())[0]['kind'] == 'WATCHDOG', 'WATCHDOG lines parse')
 print(f'watchdog self-test: {fails} failures'); sys.exit(1 if fails else 0)
