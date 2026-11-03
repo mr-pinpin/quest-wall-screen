@@ -182,9 +182,9 @@ private let heroOutput: VTCompressionOutputCallback = { _, frameRefcon, status, 
 /// the parameter sets in-band before every keyframe.
 final class HeroEncoder {
     let screen: Int, w: Int, h: Int, hevc: Bool; weak var atlas: Atlas?
-    var session: VTCompressionSession?, frame: Int64 = 0, forceKey = true, codecBytes: [UInt8] = [0, 0, 0], keyGen = -1
+    var session: VTCompressionSession?, frame: Int64 = 0, forceKey = true, codecBytes: [UInt8] = [0, 0, 0], keyGen = -1, kbps = 0
     init?(screen: Int, w: Int, h: Int, hevc: Bool, kbps: Int, fps: Int, atlas: Atlas) {
-        self.screen = screen; self.w = w; self.h = h; self.hevc = hevc; self.atlas = atlas
+        self.screen = screen; self.w = w; self.h = h; self.hevc = hevc; self.atlas = atlas; self.kbps = kbps
         var spec: [CFString: Any] = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true]
         if !hevc { spec[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = true }
         var s: VTCompressionSession?
@@ -205,6 +205,10 @@ final class HeroEncoder {
     func encode(_ pb: CVPixelBuffer) {
         guard let e = session, CVPixelBufferGetWidth(pb) == w, CVPixelBufferGetHeight(pb) == h else { return }  // mid-resize: skip
         if let g = atlas?.lock.withLock({ atlas?.heroKeyGen }), g != keyGen { keyGen = g; forceKey = true }  // a peer joined
+        let share: Int? = frame % 30 == 0 ? atlas.flatMap { a in a.dlock.withLock { a.heroKbps[screen] } } : nil
+        if let k = share, abs(k - kbps) * 100 > kbps * 15 {
+            kbps = k; VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (k * 1000) as CFNumber)  // its BUDGET share
+        }
         frame += 1; let key = forceKey; forceKey = false
         VTCompressionSessionEncodeFrame(e, imageBuffer: pb, presentationTimeStamp: CMTime(value: frame, timescale: 60), duration: .invalid,
                                         frameProperties: key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
@@ -388,6 +392,7 @@ final class Atlas {
     var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
     var heroes = Set<Int>(), heroHevc = true  // dlock: the hero screens demand asks for (v3)
     var heroKeyGen = 0                         // lock: bumped when a peer connects or the headset requests a keyframe
+    var heroKbps: [Int: Int] = [:]             // dlock: each hero's bitrate share (BUDGET by priority)
     var lastKeyReq: Int? = nil, keyRequested = false  // dlock: demand's keyReq counter; a change asks for a keyframe
     // vt, under lock: last frame of a paused capture, for its mip tail and, scaled up, as the placeholder in its new
     // cells after a reveal until the restarted capture's first frame lands (no black or foreign pixels meanwhile).
@@ -539,8 +544,12 @@ final class Atlas {
         dlock.withLock {
             guard budgetKbps > 0, Date().timeIntervalSince(wantAt) <= 2 else { return }
             let all = want.values.reduce(0.0) { $0 + ($1.vis ? $1.pri : 0) }
-            let extras = want.reduce(0.0) { $0 + ($1.key != 1 && $1.value.vis ? $1.value.pri : 0) }
+            // heroes take their own share of the budget by priority (their encoders read heroKbps); the atlas the rest
+            let hs = heroes
+            let extras = want.reduce(0.0) { $0 + ($1.key != 1 && $1.value.vis && !hs.contains($1.key) ? $1.value.pri : 0) }
             kbps = all > 0 ? Int(Double(budgetKbps) * extras / all) : 0
+            heroKbps = Dictionary(uniqueKeysWithValues: hs.map { id in
+                (id, all > 0 ? max(4000, min(30000, Int(Double(budgetKbps) * (want[id]?.pri ?? 0) / all))) : 12000) })
         }
         kbps = min(o.bitrate / 1000, max(4000, kbps))
         if bpScale < 1 { kbps = max(1500, Int(Double(kbps) * bpScale)) }
@@ -858,7 +867,7 @@ final class Atlas {
             let hevc = !heroH264
             let ok = lock.withLock { cap.hero.map { $0.w == c.frameW && $0.h == c.frameH && $0.hevc == hevc } ?? false }
             if ok { continue }
-            let kbps = max(4000, min(20000, appliedKbps / max(1, heroList.count + 1)))
+            let kbps = dlock.withLock { heroKbps[e.screen] } ?? 12000
             let enc = HeroEncoder(screen: e.screen, w: c.frameW, h: c.frameH, hevc: hevc, kbps: kbps, fps: o.fps, atlas: self)
             lock.withLock { cap.hero?.invalidate(); cap.hero = enc }
             if enc != nil { log("hero \(e.screen): \(hevc ? "HEVC" : "H.264") \(c.frameW)x\(c.frameH) at \(kbps) kbps") }
