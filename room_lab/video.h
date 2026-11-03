@@ -44,6 +44,11 @@ struct VideoStream {
     int width = 0, height = 0;
     long packets = 0, keyframes = 0, decoded = 0, displayed = 0, dropped = 0, bytes = 0, reconnects = 0;
     double latencyMs = 0, latencyMaxMs = 0;  // packet arrival -> image on the GPU
+    // Exact per-frame figures for the real-time gaming benchmark (bench/stress.py --game), as running counters the
+    // harness diffs over a run: arrival -> GPU latency in 5 ms buckets (the last is >= 150 ms), and stalls, i.e.
+    // gaps between displayed frames over 50 / 100 ms (a 60 fps stream has ~17 ms gaps).
+    static constexpr int kLatBuckets = 31;
+    long latHist[kLatBuckets] = {}, stalls50 = 0, stalls100 = 0; double lastShown = 0, gapMaxMs = 0;
     std::deque<std::pair<int64_t, double>> arrivals;  // pts us -> arrival seconds
 
     AMediaCodec* codec = nullptr;
@@ -352,9 +357,15 @@ void main(){
         int64_t pts = ns / 1000; double t = now();
         std::lock_guard<std::mutex> g(lock);
         displayed++;
+        if (lastShown > 0) {
+            double gap = (t - lastShown) * 1000.0;
+            stalls50 += gap > 50; stalls100 += gap > 100; gapMaxMs = std::max(gapMaxMs, gap);
+        }
+        lastShown = t;
         for (auto& a : arrivals) if (a.first == pts) {
             double ms = (t - a.second) * 1000.0;
             latencyMs = latencyMs ? latencyMs * 0.9 + ms * 0.1 : ms; latencyMaxMs = std::max(latencyMaxMs * 0.995, ms);
+            latHist[std::min(kLatBuckets - 1, std::max(0, (int)(ms / 5)))]++;
             break;
         }
         return true;
@@ -372,6 +383,8 @@ void main(){
                  source.c_str(), hostLatencyMs, rttMs, codecHevc ? 1 : 0, state.c_str(), width, height, packets, keyframes, decoded, displayed, dropped, bytes, reconnects, latencyMs, latencyMaxMs);
         std::string s = b;
         for (char c : message) if (c != '"' && c != '\\' && (unsigned char)c >= 0x20) s += c;
-        return s + "\"}";
+        s += "\",\"stalls50\":" + std::to_string(stalls50) + ",\"stalls100\":" + std::to_string(stalls100) + ",\"gapMaxMs\":" + std::to_string((int)gapMaxMs) + ",\"latHist\":[";
+        for (int i = 0; i < kLatBuckets; i++) s += (i ? "," : "") + std::to_string(latHist[i]);
+        return s + "]}";
     }
 };
