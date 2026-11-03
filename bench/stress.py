@@ -229,6 +229,9 @@ def main():
     ap.add_argument('--headset-flag', action='append', default=[], metavar='NAME',
                     help='--headset only: force a room_lab flag for the run via its files/NAME-on file (vt, budget, gputime, '
                          'wifill); removed in teardown. Repeatable.')
+    ap.add_argument('--sim-on', choices=['mini', 'air'], default='mini',
+                    help='where the stand-in headset runs: mini (over the house Wi-Fi, default) or air (on the laptop itself, '
+                         'receiving from 127.0.0.1: no Wi-Fi in the path; the control that separates sender from network)')
     ap.add_argument('--static', type=int, default=0, help='leave the last K created screens without the moving pattern (still desktops)')
     ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
                     'files/codec-h264, v0.39+); default: as the headset is set')
@@ -281,7 +284,7 @@ def main():
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
     log0 = '' if sim else air(f'cat {log_path}')
-    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}; cpu = []
+    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}; cpu = []; air_proc = None
     try:
         # 2. per-run overrides of the live plugins (restored in `finally`), before any game session starts
         if a.sunshine:
@@ -323,10 +326,19 @@ def main():
                  f"(ping -i 0.2 -t {a.secs} 192.168.1.1 > /tmp/stress-zyxel.txt 2>&1 &);"
                  f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);"
                  f"(ping -i 0.2 -t {a.secs} {lap_ip} > /tmp/stress-laptop.txt 2>&1 &);")
+        air_proc = None
         if sim:
-            probe += f"python3 - {lap_ip} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
-            if 'vt' in a.flags.split(','): probe += ' --v2'  # the vt flag only acts on v2 demand
+            sim_cmd = (f"python3 - {'127.0.0.1' if a.sim_on == 'air' else lap_ip} --port 57730 --demand-port 57731 --n {a.n} "
+                       f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}")
+            if 'vt' in a.flags.split(','): sim_cmd += ' --v2'  # the vt flag only acts on v2 demand
             stdin = (HERE / 'headset_sim.py').read_text()
+            if a.sim_on == 'air':  # the stand-in on the laptop itself; the Mini keeps only its pings
+                air_proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', sim_cmd], stdin=subprocess.PIPE,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                air_proc.stdin.write(stdin); air_proc.stdin.close()
+                probe += f"sleep {a.secs}"; stdin = None
+            else:
+                probe += sim_cmd
         else:
             probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
                       f"LC_ALL=C LANG=C perl -e 'alarm 5; exec @ARGV' {ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")  # 5 s cap: a sleeping headset hangs adb
@@ -352,7 +364,12 @@ def main():
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break
-        out = proc.stdout.read() if not aborted else ''
+        if air_proc:
+            if aborted: air_proc.kill()
+            else:
+                try: air_proc.wait(timeout=60)
+                except subprocess.TimeoutExpired: air_proc.kill()
+        out = ((air_proc or proc).stdout.read()) if not aborted else ''
         rx1, tx1 = link_bytes(air, 'en0'); w1 = link_bytes(mini, 'en1'); dt = time.time() - st0
         wan, lan = pings(mini('cat /tmp/stress-wan.txt')), pings(mini('cat /tmp/stress-lan.txt'))
         lap = pings(mini('cat /tmp/stress-laptop.txt'))  # the stand-in's own link (the headset may be asleep: lanPingMs)
@@ -361,6 +378,7 @@ def main():
         # 4. teardown
         for name, orig in overrides.items(): plugin_restore(name, orig)
         if proc and proc.poll() is None: proc.kill()
+        if air_proc and air_proc.poll() is None: air_proc.kill()
         if sim: air(f'printf %s {json.dumps(json.dumps(dict(TEST_PLUGIN, enabled=False)))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
         if live_paused: air("curl -s -m5 -X POST '127.0.0.1:57790/start?name=pinpin-atlas'")
         else:
@@ -381,7 +399,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
