@@ -29,6 +29,7 @@
 #include "gamestream.h"
 #include "panel_layer.h"
 #include "budget.h"
+#include "gpu_timer.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -182,10 +183,13 @@ struct App {
     std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0;
     // BUDGET flag (docs/3d-content.md, room_lab/budget.h): one arbiter splits the link between the atlas, the game
     // stream and asset downloads by mode (wall / cinema / game) and, under frame-time pressure, makes unfocused
-    // screens one or two levels coarser (with VT). frameWorkMs is the CPU time from xrBeginFrame to xrEndFrame,
-    // the proxy until GPU timer queries land. files/budget-on forces it for self-tests.
+    // screens one or two levels coarser (with VT). Frame time: the GPU's (GPUTIME flag, gpu_timer.h) when the driver
+    // has timer queries, else frameWorkMs, the CPU time from xrBeginFrame to xrEndFrame. files/budget-on and
+    // files/gputime-on force the flags for self-tests.
     bool budgetMenu = false, budgetFile = false; bool budgetOn() const { return budgetMenu || budgetFile; }
     budget::Arbiter arbiter; budget::Output lastBudget; double frameWorkMs = 0;
+    GpuTimer gpuTimer; bool gpuTimeMenu = false, gpuTimeFile = false; bool gpuTime() const { return gpuTimeMenu || gpuTimeFile; }
+    double frameMsForBudget() const { return gpuTime() && gpuTimer.valid() ? gpuTimer.ms : frameWorkMs; }
     std::map<int, vt::Level> vtLevels;
     int vtSrcW(int id) { auto it = atlasTiles.find(id); return it == atlasTiles.end() ? 1920 : vt::srcW(it->second); }
     int vtWant(int id, int px, bool vis) { return vtLevels[id].want(vtSrcW(id), px, vis, now()); }
@@ -378,12 +382,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 19;
+    static constexpr int kMenuItems = 20;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -396,6 +400,7 @@ struct App {
         if (l == "MACDISP") return macDisplays;
         if (l == "VT") return vt();
         if (l == "BUDGET") return budgetOn();
+        if (l == "GPUTIME") return gpuTime();
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
@@ -476,6 +481,7 @@ struct App {
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
         else if (l == "VT") vtMenu = !vtMenu;                                 // virtual texturing for the extra screens
         else if (l == "BUDGET") budgetMenu = !budgetMenu;                     // one arbiter for atlas / game / assets
+        else if (l == "GPUTIME") gpuTimeMenu = !gpuTimeMenu;                  // GPU timer queries for the budget's frame time
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
         else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
@@ -1272,7 +1278,7 @@ void main(){
         if (stressN > 0) for (int k = 0; k < stressN; k++) ds.push_back(stressDemand(k));
         else for (auto& sc : extras) ds.push_back(demandFor(sc.id, sc.p, wallById(sc.p.wall)));
         if (budgetOn()) {
-            budget::Input in; in.now = now(); in.frameMs = frameWorkMs;
+            budget::Input in; in.now = now(); in.frameMs = frameMsForBudget();
             in.gameActive = moonlight.get(moonlight.stage) == "streaming";
             for (auto& d : ds) if (d.id != 1) in.screens.push_back({d.id, d.vis, d.px, d.pri});
             lastBudget = arbiter.split(in);
@@ -1938,6 +1944,7 @@ void main(){
             mipqFile = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // forces MIPQ for self-tests
             vtFile = access((gDir + "/vt-on").c_str(), F_OK) == 0;      // forces VT for self-tests
             budgetFile = access((gDir + "/budget-on").c_str(), F_OK) == 0;  // forces BUDGET for self-tests
+            gpuTimeFile = access((gDir + "/gputime-on").c_str(), F_OK) == 0;  // forces GPUTIME for self-tests
         }
         panelLayer.mipQuality = mipqMenu || mipqFile;
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
@@ -1979,6 +1986,7 @@ void main(){
         if (XR_FAILED(xrWaitFrame(session, &wi, &fs))) return;
         XrFrameBeginInfo bi{XR_TYPE_FRAME_BEGIN_INFO}; xrBeginFrame(session, &bi);
         auto workStart = std::chrono::steady_clock::now();
+        if (gpuTime()) gpuTimer.begin();
         std::vector<XrCompositionLayerBaseHeader*> layers;
         XrCompositionLayerPassthroughFB ptl{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
         XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
@@ -2034,6 +2042,7 @@ void main(){
         ei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE; ei.layerCount = (uint32_t)layers.size(); ei.layers = layers.data();
         double workMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - workStart).count();
         frameWorkMs = frameWorkMs ? frameWorkMs * 0.95 + workMs * 0.05 : workMs;
+        gpuTimer.end();
         xrEndFrame(session, &ei);
     }
 
@@ -2070,7 +2079,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
