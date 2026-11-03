@@ -237,7 +237,7 @@ def main():
             if not app_was_running:
                 headset(f'input keyevent KEYCODE_WAKEUP; am start -n {PKG}/.MainActivity --ez capture false >/dev/null'); time.sleep(8)
             if a.codec:  # before the launch below, which reads it; removed in teardown
-                headset(f"run-as {PKG} sh -c '{'touch' if a.codec == 'H264' else 'rm -f'} files/codec-h264'")
+                headset(f"run-as {PKG} sh -c '{'touch' if a.codec == 'H264' else 'rm -f'} files/codec-h264'"); time.sleep(2)  # polled ~1/s
             spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep}).encode()).decode()
             headset(f"run-as {PKG} sh -c 'echo {spec} | base64 -d > files/stress.json'")
             if a.game:

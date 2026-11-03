@@ -23,6 +23,9 @@ struct Options {
     // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
     //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
     //   vt     virtual texturing (protocol v2): levels, tiles past the 1920 cell cap, mip-tail thumbnails
+    //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
+    //          one media engine to Sunshine's game encode: it encodes on 1 tick in N (N = 2, rising to 4 while its
+    //          own encode time says the engine is contended), with one flush repeat instead of three
     var flags = Set<String>()
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -121,6 +124,10 @@ final class Atlas {
     // bpcut flag (work queue): bitrate scale under backpressure. x0.7 at most every 250 ms while held back,
     // x1.2 per calm second back to 1.
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
+    var gameOn = false, ticks = 0, yieldN = 2, yieldAt = Date()  // gameyield: demand "game" (dlock); tick state (work queue)
+    var encEwma = 0.0  // under elock: smoothed encode ms, the contention signal for gameyield
+    // Encode time (submit -> output callback), logged every 30 s: the atlas's share of the media engine.
+    let elock = NSLock(); var submitAt: [Int64: UInt64] = [:], encMs: [Double] = [], encLogAt = Date()
     // vt: the last demand was protocol v2; each screen's display width (levels are octaves of it).
     var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
     // vt, under lock: last frame of a paused capture, for its mip tail and, scaled up, as the placeholder in its new
@@ -213,6 +220,9 @@ final class Atlas {
                 if t == cur { tierWant[id] = nil } else if tierWant[id]?.w != t { tierWant[id] = (t, now) }
             }
             want = next; wantAt = now; wantV2 = vt; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
+            let game = (num(j["game"]) ?? 0) != 0
+            if game != gameOn && o.flags.contains("gameyield") { log(game ? "game stream on: atlas yields the encoder" : "game stream off") }
+            gameOn = game
         }
         if !reveal.isEmpty {
             dlock.withLock { wake = true }  // start its capture now, not at the next 2 s pass
@@ -472,7 +482,24 @@ final class Atlas {
         lock.lock(); let changed = dirty; dirty = false; lock.unlock()
         let key = forceKey; forceKey = false
         // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
-        if changed { flushes = 0 } else if !key && lastBuffer != nil { flushes += 1; if flushes > 3 && flushes % o.fps != 0 { return } }
+        ticks += 1
+        let yielding = o.flags.contains("gameyield") && dlock.withLock({ gameOn && Date().timeIntervalSince(wantAt) <= 2 })
+        if yielding {
+            // Once a second: an encode slower than 8 ms (60 fps leaves 16.7 ms per frame for both encoders) means the
+            // engine is contended, so yield more; under 4 ms, yield less. Never below every other tick.
+            if Date().timeIntervalSince(yieldAt) >= 1 {
+                let ms = elock.withLock { encEwma }
+                let n = ms > 8 ? min(4, yieldN + 1) : ms < 4 ? max(2, yieldN - 1) : yieldN
+                if n != yieldN { log(String(format: "gameyield: encoding 1 tick in %d (atlas encode %.1f ms)", n, ms)) }
+                yieldN = n; yieldAt = Date()
+            }
+            if !key, ticks % yieldN != 0 {
+                if changed { lock.withLock { dirty = true } }  // goes out on the next encoding tick
+                return
+            }
+        }
+        let flushMax = yielding ? 1 : 3
+        if changed { flushes = 0 } else if !key && lastBuffer != nil { flushes += 1; if flushes > flushMax && flushes % o.fps != 0 { return } }
         var pb = lastBuffer
         if changed || pb == nil {
             var out: CVPixelBuffer?
@@ -493,12 +520,22 @@ final class Atlas {
             pb = fresh; lastBuffer = fresh
         }
         frame += 1
+        elock.withLock { submitAt[frame] = DispatchTime.now().uptimeNanoseconds; if submitAt.count > 600 { submitAt.removeAll() } }
         let repeatTag: UnsafeMutableRawPointer? = (changed || key) ? nil : UnsafeMutableRawPointer(bitPattern: 1)
         let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         VTCompressionSessionEncodeFrame(e, imageBuffer: pb!, presentationTimeStamp: CMTime(value: frame, timescale: CMTimeScale(o.fps)),
                                         duration: CMTime(value: 1, timescale: CMTimeScale(o.fps)), frameProperties: props, sourceFrameRefcon: repeatTag, infoFlagsOut: nil)
     }
     func encoded(_ sample: CMSampleBuffer, repeated: Bool) {
+        let done = DispatchTime.now().uptimeNanoseconds, pv = CMSampleBufferGetPresentationTimeStamp(sample).value
+        elock.withLock {
+            if let t = submitAt.removeValue(forKey: pv) { let ms = Double(done - t) / 1e6; encMs.append(ms); encEwma = encEwma * 0.9 + ms * 0.1 }
+            if Date().timeIntervalSince(encLogAt) >= 30, !encMs.isEmpty {
+                let v = encMs.sorted()
+                log(String(format: "encode ms p50 %.1f p99 %.1f max %.1f (%d frames, %dx%d)", v[v.count / 2], v[min(v.count - 1, v.count * 99 / 100)], v[v.count - 1], v.count, W, H))
+                encMs.removeAll(); encLogAt = Date()
+            }
+        }
         guard let block = CMSampleBufferGetDataBuffer(sample), let format = CMSampleBufferGetFormatDescription(sample) else { return }
         let att = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[String: Any]]
         let key = !(att?.first?[kCMSampleAttachmentKey_NotSync as String] as? Bool ?? false)
