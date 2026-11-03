@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical keep/drop verdict for one flag A/B pair (docs/bench-scoreboard.md, "Pass/drop rules").
 
-    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | vt-cinema | vt-wall | damage | prifps | gameyield | vt_realtime | codec-h264
+    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | vt-cinema | vt-wall | damage | prifps | gamecap | gameyield | vt_realtime | codec-h264
     python3 bench/verdict.py --self-test
 
 OFF and ON are bench/results/stress-*.json from the same scenario, run back to back (ON = flag set; for codec-h264,
@@ -81,7 +81,7 @@ def rule(name, off, on):
         why = f"mbps {A['mbps']} -> {B['mbps']}, fresh fps {A['fps']} -> {B['fps']}, sender cpu {A['cpu']} -> {B['cpu']}%"
         if ge(B['mbps'], A['mbps'], 0.95) or (B['fps'] or 0) < (A['fps'] or 0) - 5: return 'DROP', why
         return ('KEEP' if le(B['mbps'], A['mbps'], 0.85) else 'RERUN'), why
-    if name in ('gameyield', 'encshare', 'vt_realtime', 'codec-h264'):
+    if name in ('gameyield', 'gamecap', 'encshare', 'vt_realtime', 'codec-h264'):
         return latency_rule(off, on)
     raise SystemExit(f'unknown rule {name}')
 

@@ -23,10 +23,15 @@ struct Options {
     // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
     //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
     //   vt     virtual texturing (protocol v2): levels, tiles past the 1920 cell cap, mip-tail thumbnails
+    //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
     //          one media engine to Sunshine's game encode: it encodes on 1 tick in N (N = 2, rising to 4 while its
     //          own encode time says the engine is contended), with one flush repeat instead of three
-    var flags = Set<String>()
+    //   damage  ScreenCaptureKit damage: frames that report no dirty rects are not copied (no re-encode), and a
+    //          frame's copy covers only the rows its dirty rects touch
+    //   prifps  per-screen frame-rate by demand priority: pri >= 0.8 full rate, >= 0.3 15 fps, else 10 fps; when no
+    //          full-rate screen changed, the atlas encodes at most 15 times a second
+    var flags = Set<String>(), statSecs = 30.0
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let a = it.next() {
@@ -39,6 +44,7 @@ struct Options {
             case "--cell": let p = v.split(separator: "x").compactMap { Int($0) }; if p.count == 2 { cellW = p[0]; cellH = p[1] }
             case "--url": url = v
             case "--test": test = v
+            case "--stat-secs": statSecs = Double(v) ?? statSecs
             case "--flags": flags = Set(v.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             default: break
             }
@@ -70,6 +76,8 @@ final class Peer { let c: NWConnection; var pending = 0; var needsKey = true; in
 final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var cells: [Cell]; let screen: Int; let origin: CGPoint; weak var atlas: Atlas?; var stream: SCStream?; var dead = false
     var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cells move without resizing
+    var fps = 60                 // capture rate (prifps changes it with updateConfiguration)
+    var frames = 0, clean = 0    // under atlas.lock: frames delivered, and those with no dirty rects (damage)
     init(_ cells: [Cell], _ atlas: Atlas) { self.cells = cells; screen = cells[0].entry.screen; self.atlas = atlas; origin = CGDisplayBounds(cells[0].entry.display).origin }
     func config(_ w: Int, _ h: Int, fps: Int) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
@@ -78,11 +86,13 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         return c
     }
     func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
+        self.fps = fps
         let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config(cells[0].frameW, cells[0].frameH, fps: fps), delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture(); stream = s
     }
     func resize(_ w: Int, _ h: Int, fps: Int) async {
+        self.fps = fps
         do { try await stream?.updateConfiguration(config(w, h, fps: fps)) } catch { log("resize screen \(screen): \(error.localizedDescription)"); dead = true }
     }
     func stop() { atlas = nil; if let s = stream { stream = nil; Task { try? await s.stopCapture() } } }  // late frames go nowhere
@@ -91,9 +101,27 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
+        // damage: the rows this frame changed, in frame pixels; nil = all of it
+        var rows: Range<Int>? = nil
+        if a.o.flags.contains("damage"),
+           let info = (CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
+           let raw = info[.dirtyRects] as? [NSDictionary] {
+            let rects = raw.compactMap { CGRect(dictionaryRepresentation: $0) }
+            if rects.isEmpty { a.lock.withLock { frames += 1; clean += 1; latest = pb }; return }  // nothing changed
+            // Dirty rects are in display points; only at 1:1 (frame width = display width in points) are they rows.
+            let pts = CGDisplayBounds(cells[0].entry.display).width, ph = CVPixelBufferGetHeight(pb)
+            if Int(pts) == CVPixelBufferGetWidth(pb) {
+                let u = rects.reduce(CGRect.null) { $0.union($1) }
+                let r0 = max(0, Int(u.minY.rounded(.down))), r1 = min(ph, Int(u.maxY.rounded(.up)))
+                if r0 < r1 { rows = r0..<r1 }
+            }
+        }
         a.lock.lock(); defer { a.lock.unlock() }
-        latest = pb
-        if a.visible(screen) { a.stash[screen] = nil; for c in cells { a.blit(pb, c) } } else { a.stash[screen] = pb }
+        latest = pb; frames += 1
+        if a.visible(screen) {
+            a.stash[screen] = nil; for c in cells { a.blit(pb, c, rows: rows) }
+            if a.o.flags.contains("prifps") && fps >= a.o.fps { a.fullRateDirty = true }
+        } else { a.stash[screen] = pb }
     }
 }
 
@@ -124,6 +152,8 @@ final class Atlas {
     // bpcut flag (work queue): bitrate scale under backpressure. x0.7 at most every 250 ms while held back,
     // x1.2 per calm second back to 1.
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
+    var statAt = Date()  // refresh: last capture statistics line
+    var fullRateDirty = false, lastEncodeAt = Date.distantPast  // prifps: a full-rate screen changed (under lock); work queue
     var gameOn = false, ticks = 0, yieldN = 2, yieldAt = Date()  // gameyield: demand "game" (dlock); tick state (work queue)
     var encEwma = 0.0  // under elock: smoothed encode ms, the contention signal for gameyield
     // Encode time (submit -> output callback), logged every 30 s: the atlas's share of the media engine.
@@ -139,15 +169,18 @@ final class Atlas {
     init(_ o: Options) { self.o = o }
 
     // Copies one captured frame (its sx, sy part) into a cell; caller holds `lock`.
-    func blit(_ pb: CVPixelBuffer, _ cell: Cell) {
+    func blit(_ pb: CVPixelBuffer, _ cell: Cell, rows: Range<Int>? = nil) {
         CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self), pixels.count == W * H * 4 else { return }
         let pw = CVPixelBufferGetWidth(pb), ph = CVPixelBufferGetHeight(pb)
         if cell.fw > 0 && (pw != cell.fw || ph != cell.fh) { return }  // a tile needs its exact frame size (mid-resize)
         let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, pw - cell.sx), h = min(cell.h, ph - cell.sy)
         guard w > 0, h > 0, cell.x >= 0, cell.y >= 0, cell.x + w <= W, cell.y + h <= H else { return }  // a stale cell from before a relayout
+        // damage: only the frame rows that changed (frame row = cell.sy + y)
+        let ys = rows.map { max(0, $0.lowerBound - cell.sy)..<min(h, $0.upperBound - cell.sy) } ?? 0..<h
+        if ys.isEmpty { return }  // this tile's part of the frame did not change
         pixels.withUnsafeMutableBufferPointer { dst in
-            for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + (cell.sy + y) * stride + cell.sx * 4, w * 4) }
+            for y in ys { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + (cell.sy + y) * stride + cell.sx * 4, w * 4) }
         }
         dirty = true
     }
@@ -222,6 +255,7 @@ final class Atlas {
             want = next; wantAt = now; wantV2 = vt; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
             let game = (num(j["game"]) ?? 0) != 0
             if game != gameOn && o.flags.contains("gameyield") { log(game ? "game stream on: atlas yields the encoder" : "game stream off") }
+            if game != gameOn && o.flags.contains("gamecap") { wake = true }  // relayout now, not at the next 2 s pass
             gameOn = game
         }
         if !reveal.isEmpty {
@@ -274,7 +308,8 @@ final class Atlas {
     // Row packing: each display fits its tier's box (cellW x cellH by default) keeping its aspect; rows wrap at maxW.
     // When the screens don't all fit maxW x maxH, every cell shrinks by the same factor until they do, so a screen
     // is never dropped (ten 1920-wide screens become ten ~760-wide cells).
-    func layout(_ list: [Entry], _ tiers: [Int: Int]) -> (Int, Int, [Cell]) {
+    func layout(_ list: [Entry], _ tiers: [Int: Int], cap: Bool = false) -> (Int, Int, [Cell]) {
+        let maxW = cap ? 1920 : o.maxW, maxH = cap ? 1200 : o.maxH
         var f = 1.0
         while true {
             var cells: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0, fits = true
@@ -282,8 +317,8 @@ final class Atlas {
                 let cw = Double(min(tiers[e.screen] ?? o.cellW, o.cellW)) * f, ch = cw * Double(o.cellH) / Double(o.cellW)
                 let s = min(cw / Double(e.w), ch / Double(e.h), 1.0)
                 let w = max(16, Int(Double(e.w) * s) / 2 * 2), h = max(16, Int(Double(e.h) * s) / 2 * 2)
-                if x + w > o.maxW { x = 0; y += rowH; rowH = 0 }
-                if y + h > o.maxH { fits = false; break }
+                if x + w > maxW { x = 0; y += rowH; rowH = 0 }
+                if y + h > maxH { fits = false; break }
                 cells.append(Cell(entry: e, x: x, y: y, w: w, h: h)); x += w; rowH = max(rowH, h); W = max(W, x)
             }
             if fits || f < 0.05 {
@@ -299,8 +334,8 @@ final class Atlas {
     // hardware encoder (4096x2304; at 3840x2400 it produced no frames at all, 2026-11-03). Paused screens are
     // mip tails (<= 240 px wide). Too big: the screen with the most area per unit of priority shrinks 10%, repeat;
     // a single cinema screen at level 0 keeps the whole atlas while the rest are tails.
-    func layoutVT(_ list: [Entry], _ tiers: [Int: Int], _ live: Set<CGDirectDisplayID>, _ pri: [Int: Double]) -> (Int, Int, [Cell]) {
-        let maxW = 3840, maxH = 2304
+    func layoutVT(_ list: [Entry], _ tiers: [Int: Int], _ live: Set<CGDirectDisplayID>, _ pri: [Int: Double], cap: Bool = false) -> (Int, Int, [Cell]) {
+        let maxW = cap ? 1920 : 3840, maxH = cap ? 1152 : 2304
         func tail(_ e: Entry) -> Int { var w = e.w; while w > 240 { w /= 2 }; return max(16, w / 2 * 2) }
         func height(_ e: Entry, _ w: Int) -> Int { max(16, w * e.h / max(1, e.w) / 2 * 2) }
         var width: [Int: Int] = [:]
@@ -361,13 +396,37 @@ final class Atlas {
             let stale = now.timeIntervalSince(wantAt) > 2
             return Set(list.filter { e in stale || (want[e.screen]?.vis ?? true) || now.timeIntervalSince(hiddenAt[e.screen] ?? now) < 2 }.map { $0.display })
         }
+        // prifps: each capture's rate follows its screen's priority (full rate without fresh demand)
+        if o.flags.contains("prifps") {
+            let fresh = dlock.withLock { now.timeIntervalSince(wantAt) <= 2 }
+            for cap in captures.values where !cap.dead {
+                let p = pri[cap.screen] ?? 1, f = !fresh || p >= 0.8 ? o.fps : p >= 0.3 ? 15 : 10
+                if f != cap.fps { await cap.resize(cap.cells[0].frameW, cap.cells[0].frameH, fps: f) }
+            }
+        }
+        // Capture statistics, every --stat-secs: delivered fps per screen and the share with no dirty rects.
+        if now.timeIntervalSince(statAt) >= o.statSecs {
+            let dt = now.timeIntervalSince(statAt)
+            let parts: [String] = lock.withLock {
+                captures.values.sorted { $0.screen < $1.screen }.map { c in
+                    defer { c.frames = 0; c.clean = 0 }
+                    return String(format: "%d %.1f fps%@ @%d", c.screen, Double(c.frames) / dt, c.clean > 0 ? String(format: " (%d%% clean)", 100 * c.clean / max(1, c.frames)) : "", c.fps)
+                }
+            }
+            if !parts.isEmpty { log("capture: " + parts.joined(separator: ", ")) }
+            statAt = now
+        }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
         // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
         var key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
         // vt: paused screens shrink to mip tails and priorities share the atlas, so both are part of the layout.
+        // gamecap: while a game stream plays, the whole atlas fits in 1920x1200 (the Air's one media engine can't
+        // encode a 3456x2160 atlas next to a 2560x1600 game: the game encode fell to 40 fps, 277 ms, 2026-11-03)
+        let capped = o.flags.contains("gamecap") && dlock.withLock { gameOn && now.timeIntervalSince(wantAt) <= 2 }
+        if capped { key += "|gamecap" }
         if vt { key += "|vt|" + list.map { e in "\(e.screen)\(live.contains(e.display) ? "" : "t")@\(Int((pri[e.screen] ?? 1) * 20))" }.joined(separator: ",") }
         if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
-        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri) : layout(list, tiers)
+        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri, cap: capped) : layout(list, tiers, cap: capped)
         let resized = w != W || h != H
         let cj = cells.map { c -> String in
             var j = "{\"screen\":\(c.entry.screen),\"x\":\(c.x),\"y\":\(c.y),\"w\":\(c.w),\"h\":\(c.h)"
@@ -407,7 +466,7 @@ final class Atlas {
                 else if let pb = cap.latest { for c in cs { blit(pb, c) } }  // same size, new place: copy the last frame now
             }
         }
-        for (cap, c) in resizes { await cap.resize(c.frameW, c.frameH, fps: o.fps) }
+        for (cap, c) in resizes { await cap.resize(c.frameW, c.frameH, fps: cap.fps) }
         let changed = json != layoutJSON || resized
         if changed {
             layoutJSON = json
@@ -479,7 +538,11 @@ final class Atlas {
         if bpScale < 1, Date().timeIntervalSince(bpCutAt) > 1, Date().timeIntervalSince(bpRiseAt) > 1 {
             bpScale = min(1, bpScale * 1.2); bpRiseAt = Date(); applyBudget(force: true)
         }
-        lock.lock(); let changed = dirty; dirty = false; lock.unlock()
+        // prifps: a change only from reduced-rate screens waits until 1/15 s after the last encode
+        if o.flags.contains("prifps"), !forceKey, Date().timeIntervalSince(lastEncodeAt) < 1.0 / 15,
+           lock.withLock({ dirty && !fullRateDirty }) { return }
+        lock.lock(); let changed = dirty; dirty = false; fullRateDirty = false; lock.unlock()
+        if changed { lastEncodeAt = Date() }
         let key = forceKey; forceKey = false
         // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
         ticks += 1
@@ -530,7 +593,7 @@ final class Atlas {
         let done = DispatchTime.now().uptimeNanoseconds, pv = CMSampleBufferGetPresentationTimeStamp(sample).value
         elock.withLock {
             if let t = submitAt.removeValue(forKey: pv) { let ms = Double(done - t) / 1e6; encMs.append(ms); encEwma = encEwma * 0.9 + ms * 0.1 }
-            if Date().timeIntervalSince(encLogAt) >= 30, !encMs.isEmpty {
+            if Date().timeIntervalSince(encLogAt) >= o.statSecs, !encMs.isEmpty {
                 let v = encMs.sorted()
                 log(String(format: "encode ms p50 %.1f p99 %.1f max %.1f (%d frames, %dx%d)", v[v.count / 2], v[min(v.count - 1, v.count * 99 / 100)], v[v.count - 1], v.count, W, H))
                 encMs.removeAll(); encLogAt = Date()

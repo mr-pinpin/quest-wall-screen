@@ -24,6 +24,9 @@ PAIRS=(
   "--codec H264"                            #    H.264, low-latency rate control (headset v0.39+ CODEC flag)
   ""                                        # 5. baseline again
   "--flags damage,prifps"                   #    atlas share of the media engine: still screens skipped, background at 10-15 fps
+  ""                                        # 6. baseline again
+  "--flags gameyield,gamecap"               #    while "game":1 the atlas fits 1920x1200 and encodes 1 tick in 2-4
+                                            #    (encprobe: game encode 40 fps/277 ms -> 60 fps/13 ms, bench/results/encshare-2026-11-03.md)
   ""                                        # 4. baseline again
   "--headset-flag wifill"                   #    Wi-Fi low-latency lock while streaming (headset v0.40+ WIFILL flag)
 )
