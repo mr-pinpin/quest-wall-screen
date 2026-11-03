@@ -12,6 +12,7 @@ RUNS=(
   "--scenario cinema --n 20"
   "--scenario wall --n 20"
   "--scenario cinema --n 10 --wan 3"
+  "--scenario cinema --n 10 --wan 3 --flags bpcut"
 )
 SECS=${SECS:-60}
 EXTRA=${EXTRA:-}   # e.g. EXTRA=--force to run while the laptop is in use

@@ -138,11 +138,13 @@ def main():
     ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
+    ap.add_argument('--flags', default='', help='sender flags for the test copy, e.g. bpcut (stand-in mode; see AtlasSender --flags)')
     ap.add_argument('--allow-over-20', action='store_true', help='allow more than 20 screens (30 crashed replayd and wedged WindowServer)')
     a = ap.parse_args()
     if a.n > 20 and not a.allow_over_20:
         sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
     sim = not a.headset
+    test_plugin = dict(TEST_PLUGIN, args=TEST_PLUGIN['args'] + (['--flags', a.flags] if a.flags else []))
     why = busy(a.force)
     if why: sys.exit(f'stress: not running, {why}')
     ids = list(range(2, a.n + 2))
@@ -177,7 +179,7 @@ def main():
             # The test copy runs as a PinPin Host plugin, so it inherits the Host's Screen Recording grant
             # (no Terminal, no AppleScript). Its own binary name keeps the live sender's pkill away from it.
             air('cp -f ~/.local/share/pinpin-atlas/pinpin-atlas ~/.local/share/pinpin-atlas/pinpin-atlas-test && '
-                f'printf %s {json.dumps(json.dumps(TEST_PLUGIN))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
+                f'printf %s {json.dumps(json.dumps(test_plugin))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
         else:
             # Nobody is wearing it (checked above): simulate wear, start the app if needed, put it in stress mode.
             app_was_running = bool(headset(f'pidof {PKG}').strip())
@@ -247,7 +249,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario if sim else 'ring',
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'+{a.flags}' if a.flags else ''),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
