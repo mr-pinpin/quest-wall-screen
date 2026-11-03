@@ -1,0 +1,71 @@
+{
+ "when": "20261103-123611",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "vr",
+ "wanPingMs": {
+  "p50": 18.1,
+  "p95": 25.1,
+  "p99": 50.4,
+  "max": 90.821,
+  "count": 293
+ },
+ "zyxelPingMs": {
+  "p50": 3.1,
+  "p95": 10.5,
+  "p99": 32.0,
+  "count": 293
+ },
+ "lanPingMs": {
+  "p50": 51.6,
+  "p95": 78.5,
+  "p99": 97.4,
+  "count": 152
+ },
+ "houseInternetMbps": {
+  "down": 0.9,
+  "up": 0.7
+ },
+ "laptopWifiMbps": {
+  "tx": 0.1,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [],
+  "layouts": 1,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "atlas": {
+  "mbps": 0,
+  "mbpsMax": 0,
+  "freshFps": {
+   "p5": 0,
+   "p50": 0
+  },
+  "freshGapMs": {
+   "p50": null,
+   "p99": null,
+   "max": null
+  },
+  "receiverCpuPct": 0.2,
+  "longestSilenceS": 0.0,
+  "emptySeconds": 0,
+  "keyframes": 0,
+  "layouts": 0,
+  "connects": 0,
+  "sizes": []
+ },
+ "series": [],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "atlas within 40 Mbit/s": true,
+  "VR: atlas under 1 Mbit/s": true
+ },
+ "pass": true
+}

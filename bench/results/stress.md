@@ -27,3 +27,4 @@ Notes: the 4-screen runs had no visible pattern (launch bug, fixed), so their at
 | 20261103-100552 | sim/wall | 30 | 0 | 18.3/75.0 | 42.2/139.8 | 0.9 | - | 0 | 0.0 | - | 0.1 | 0 | NO |
 | 20261103-101243 | sim/cinema | 10 | 3 | 17.6/21.4 | 76.8/100.5 | 0.8 | - | 0 | 0.0 | - | 0.0 | 0 | NO |
 | 20261103-101836 | sim/cinema | 10 | 0 | 17.7/57.5 | 28.3/62.8 | 0.8 | - | 0 | 0.0 | - | 0.1 | 0 | NO |
+| 20261103-123611 | sim/vr | 10 | 0 | 18.1/25.1 | 51.6/78.5 | 0.9 | - | 0 | 0.0 | - | 0.1 | 0 | yes | VOID: 0 connects, laptop IP changed after the reboot (moved to results/void)
