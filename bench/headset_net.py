@@ -17,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import stress
 
 SU = '/debug_ramdisk/su -c'
-TARGETS = {'laptop': stress.LAPTOP_IP, 'router': '192.168.0.1'}
+TARGETS = {'router': '192.168.0.1'}
 
 
 def sh(cmd, t=60):
@@ -50,12 +50,13 @@ def snapshot():
     r['route'] = route.strip()[:600]
     gw = re.search(r'default via (\S+)', route)
     targets = dict(TARGETS); targets['gateway'] = gw.group(1) if gw else None
-    mini = stress.mini("ipconfig getifaddr en1; ipconfig getifaddr en0").split()
-    if mini: targets['mini'] = mini[0]
+    targets['laptop'] = stress.laptop_ip()  # DHCP: asked each time
+    targets['mini'] = '192.168.0.50'      # the Mini on the house LAN (en0); en1 is its 2.4 GHz uplink
+    r['retries'] = sh('dumpsys wifi | grep -E -m3 "^(successfulTxPackets|retriedTxPackets|lostTxPackets):"').strip()
     r['ping'] = {}
     for name, ip in targets.items():
         if ip: r['ping'][name] = dict(ping_stats(sh(f'ping -c 25 -i 0.2 -W 1 {ip}', 40)), ip=ip)
-    r['laptopDirect'] = bool(re.search(re.escape(stress.LAPTOP_IP) + r' .*lladdr', route))
+    r['laptopDirect'] = bool(re.search(re.escape(targets['laptop']) + r' .*lladdr', route))
     peer = stress.air("system_profiler SPAirPortDataType 2>/dev/null | grep -A8 'Current Network Information' | grep -E 'Channel|PHY|Transmit Rate|Signal' ", timeout=40)
     r['laptopWifi'] = ' | '.join(l.strip() for l in peer.splitlines())[:300]
     return r
@@ -71,8 +72,10 @@ def main():
         try:
             up = stress.mini(f"{stress.ADB.split(' -s ')[0]} connect 127.0.0.1:26351 >/dev/null 2>&1; {stress.ADB} get-state 2>/dev/null", timeout=40).strip() == 'device'
         except subprocess.TimeoutExpired: up = False
-        if up and sh('echo ok', 20).strip() == 'ok':
-            r = snapshot(); n += 1
+        state = sh('dumpsys vrpowermanager | grep -m1 "^State:"', 20).strip() if up else ''
+        # Only an awake headset says anything about the network (asleep, its Wi-Fi power save adds 50-100 ms).
+        if state and 'STANDBY' not in state and 'SLEEP' not in state:
+            r = snapshot(); r['complete'] = bool(r.get('powerState')) and all(v['n'] for v in r['ping'].values()); n += 1
             with out.open('a') as f: f.write(json.dumps(r) + '\n')
             print(json.dumps({k: r.get(k) for k in ('t', 'ssid', 'freqMHz', 'rssi', 'linkMbps', 'powerSave', 'powerState', 'laptopDirect')}),
                   {k: (v['p50'], v['p95'], v['n']) for k, v in r['ping'].items()}, flush=True)
