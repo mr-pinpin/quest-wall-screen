@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical keep/drop verdict for one flag A/B pair (docs/bench-scoreboard.md, "Pass/drop rules").
 
-    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | vt-cinema | vt-wall | damage | prifps | gamecap | gameyield | vt_realtime | codec-h264
+    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | longgop | vt-cinema | vt-wall | damage | prifps | gamecap | gameyield | vt_realtime | codec-h264
     python3 bench/verdict.py --self-test
 
 OFF and ON are bench/results/stress-*.json from the same scenario, run back to back (ON = flag set; for codec-h264,
@@ -61,7 +61,7 @@ def latency_rule(off, on, need_fps=True):
 
 def rule(name, off, on):
     A, B = atlas(off), atlas(on)
-    if name == 'bpcut':  # backpressure: smoother stream, fewer keyframes, same bitrate cap
+    if name in ('bpcut', 'longgop'):  # bpcut: smaller frames under backpressure; longgop: no periodic keyframe bursts
         why = f"gap p99 {A['gapP99']} -> {B['gapP99']} ms, keyframes {A['keyframes']} -> {B['keyframes']}, mbps {A['mbps']} -> {B['mbps']}"
         if ge(B['gapP99'], A['gapP99']) or (B['keyframes'] or 0) > (A['keyframes'] or 0) * 1.2: return 'DROP', why
         return ('KEEP' if le(B['gapP99'], A['gapP99'], 0.8) and le(B['keyframes'], A['keyframes']) else 'RERUN'), why

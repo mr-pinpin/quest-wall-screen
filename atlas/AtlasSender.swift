@@ -23,6 +23,7 @@ struct Options {
     // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
     //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
     //   vt     virtual texturing (protocol v2): levels, tiles past the 1920 cell cap, mip-tail thumbnails
+    //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
     //          one media engine to Sunshine's game encode: it encodes on 1 tick in N (N = 2, rising to 4 while its
@@ -506,7 +507,12 @@ final class Atlas {
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: o.bitrate as CFNumber)
         VTSessionSetProperty(e, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: o.fps as CFNumber)
-        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (o.fps * 2) as CFNumber)
+        // longgop: a keyframe every 10 s instead of 2 s. Over TCP nothing is lost, and keyframes are already forced
+        // when needed (new or stuck peer, layout change); every periodic one is a burst of a whole atlas (cinema-10:
+        // 27 a minute, with 130 ms fresh-frame gaps p99 on the Air's Wi-Fi, 2026-11-03).
+        let gop = o.flags.contains("longgop") ? 10 : 2
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (o.fps * gop) as CFNumber)
+        if gop > 2 { VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: Double(gop) as CFNumber) }
         VTCompressionSessionPrepareToEncodeFrames(e)
         encoder = e
     }
