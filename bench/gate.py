@@ -151,7 +151,8 @@ def main():
     for path in args:
         r = json.load(open(path)); v = judge(r); out[path] = v; failed |= not v['pass']
         if as_json: continue
-        print(f"{'PASS' if v['pass'] else 'FAIL'}  {path}  ({r.get('mode')}/{r.get('scenario')}, n={r.get('n')}, wan={r.get('wan')})")
+        h = r.get('host') or {}
+        print(f"{'PASS' if v['pass'] else 'FAIL'}  {path}  ({r.get('mode')}/{r.get('scenario')}, n={r.get('n')}, wan={r.get('wan')}, host={h.get('chip', '?')} {h.get('model', '?')})")
         for part in ('gaming', 'screens', 'info'):
             for name, (ok, why) in (v.get(part) or {}).items():
                 print(f"   {'ok  ' if ok else 'FAIL'} {part}: {name}{'  - ' + why if why else ''}")

@@ -37,6 +37,7 @@ HEADSET_IP = '192.168.0.3'
 LAPTOP_IP = '192.168.0.102'  # fallback only: the laptop's DHCP address changes (it was .104 after the 2026-11-03 reboot),
                              # and a stale one left the stand-in with no stream at all; laptop_ip() asks the laptop
 IDLE_NEEDED = 600
+BENCH_CHIP, BENCH_MODEL = 'Apple M1', 'MacBookAir10,1'  # the pinned benchmark host (user direction 2026-11-03)
 # Shared bench lock on the laptop (agreed by work-c4 and work-09): a directory made with mkdir (atomic), holding an
 # owner note. Every test that creates displays or runs a test sender takes it; afterwards it is moved aside.
 # Older than LOCK_STALE_S means its holder died: taken over.
@@ -254,6 +255,13 @@ def main():
     test_plugin = dict(TEST_PLUGIN, args=TEST_PLUGIN['args'] + (['--flags', a.flags] if a.flags else []))
     why = busy(a.force, sim)
     if why: sys.exit(f'stress: not running, {why}')
+    # Benchmarks are pinned to the M1 Air for stability (user direction 2026-11-03): the sender host is recorded in
+    # every result and anything else is refused; verdict.py never compares runs from different hosts.
+    hw = air('sysctl -n machdep.cpu.brand_string hw.model; sw_vers -productVersion', timeout=20).split('\n')
+    host = {'name': 'pinpin-air', 'chip': hw[0].strip() if hw else '', 'model': hw[1].strip() if len(hw) > 1 else '',
+            'macos': hw[2].strip() if len(hw) > 2 else ''}
+    if host['chip'] != BENCH_CHIP or host['model'] != BENCH_MODEL:
+        sys.exit(f'stress: not running, the benchmark host must be the {BENCH_CHIP} {BENCH_MODEL}; pinpin-air reports {host}')
     holder = lock_take(f'stress.py {" ".join(sys.argv[1:])} since {time.strftime("%H:%M:%S")}')
     if holder: sys.exit(f'stress: not running, the bench lock is held ({holder})')
     run_desc = f'{"headset" if a.headset else "sim"} run: ' + ' '.join(sys.argv[1:])
@@ -446,6 +454,7 @@ def main():
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
+        'host': dict(host, standIn=('pinpin-air' if a.sim_on == 'air' else 'pinpin-mini') if sim else 'quest'),
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,
         'patternScreens': moving,  # the screens animated (the source); gate.py judges fresh fps against them
