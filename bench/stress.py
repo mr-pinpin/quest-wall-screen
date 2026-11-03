@@ -416,9 +416,10 @@ def main():
     # The source rate: what ScreenCaptureKit delivered per screen (the sender's --stat-secs lines "capture: S F fps").
     # gate.py judges the stream relative to it: SCK delivers ~29.4 fps per display, so an absolute 30 fps is impossible.
     cap = {}
-    for l in log:
-        m = re.search(r'capture: (\d+) ([\d.]+) fps', l)
-        if m and float(m.group(2)) > 0: cap.setdefault(m.group(1), []).append(float(m.group(2)))
+    for l in log:  # one line lists every screen: "capture: 2 10.8 fps @60, 3 10.8 fps @60, ..."
+        if 'capture:' not in l: continue
+        for sid, fps in re.findall(r'(?:capture: |, )(\d+) ([\d.]+) fps', l):
+            if float(fps) > 0: cap.setdefault(sid, []).append(float(fps))
     capture_fps = {s: round(statistics.median(v), 1) for s, v in cap.items()}
     r = {
         'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~covered' if a.cover_idle else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),

@@ -52,8 +52,12 @@ check(not gate.judge(c60)['pass'], 'against the content rate, 28.5 fps fails')
 gate.SOURCE_MODE = 'capture'
 check(abs(gate.union_rate([8.6, 8.6, 8.6]) - 22.3) < 0.05 and gate.union_rate([]) == 0.0 and gate.union_rate([60]) == 60.0, 'union of capture rates')
 un = copy.deepcopy(scr); un['patternScreens'] = [2, 3, 11]; un['captureFps'] = {'2': 8.6, '3': 8.6, '11': 8.6, '5': 0.5}
-un['atlas']['freshFps']['p50'] = 21; un['atlas']['freshGapMs']['p99'] = 60
+un['atlas']['freshFps']['p50'] = 21; un['atlas']['freshGapMs'] = {'p99': 60, 'max': 120}
 check(gate.judge(un)['pass'], f'21 fresh of a 22 fps union passes: {gate.judge(un)}')
 un['atlas']['freshFps']['p50'] = 18
 check(not gate.judge(un)['pass'], '18 of 22 fails (< 90%)')
+part = copy.deepcopy(un); part['captureFps'] = {'2': 8.6}; part['atlas']['freshFps']['p50'] = 21
+check(not gate.judge(part)['pass'], 'a source rate measured for only 1 of 3 animated screens cannot pass')
+slow = copy.deepcopy(un); slow['atlas']['freshFps']['p50'] = 21; slow['atlas']['freshGapMs'] = {'p99': 95, 'max': 300}
+check(not gate.judge(slow)['pass'], 'gap max 300 ms fails the 250 ms ceiling')
 print(f'gate self-test: {fails} failures'); sys.exit(1 if fails else 0)

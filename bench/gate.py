@@ -112,8 +112,15 @@ def screens_relative(r):
     shown = [str(s) for s in (r.get('patternScreens') or [])]
     if fresh is not None and cap and shown and SOURCE_MODE == 'capture':
         # Fresh fps against the source's change rate: the union of the animated screens' capture rates.
-        u = union_rate([cap[s] for s in shown if s in cap])
-        out[f'fresh fps >= 90% of source change rate ({u}: union of {len(shown)} screens)'] = (fresh >= 0.9 * u, f'{fresh} fps')
+        rates = [cap[s] for s in shown if s in cap]
+        u = union_rate(rates)
+        out[f'fresh fps >= 90% of source change rate ({u}: union of {len(rates)}/{len(shown)} screens)'] = (fresh >= 0.9 * u and len(rates) == len(shown), f'{fresh} fps')
+        if gap is not None and u:
+            bound = min(2000 / u, 100)  # never looser than 100 ms, however slow the source gets
+            out[f'gap p99 <= 2 source change intervals, at most 100 ms ({round(bound)} ms)'] = (gap <= bound, f'{gap} ms')
+        gmax = (a.get('freshGapMs') or {}).get('max')
+        if gmax is not None: out['gap max <= 250 ms'] = (gmax <= 250, f'{gmax} ms')
+        return out
     elif fresh is not None and src: out[f'fresh fps >= 95% of source ({how} {src})'] = (fresh >= 0.95 * src, f'{fresh} fps')
     if gap is not None and src: out[f'gap p99 <= 2 source frames ({round(2000 / src)} ms)'] = (gap <= 2000 / src, f'{gap} ms')
     return out
