@@ -40,11 +40,11 @@ are drawn into the eye buffers from the atlas instead (lower quality is invisibl
 ## One budget, split by mode
 
 Per frame at 72 Hz the GPU has 13.9 ms; the network gives the headset ~400 Mbit/s on 5 GHz (*to measure*);
-the hardware decoder runs the game stream and the atlas together (measured today).
+the hardware decoder must run the game stream and the atlas together (*to measure*: the --game bench run).
 
 | Mode | Game stream | Atlas | Assets | Headset GPU |
 |---|---|---|---|---|
-| Cinema (one big screen) | off | ~20 Mbit/s, one screen at level 0, the rest mip tails | idle | screens only |
+| Cinema (one big screen) | off | target <= 25 Mbit/s, one screen at level 0, the rest mip tails | idle | screens only |
 | Desk (several screens) | off | <= 40 Mbit/s by gaze | background | screens + light 3D |
 | VR game (remote) | 30-60 Mbit/s | ~0.1 Mbit/s (measured: all tails) | paused | game layer only |
 | Mixed room (models + screens) | optional | by gaze | burst, rate-limited | 3D <= 8 ms, copies <= 2 ms, UI <= 1 ms |
