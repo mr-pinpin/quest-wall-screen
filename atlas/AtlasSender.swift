@@ -67,7 +67,7 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func resize(_ w: Int, _ h: Int, fps: Int) async {
         do { try await stream?.updateConfiguration(config(w, h, fps: fps)) } catch { log("resize screen \(cell.entry.screen): \(error.localizedDescription)"); dead = true }
     }
-    func stop() { if let s = stream { stream = nil; Task { try? await s.stopCapture() } } }
+    func stop() { atlas = nil; if let s = stream { stream = nil; Task { try? await s.stopCapture() } } }  // late frames go nowhere
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         log("screen \(cell.entry.screen) capture stopped: \(error.localizedDescription)"); dead = true; atlas?.layoutKey = ""
     }
@@ -110,6 +110,7 @@ final class Atlas {
         CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self), pixels.count == W * H * 4 else { return }
         let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, CVPixelBufferGetWidth(pb)), h = min(cell.h, CVPixelBufferGetHeight(pb))
+        guard cell.x >= 0, cell.y >= 0, cell.x + w <= W, cell.y + h <= H else { return }  // a stale cell from before a relayout
         pixels.withUnsafeMutableBufferPointer { dst in
             for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + y * stride, w * 4) }
         }
@@ -314,10 +315,15 @@ final class Atlas {
             guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let fresh = out else { return }
             CVPixelBufferLockBaseAddress(fresh, [])
             if let base = CVPixelBufferGetBaseAddress(fresh)?.assumingMemoryBound(to: UInt8.self) {
-                let stride = CVPixelBufferGetBytesPerRow(fresh)
+                let stride = CVPixelBufferGetBytesPerRow(fresh), bw = CVPixelBufferGetWidth(fresh), bh = CVPixelBufferGetHeight(fresh)
                 lock.lock()
-                pixels.withUnsafeBufferPointer { src in for y in 0..<H { memcpy(base + y * stride, src.baseAddress! + y * W * 4, W * 4) } }
+                // The atlas can change size (refresh) before the encoder and its pool are rebuilt; copying the new
+                // size into the old pool's buffer overran it (stress test crashes). Skip that frame instead.
+                let fits = bw == W && bh == H && pixels.count == W * H * 4
+                if fits { pixels.withUnsafeBufferPointer { src in for y in 0..<H { memcpy(base + y * stride, src.baseAddress! + y * W * 4, W * 4) } } }
+                else { dirty = true }  // retry on the next tick, with the new encoder
                 lock.unlock()
+                if !fits { CVPixelBufferUnlockBaseAddress(fresh, []); return }
             }
             CVPixelBufferUnlockBaseAddress(fresh, [])
             pb = fresh; lastBuffer = fresh
