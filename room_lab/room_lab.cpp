@@ -31,6 +31,7 @@
 #include "budget.h"
 #include "gpu_timer.h"
 #include "hosts.h"
+#include "model_view.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
 
@@ -189,6 +190,9 @@ struct App {
     // files/gputime-on force the flags for self-tests.
     bool budgetMenu = false, budgetFile = false; bool budgetOn() const { return budgetMenu || budgetFile; }
     budget::Arbiter arbiter; budget::Output lastBudget; double frameWorkMs = 0;
+    // MODELS flag (docs/3d-content.md, model_view.h): a headset-rendered glTF model from files/model.json, streamed
+    // at the BUDGET arbiter's asset share (20 Mbit/s without BUDGET), coarse texture first. files/models-on forces it.
+    ModelView model; bool modelsMenu = false, modelsFile = false, modelStarted = false; bool models() const { return modelsMenu || modelsFile; }
     bool codecMenu = false, codecFile = false;  // CODEC flag: game streams in H.264 instead of HEVC (applies at the next launch)
     GpuTimer gpuTimer; bool gpuTimeMenu = false, gpuTimeFile = false; bool gpuTime() const { return gpuTimeMenu || gpuTimeFile; }
     double frameMsForBudget() const { return gpuTime() && gpuTimer.valid() ? gpuTimer.ms : frameWorkMs; }
@@ -409,12 +413,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 23;
+    static constexpr int kMenuItems = 24;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -430,6 +434,7 @@ struct App {
         if (l == "GPUTIME") return gpuTime();
         if (l == "WIFILL") return wifiLl();
         if (l == "HOSTRES") return hostResMenu;
+        if (l == "MODELS") return models();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -514,6 +519,7 @@ struct App {
         else if (l == "GPUTIME") gpuTimeMenu = !gpuTimeMenu;                  // GPU timer queries for the budget's frame time
         else if (l == "H264") codecMenu = !codecMenu;                         // CODEC: next game stream in H.264
         else if (l == "WIFILL") wifiLlMenu = !wifiLlMenu;                     // Wi-Fi low-latency lock while streaming
+        else if (l == "MODELS") modelsMenu = !modelsMenu;                     // headset-rendered 3D model (files/model.json)
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1359,6 +1365,7 @@ void main(){
             lastBudget = arbiter.split(in);
             budgetKbps = lastBudget.atlasKbps;
         } else budgetKbps = 60000;
+        model.kbps = budgetOn() ? lastBudget.assetKbps : 20000;  // 0 while a game streams: assets yield
         bool v2 = vt();
         std::string j = std::string(v2 ? "{\"v\":2," : "{") + "\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
         for (size_t i = 0; i < ds.size(); i++) {
@@ -2030,12 +2037,29 @@ void main(){
             gpuTimeFile = access((gDir + "/gputime-on").c_str(), F_OK) == 0;  // forces GPUTIME for self-tests
             codecFile = access((gDir + "/codec-h264").c_str(), F_OK) == 0;    // forces CODEC (H.264) for bench pairs
             wifiLlFile = access((gDir + "/wifill-on").c_str(), F_OK) == 0;    // forces WIFILL for bench pairs
+            modelsFile = access((gDir + "/models-on").c_str(), F_OK) == 0;    // forces MODELS for self-tests
+            if (models() && !modelStarted) {
+                std::ifstream mf(gDir + "/model.json");
+                if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
+            }
             launcher.h264 = codecMenu || codecFile;
         }
         panelLayer.mipQuality = mipqMenu || mipqFile;
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
         if (quad) panelLayer.update(session, video.mipFbo, video.mipW, video.mipH, video.mipVersion);
         quadShown = quad && panelLayer.hasImage;
+        if (models() && modelStarted) model.update();
+        std::vector<float> screenCorners;  // depth-only rectangles of every visible screen, so models behind them hide
+        if (models() && modelStarted) {
+            auto addScreen = [&](const Placement& pl, Entity* w) {
+                if (!w || !w->located || !pl.active) return;
+                for (auto c : {V3{pl.x - pl.w / 2, pl.y - pl.h / 2, 0.02f}, V3{pl.x + pl.w / 2, pl.y - pl.h / 2, 0.02f}, V3{pl.x + pl.w / 2, pl.y + pl.h / 2, 0.02f}, V3{pl.x - pl.w / 2, pl.y + pl.h / 2, 0.02f}}) {
+                    V3 v = xform(w->pose, c); screenCorners.insert(screenCorners.end(), {v.x, v.y, v.z});
+                }
+            };
+            addScreen(placed, placed.active ? wallById(placed.wall) : nullptr);
+            for (auto& e : extras) addScreen(e.p, wallById(e.p.wall));
+        }
         if (depthValid) { glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, depthTex); }
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, video.mipTex); glActiveTexture(GL_TEXTURE0);
         for (int i = 0; i < 2; i++) {
@@ -2061,6 +2085,10 @@ void main(){
             glUniform1i(uOcclude, depthValid ? 1 : 0);
             if (!occ.v.empty()) glDrawArrays(GL_TRIANGLES, 0, (GLsizei)occ.v.size());
             glUniform1i(uOcclude, 0);
+            if (models() && modelStarted) {  // after the room, before the UI: screens as depth, then the model
+                model.drawDepthQuads(vp.m, screenCorners); model.draw(vp.m);
+                glUseProgram(program); glBindVertexArray(vao);
+            }
             if (!over.v.empty()) glDrawArrays(GL_TRIANGLES, (GLint)occ.v.size(), (GLsizei)over.v.size());
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
@@ -2165,7 +2193,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
@@ -2224,6 +2252,7 @@ void main(){
         dictation.shutdown();
         moonlight.stop();
         hostStop = true; if (hostThread.joinable()) hostThread.join();
+        model.shutdown();
         launcher.shutdown();
         video.shutdown();
         if (session) xrDestroySession(session);

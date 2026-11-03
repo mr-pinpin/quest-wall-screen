@@ -11,6 +11,7 @@ run "VT headset logic + recorded layouts" bash -c "g++ -std=c++17 -O1 -Wall -Wno
 for f in $LAYOUTS; do run "vt_check recorded $(basename $f)" python3 bench/vt_check.py recorded "$f"; done
 run "vt_check synthetic packer model" python3 bench/vt_check.py synthetic --runs 500 --seed 1
 run "gate.py self-test" python3 bench/gate_test.py
+run "3D models: json, glb, progressive ktx2, asset budget" bash -c "g++ -std=c++17 -Wall -I room_lab bench/model_test.cpp -o $T/model && $T/model $([ -d /root/.cache/pinpin-assets/out/DamagedHelmet ] && echo /root/.cache/pinpin-assets/out/DamagedHelmet)"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "verdict.py self-test (pass/drop rules)" python3 bench/verdict.py --self-test
 run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py bench/headset_hold.py bench/vt_check.py bench/verdict.py bench/stress/headset_sim.py
