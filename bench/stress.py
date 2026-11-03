@@ -331,6 +331,8 @@ def main():
     # The laptop's actual Wi-Fi channel/band at run start (a router change once left it on 2.4 GHz ch13).
     try: laptop_channel = air("system_profiler SPAirPortDataType 2>/dev/null | grep -m1 -E '^ +Channel:' | sed 's/^ *Channel: *//'", timeout=30).strip()
     except subprocess.TimeoutExpired: laptop_channel = ''
+    if laptop_channel and '5GHz' not in laptop_channel:  # the benchmark network is 5 GHz: wait, do not measure the wrong band
+        sys.exit(f'stress: not running, the bench lock is held (the laptop is on {laptop_channel}, not 5 GHz: waiting for it to rejoin)')
     ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
