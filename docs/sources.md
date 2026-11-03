@@ -12,6 +12,13 @@ another source we own. Benchmarks are synthetic and not bounded by macOS recordi
 | 3D models | the headset (room_lab MODELS: glTF + KTX2/ASTC) | assets, streamed once (docs/3d-content.md) | headset GPU, asset budget | model_test offline; headset runs |
 | Game / full desktop stream | Sunshine on the laptop or Mini | Moonlight (HEVC/H.264) | Sunshine encode, Wi-Fi | the gaming gate (bench/gate.py) |
 
+## Decided
+
+- **2026-11-03 (user): WebGPU rendering runs on the Mac side** (Mac or Mini), as atlas sources: Dawn/wgpu-native
+  rendering into IOSurfaces that the sender delivers like any screen (work-09's SurfaceSource), with VT sizes fed
+  back to the renderer. **room_lab stays native on the headset** (OpenXR + GLES) for compositing, quad layers,
+  passthrough, input and 3D models. No WebXR rewrite, no Vulkan/Dawn on the headset.
+
 ## Headset side: how the compositor takes content we render ourselves
 
 The headset app (room_lab) is a native OpenXR app on OpenGL ES 3 (EGL binding). Everything it shows reaches it in
