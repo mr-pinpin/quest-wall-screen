@@ -68,7 +68,7 @@ hidden (vis 0): lvl = tailLevel                               // sender may shri
           {"screen":3,"x":0,"y":1200,"w":240,"h":150,"lvl":4,"src":[0,0,3840,2400]}]}
 ```
 
-- `gen`: increases with every layout change.
+- `gen`: increases with every layout change; restarts at 0 with the sender, so compare for change, not order.
 - Per cell: `lvl` and `src` (the part of the display, in display pixels, this cell covers; default the whole
   display). One screen may have several cells at the same level (tiles); together their `src` rects cover
   the display. v1 headsets read the first cell per screen only, so the sender sends tiles only to `v:2` demand.

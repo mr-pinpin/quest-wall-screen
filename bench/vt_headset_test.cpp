@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         std::ifstream f(argv[i]); std::string line; int n = 0;
         while (std::getline(f, line)) {
+            line.erase(std::remove_if(line.begin(), line.end(), [](char c) { return c == 0x20 || c == 0x09; }), line.end());  // json.dumps spacing
             size_t p = line.find("{\"atlas\":"); if (p == std::string::npos) continue;
             n++; checkLayout(line.substr(p), (std::string(argv[i]) + ":" + std::to_string(n)).c_str());
         }
