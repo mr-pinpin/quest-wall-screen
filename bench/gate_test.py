@@ -60,4 +60,8 @@ part = copy.deepcopy(un); part['captureFps'] = {'2': 8.6}; part['atlas']['freshF
 check(not gate.judge(part)['pass'], 'a source rate measured for only 1 of 3 animated screens cannot pass')
 slow = copy.deepcopy(un); slow['atlas']['freshFps']['p50'] = 21; slow['atlas']['freshGapMs'] = {'p99': 95, 'max': 300}
 check(not gate.judge(slow)['pass'], 'gap max 300 ms fails the 250 ms ceiling')
+br = copy.deepcopy(scr); br['checks']['atlas within 40 Mbit/s'] = False; br['atlas']['mbps'] = 40.8; br['atlas']['mbpsMax'] = 55
+check(gate.judge(br)['pass'] and any('peak' in k for k in gate.judge(br)['info']), '40.8 Mbit/s passes with 5% tolerance; peak shown')
+br['atlas']['mbps'] = 42.5
+check(not gate.judge(br)['pass'], '42.5 Mbit/s fails the 42 ceiling')
 print(f'gate self-test: {fails} failures'); sys.exit(1 if fails else 0)

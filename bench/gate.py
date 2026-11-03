@@ -73,6 +73,7 @@ def gaming(r):
 
 
 ABSOLUTE = ('stream kept 30+ fresh frames/s (median)', 'fresh-frame gap p99 < 50 ms', 'internet ping p95 < 50 ms')  # informational since 2026-11-03 (the ping is the Mini 2.4 GHz hop: house Wi-Fi, not our stream)
+ATLAS_BUDGET = 40.0  # Mbit/s, the sender's configured atlas ceiling
 SCK_FPS = 29.4  # ScreenCaptureKit's measured per-display delivery, used when a run did not record its capture rate
 
 
@@ -129,10 +130,17 @@ def screens_relative(r):
 def judge(r):
     checks = r.get('checks') or {}
     v = {'screens': {k: (bool(ok), '') for k, ok in checks.items()
-                     if not k.startswith('game ') and k not in ABSOLUTE}}  # stress.py's own game checks are replaced by the stricter ones
+                     if not k.startswith('game ') and k not in ABSOLUTE and k != 'atlas within 40 Mbit/s'}}  # stress.py's own game checks are replaced by the stricter ones
+    a = r.get('atlas') or {}
+    if 'atlas within 40 Mbit/s' in checks:  # the budget, with 5% for rate-control overshoot (work-df, 2026-11-03)
+        mb = a.get('mbps')
+        v['screens'][f'atlas average <= {ATLAS_BUDGET * 1.05:g} Mbit/s (budget {ATLAS_BUDGET:g} + 5%)'] = (mb is not None and mb <= ATLAS_BUDGET * 1.05, f'{mb} Mbit/s')
     rel = screens_relative(r) if any(k in checks for k in ABSOLUTE[:2]) else {}
     v['screens'].update(rel)
     info = {k: (bool(checks[k]), 'informational') for k in ABSOLUTE if k in checks}
+    if a.get('mbps') is not None:  # bursts and headroom, informational
+        if a.get('mbpsMax') is not None: info[f'1 s peak {a["mbpsMax"]} Mbit/s'] = (a['mbpsMax'] <= ATLAS_BUDGET * 1.25, 'informational')
+        info[f'{round(100 * (1 - a["mbps"] / ATLAS_BUDGET))}% under the {ATLAS_BUDGET:g} Mbit/s budget'] = (a['mbps'] <= ATLAS_BUDGET, 'informational')
     cap = r.get('captureFps') or {}
     if cap and r.get('contentHz'):  # a capture-side shortfall must stay visible whatever the gate judges against
         c = max(cap.values()); info[f'capture {c} of content {r["contentHz"]} fps'] = (c >= 0.95 * r['contentHz'], 'informational')
