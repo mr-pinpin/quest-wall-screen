@@ -18,6 +18,7 @@ run "3D models: json, glb, progressive ktx2, asset budget" bash -c "g++ -std=c++
 run "LOD by viewer pose (vt.h projectedPx, pose paths)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/lod_test.cpp -o $T/lod && $T/lod"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "verdict.py self-test (pass/drop rules)" python3 bench/verdict.py --self-test
+run "video LOD ladder along pose paths (bench/ladder_sim.cpp)" bash -c "g++ -std=c++17 -O1 -I room_lab bench/ladder_sim.cpp -o $T/ladder && $T/ladder"
 run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py bench/headset_hold.py bench/vt_check.py bench/verdict.py bench/stress/headset_sim.py bench/watchdog.py
 mv "$T" "$T.done" 2>/dev/null   # scratch binaries stay in /tmp
 [ $fail = 0 ] && echo "all offline tests passed" || echo "OFFLINE TESTS FAILED"

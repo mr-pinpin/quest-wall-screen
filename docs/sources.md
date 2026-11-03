@@ -134,3 +134,34 @@ Gaming pairs on the real headset and the router-channel before/after come first;
    a keyframe boundary with the hold rule.
 5. **Impostors for 3D models (headset, MODELS flag).** Octahedral impostors (a baked atlas of views) at distance,
    the real mesh up close, chosen by the same projected-size rule as 1; baked offline by assets/make_asset.py.
+
+
+## Video LOD ladder and cached rungs (work-09, 2026-11-03)
+
+**What the atlas can and can't do.** The atlas is one H.264 stream: an IDR always covers the whole frame (no "IDR for
+one cell's tiles"), and VideoToolbox's H.264/HEVC encoders offer neither reference-picture scaling (an AV1/VVC
+feature) nor per-region intra refresh. Inside the atlas a cell's size *is* its rung, so a resolution change means a
+new layout and a keyframe; the atlas keeps them rare (level hysteresis on the headset: up at once, down after 3 s;
+demotions batched at the sender's 5 s refit gate; `longgop` so no periodic keyframes on top).
+
+**Where rungs switch seamlessly: per-screen streams.** A screen that matters (the cinema screen, a video, anything
+large in view) gets its own stream next to the atlas, and its rung switches cost an IDR only on that stream. Two kinds:
+- *Live* (a Mac screen, our WebGPU renderer): its own encoder session; a rung change re-creates or reconfigures only
+  that session (one small IDR at the new size), the atlas is untouched.
+- *Video* (a file, a stream): **no encoding at all**. The clip is pre-encoded (or cached on first play) at a few rungs
+  with aligned closed GOPs, cut into 1 s segments that each start with SPS/PPS + IDR; the sender forwards segments
+  of the rung the headset's level asks for and switches only on segment boundaries.
+
+Prototype (bench/ladder_proto.sh on the Mini, ffmpeg + libx264): a 60 s 1080p60 clip at 1920x1080 / 960x540 /
+480x270 (8 / 2.5 / 0.8 Mbit/s), 1 s segments; a viewer path (approach 6 m -> 1 m, orbit, walk away) picked rungs with
+the headset's hysteresis: **4 switches/min, 0 decode errors across every resolution change, 3600/3600 frames, 62% of
+the bytes of always sending full detail.** The headset needs its decoder to accept a resolution change at an IDR
+(Android MediaCodec adaptive playback), on the per-screen stream.
+
+Offline, bench/ladder_sim.cpp drives the same switcher from room_lab/vt.h (projectedPx + Level) along pose paths:
+walk 4.0 switches/min, room random walk (5 min) 2.8/min, standing with head jitter 0, cinema seat 0; time below the
+wanted detail under 1%. It runs in bench/run_offline_tests.sh.
+
+Open (with work-c4): the per-screen stream transport (a second TCP stream or multiplexed packets with a screen id),
+the headset's decoder count budget (how many concurrent streams the Quest takes at what sizes), and the BUDGET share
+per stream.
