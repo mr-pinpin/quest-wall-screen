@@ -1,0 +1,31 @@
+#!/bin/bash
+# The benchmark suite (bench/suite.sh): cinema, VR, wall and moving-gaze scenarios at 10, 20 and 30 screens,
+# plus one with heavy internet load. Every run is guarded by stress.py itself: it starts only while the laptop
+# has been idle 10 min and nobody wears the headset, and aborts (cleaning up) when either is picked up.
+# Waits for an idle window (checks every 10 min, up to 10 h), then runs what is left; an aborted run is retried.
+cd "$(dirname "$0")/.."
+RUNS=(
+  "--scenario vr --n 10"
+  "--scenario cinema --n 10"
+  "--scenario wall --n 10"
+  "--scenario ring --n 10"
+  "--scenario cinema --n 20"
+  "--scenario wall --n 20"
+  "--scenario cinema --n 30"
+  "--scenario wall --n 30"
+  "--scenario cinema --n 10 --wan 3"
+)
+SECS=${SECS:-60}
+i=0
+for attempt in $(seq 1 60); do
+  while [ $i -lt ${#RUNS[@]} ]; do
+    out=$(timeout 600 python3 bench/stress.py ${RUNS[$i]} --secs $SECS 2>&1)
+    case "$out" in
+      *"not running"*|*"aborted"*) echo "$(date +%T) waiting: $(echo "$out" | tail -1)"; break;;
+      *) echo "=== ${RUNS[$i]}"; echo "$out" | grep -E '"(pass|mbps|p95|p99|longestSilenceS)"|warning' | head -12; i=$((i+1));;
+    esac
+  done
+  [ $i -ge ${#RUNS[@]} ] && { echo "suite done"; tail -12 bench/results/stress.md; exit 0; }
+  sleep 600
+done
+echo "suite incomplete: $i of ${#RUNS[@]} runs"; exit 1

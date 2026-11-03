@@ -126,6 +126,7 @@ def main():
     ap.add_argument('--sweep', type=float, default=3.0, help='seconds the virtual gaze stays on each screen')
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
     ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
+    ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'], help='stand-in demand pattern (see headset_sim.py)')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
     a = ap.parse_args()
@@ -181,7 +182,7 @@ def main():
         probe = (f"(ping -b en1 -i 0.2 -t {a.secs} 1.1.1.1 > /tmp/stress-wan.txt 2>&1 &);"
                  f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);")
         if sim:
-            probe += f"python3 - {LAPTOP_IP} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep}"
+            probe += f"python3 - {LAPTOP_IP} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
             stdin = (HERE / 'headset_sim.py').read_text()
         else:
             probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
@@ -226,7 +227,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset',
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario if sim else 'ring',
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
         'houseInternetMbps': {'down': round((w1[0] - w0[0]) * 8 / 1e6 / dt, 1), 'up': round((w1[1] - w0[1]) * 8 / 1e6 / dt, 1)},
@@ -241,11 +242,16 @@ def main():
     }
     if sim:
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
-        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
+        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
         r['series'] = s.get('perSecondMbps', [])
         checks['atlas within 40 Mbit/s'] = s.get('mbps') is not None and s['mbps'] <= 40
         checks['no atlas freeze over 5 s'] = s.get('longestSilenceS') is not None and s['longestSilenceS'] <= 5
-        checks['stream kept 30+ fresh frames/s (median)'] = (s.get('freshFps') or {}).get('p50', 0) >= 30
+        if a.scenario == 'vr':
+            checks['VR: atlas under 1 Mbit/s'] = s.get('mbps') is not None and s['mbps'] < 1
+            del checks['no atlas freeze over 5 s']  # nothing to show: silence is correct
+        else:
+            checks['stream kept 30+ fresh frames/s (median)'] = (s.get('freshFps') or {}).get('p50', 0) >= 30
+            checks['fresh-frame gap p99 < 50 ms'] = ((s.get('freshGapMs') or {}).get('p99') or 1e9) < 50
         fps_txt, mbps, lat_txt, gap = '-', s.get('mbps'), '-', s.get('longestSilenceS')
     else:
         samples, dec = [], json.JSONDecoder()
@@ -272,12 +278,12 @@ def main():
     r['checks'] = checks; r['pass'] = all(checks.values())
 
     out_dir = ROOT / 'bench' / 'results'; out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f'stress-{t0}-n{a.n}.json').write_text(json.dumps(r, indent=1))
+    (out_dir / f'stress-{t0}-{r["scenario"]}-n{a.n}.json').write_text(json.dumps(r, indent=1))
     md = out_dir / 'stress.md'
     if not md.exists():
         md.write_text('# Stress runs\n\n')
     with md.open('a') as f:
-        f.write(f"| {t0} | {r['mode']} | {a.n} | {a.wan} | {r['wanPingMs']['p50']}/{r['wanPingMs']['p95']} | {r['lanPingMs']['p50']}/{r['lanPingMs']['p95']} | "
+        f.write(f"| {t0} | {r['mode']}/{r['scenario']} | {a.n} | {a.wan} | {r['wanPingMs']['p50']}/{r['wanPingMs']['p95']} | {r['lanPingMs']['p50']}/{r['lanPingMs']['p95']} | "
                 f"{r['houseInternetMbps']['down']} | {fps_txt} | {mbps} | {gap} | {lat_txt} | {r['laptopWifiMbps']['tx']} | "
                 f"{len(crashes)} | {'yes' if r['pass'] else 'NO'} |\n")
     print(json.dumps({k: v for k, v in r.items() if k != 'series'}, indent=1))

@@ -16,7 +16,20 @@ import argparse, json, math, socket, struct, threading, time
 PX_PER_RAD = 1260.0
 
 
-def demand(n, sweep, t):
+def demand(n, sweep, t, scenario='ring'):
+    """Synthetic demand for screens 2..n+1.
+    ring:   screens on a ring, the gaze turning one screen every `sweep` s (adapting to head motion)
+    cinema: screen 2 fills the view (~3000 px across, full priority); its two neighbours peek in at the edge, the
+            rest are behind you (how most time is spent: watching or working on one big screen)
+    vr:     a full VR game: no screen visible at all; the atlas should cost almost nothing
+    wall:   every screen visible at once as a small tile (~500 px): the worst case for the atlas"""
+    if scenario == 'cinema':
+        return [{'id': 2, 'vis': 1, 'px': 3000, 'pri': 1.0}] + [
+            {'id': k + 2, 'vis': int(k in (1, n - 1)), 'px': 300 if k in (1, n - 1) else 0, 'pri': 0.1 if k in (1, n - 1) else 0.0} for k in range(1, n)]
+    if scenario == 'vr':
+        return [{'id': k + 2, 'vis': 0, 'px': 0, 'pri': 0.0} for k in range(n)]
+    if scenario == 'wall':
+        return [{'id': k + 2, 'vis': 1, 'px': 500, 'pri': 1.0 if k == 0 else 0.3} for k in range(n)]
     tau = 2 * math.pi
     gaze = math.fmod(t / (sweep * n), 1.0) * tau
     out = []
@@ -36,6 +49,7 @@ def main():
     ap.add_argument('host'); ap.add_argument('--port', type=int, default=57730); ap.add_argument('--demand-port', type=int, default=57731)
     ap.add_argument('--n', type=int, default=10); ap.add_argument('--secs', type=float, default=120); ap.add_argument('--sweep', type=float, default=3)
     ap.add_argument('--budget', type=int, default=60000)
+    ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'])
     a = ap.parse_args()
     t0 = time.time(); stop = threading.Event()
 
@@ -43,12 +57,13 @@ def main():
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while not stop.is_set():
             t = time.time() - t0
-            msg = {'t': int(t * 1000), 'budgetKbps': a.budget, 'screens': demand(a.n, a.sweep, t)}
+            msg = {'t': int(t * 1000), 'budgetKbps': a.budget, 'screens': demand(a.n, a.sweep, t, a.scenario)}
             u.sendto(json.dumps(msg, separators=(',', ':')).encode(), (a.host, a.demand_port))
             stop.wait(0.2)
     threading.Thread(target=send_demand, daemon=True).start()
 
     per_sec = {}  # second -> [bytes, fresh frames, repeats]
+    fresh_gaps = []; last_fresh = None
     keyframes = layouts = connects = 0; last_layout = None; sizes = set()
     last_rx = time.time(); longest_silence = 0.0; first_rx = None
     while time.time() - t0 < a.secs:
@@ -84,7 +99,10 @@ def main():
                         continue
                     if f & 1: keyframes += 1
                     if f & 2: row[2] += 1
-                    else: row[1] += 1
+                    else:
+                        row[1] += 1
+                        if last_fresh is not None: fresh_gaps.append(now - last_fresh)
+                        last_fresh = now
                     if len(pkt) >= 13: sizes.add(struct.unpack('>HH', pkt[9:13]))
         finally:
             s.close()
@@ -98,6 +116,9 @@ def main():
         'mbps': round(sum(mbps) / len(mbps), 1) if mbps else 0, 'mbpsMax': round(max(mbps), 1) if mbps else 0,
         'freshFps': {'p5': fresh[len(fresh) // 20] if fresh else 0, 'p50': fresh[len(fresh) // 2] if fresh else 0},
         'longestSilenceS': round(longest_silence, 2), 'emptySeconds': len(gaps),
+        'freshGapMs': {'p50': round(sorted(fresh_gaps)[len(fresh_gaps) // 2] * 1000, 1) if fresh_gaps else None,
+                       'p99': round(sorted(fresh_gaps)[int(len(fresh_gaps) * 0.99)] * 1000, 1) if fresh_gaps else None,
+                       'max': round(max(fresh_gaps) * 1000, 1) if fresh_gaps else None},
         'keyframes': keyframes, 'layouts': layouts, 'lastLayout': last_layout,
         'sizes': sorted(sizes)[-4:], 'perSecondMbps': [round(x, 1) for x in mbps],
     }))
