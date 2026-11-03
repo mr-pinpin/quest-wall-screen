@@ -10,8 +10,11 @@ Nobody has to wear anything, and the test never runs while someone is using the 
   - The default mode uses a stand-in headset (bench/stress/headset_sim.py on the Mini). It receives the atlas
     stream and sends the same demand as the Quest's stress mode, from a separate test copy of the sender on
     ports 57730/57731 (bench/stress/start-atlas-test.command). So the live sender and the headset are untouched.
-  - --headset uses the Quest itself (files/stress.json → room_lab.cpp stressDemand) and the live sender, for
-    headset-only numbers (fps, decode latency).
+  - --headset uses the Quest itself, unworn, for headset-only numbers (fps, decode latency). It simulates wear
+    (prox_close; the Quest then renders exactly as when worn), starts the app if needed and puts it in stress mode
+    (files/stress.json → room_lab.cpp stressDemand) on the live sender. Afterwards it restores everything and hands
+    the headset back to its real proximity sensor. While wear is simulated, the sensor can't be read, so a 2-minute
+    --headset run can't notice someone putting it on midway.
 
 Steps:
   1. Create the missing laptop displays 2..N+1 (pinpin-displays :57710, 1920x1200 at 1x) and fill them with
@@ -64,8 +67,16 @@ def headset_status():
 
 
 def headset_worn():
-    s = headset_status()
-    return bool(s) and s.get('state', 0) >= 4
+    # The real proximity sensor: drop any virtual "worn" override (prox_close) and read the power state. The app's
+    # own state can't tell, because a simulated wear makes it VISIBLE/FOCUSED too.
+    out = headset('am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null; sleep 1; '
+                  'dumpsys vrpowermanager | grep -m1 "^State:"')
+    return 'HEADSET_MOUNTED' in out
+
+
+def simulate_wear(on):
+    # Unworn, with prox_close the Quest renders exactly as when worn (measured: state 5, 72 fps, no throttling).
+    headset('am broadcast -a com.oculus.vrpowermanager.' + ('prox_close' if on else 'automation_disable') + ' >/dev/null')
 
 
 def pct(xs, p):
@@ -115,7 +126,7 @@ def main():
     ap.add_argument('--sweep', type=float, default=3.0, help='seconds the virtual gaze stays on each screen')
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
     ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
-    ap.add_argument('--headset', action='store_true', help='use the real Quest (unworn) instead of the stand-in')
+    ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
     a = ap.parse_args()
     sim = not a.headset
@@ -144,7 +155,7 @@ def main():
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
     log0 = '' if sim else air(f'cat {log_path}')
-    aborted = ''; st0 = time.time(); proc = None
+    aborted = ''; st0 = time.time(); proc = None; app_was_running = True
     try:
         # 2. demand source
         if sim:
@@ -153,6 +164,11 @@ def main():
                 'open -g -a Terminal ~/.local/share/pinpin-stress/start-atlas-test.command',
                 stdin=(HERE / 'start-atlas-test.command').read_text())
         else:
+            # Nobody is wearing it (checked above): simulate wear, start the app if needed, put it in stress mode.
+            app_was_running = bool(headset(f'pidof {PKG}').strip())
+            simulate_wear(True)
+            if not app_was_running:
+                headset(f'input keyevent KEYCODE_WAKEUP; am start -n {PKG}/.MainActivity --ez capture false >/dev/null'); time.sleep(8)
             spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep}).encode()).decode()
             headset(f"run-as {PKG} sh -c 'echo {spec} | base64 -d > files/stress.json'")
         time.sleep(6)  # sender start, demand and resize settle
@@ -192,7 +208,10 @@ def main():
         # 4. teardown
         if proc and proc.poll() is None: proc.kill()
         if sim: air('pkill -x pinpin-atlas-test || true')
-        else: headset(f'run-as {PKG} rm -f files/stress.json')
+        else:
+            headset(f'run-as {PKG} rm -f files/stress.json')
+            if not app_was_running: headset(f'am force-stop {PKG}')
+            simulate_wear(False)  # back to the real sensor: an unworn headset goes to sleep as usual
         if a.wan: air("pkill -f 'speed.cloudflare.com/__down' || true")
         if pattern: air('pkill -f stresspattern || true')
         if not a.keep:
