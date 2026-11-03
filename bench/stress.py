@@ -263,8 +263,8 @@ def main():
     ap.add_argument('--sim-on', choices=['mini', 'air'], default='mini',
                     help='where the stand-in headset runs: mini (over the house Wi-Fi, default) or air (on the laptop itself, '
                          'receiving from 127.0.0.1: no Wi-Fi in the path; the control that separates sender from network)')
-    ap.add_argument('--source', choices=['sck', 'synth'], default='sck',
-                    help='sck: macOS screen source (virtual displays + ScreenCaptureKit); synth: the sender renders the screens itself (pipeline benchmark)')
+    ap.add_argument('--source', choices=['sck', 'synth'], default=None,
+                    help='synth (default for stand-in runs: the pipeline benchmark, the sender renders the screens itself) or sck (the macOS screen source: virtual displays + ScreenCaptureKit; default for --headset runs)')
     ap.add_argument('--cover-idle', action='store_true', help='cover the non-animated test screens with a static window (hides the aerial wallpaper)')
     ap.add_argument('--static', type=int, default=0, help='leave the last K created screens without the moving pattern (still desktops)')
     ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
@@ -280,6 +280,7 @@ def main():
     if a.n > 20 and not a.allow_over_20:
         sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
     sim = not a.headset
+    if a.source is None: a.source = 'synth' if sim else 'sck'  # 2026-11-03: synth is the pipeline default (work-09 deployed it)
     test_plugin = dict(TEST_PLUGIN, args=TEST_PLUGIN['args'] + (['--flags', a.flags] if a.flags else []))
     why = busy(a.force, sim)
     if why: sys.exit(f'stress: not running, {why}')
