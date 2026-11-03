@@ -150,6 +150,7 @@ final class Atlas {
     // x1.2 per calm second back to 1.
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
     var statAt = Date()  // refresh: last capture statistics line
+    var lastVT = false   // refresh: the previous layout was vt
     var fullRateDirty = false, lastEncodeAt = Date.distantPast  // prifps: a full-rate screen changed (under lock); work queue
     var gameOn = false, ticks = 0, yieldN = 2, yieldAt = Date()  // gameyield: demand "game" (dlock); tick state (work queue)
     var encEwma = 0.0  // under elock: smoothed encode ms, the contention signal for gameyield
@@ -180,6 +181,12 @@ final class Atlas {
         while bottom > top && memcmp(pa + bottom * sa, pb + bottom * sb, n) == 0 { bottom -= 1 }
         return top..<(bottom + 1)
     }
+    // damage: a frame's changed rows as rows of the tile starting at frame row `sy`, `h` rows tall; nil if none.
+    static func tileRows(_ rows: Range<Int>?, sy: Int, h: Int) -> Range<Int>? {
+        guard let r = rows else { return h > 0 ? 0..<h : nil }
+        let lo = max(0, r.lowerBound - sy), hi = min(h, r.upperBound - sy)
+        return lo < hi ? lo..<hi : nil
+    }
     // Copies one captured frame (its sx, sy part) into a cell; caller holds `lock`.
     func blit(_ pb: CVPixelBuffer, _ cell: Cell, rows: Range<Int>? = nil) {
         CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
@@ -188,9 +195,9 @@ final class Atlas {
         if cell.fw > 0 && (pw != cell.fw || ph != cell.fh) { return }  // a tile needs its exact frame size (mid-resize)
         let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, pw - cell.sx), h = min(cell.h, ph - cell.sy)
         guard w > 0, h > 0, cell.x >= 0, cell.y >= 0, cell.x + w <= W, cell.y + h <= H else { return }  // a stale cell from before a relayout
-        // damage: only the frame rows that changed (frame row = cell.sy + y)
-        let ys = rows.map { max(0, $0.lowerBound - cell.sy)..<min(h, $0.upperBound - cell.sy) } ?? 0..<h
-        if ys.isEmpty { return }  // this tile's part of the frame did not change
+        // damage: only the frame rows that changed (frame row = cell.sy + y); none in this tile: nothing to copy.
+        // (Clamp before building the Range: rows entirely above or below a tile made lower > upper, a trap.)
+        guard let ys = Atlas.tileRows(rows, sy: cell.sy, h: h) else { return }
         pixels.withUnsafeMutableBufferPointer { dst in
             for y in ys { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + (cell.sy + y) * stride + cell.sx * 4, w * 4) }
         }
@@ -249,7 +256,7 @@ final class Atlas {
         dlock.withLock {
             if now.timeIntervalSince(wantAt) > 10 { log("demand from headset") }
             let stale = now.timeIntervalSince(wantAt) > 2
-            if vt != wantV2 { tier = [:]; tierWant = [:] }  // v1 <-> v2 (VT toggled on the headset): sizes start over
+            if vt != wantV2 { tier = [:]; tierWant = [:]; wake = true }  // v1 <-> v2 (VT toggled on the headset): sizes start over, now
             for (id, w) in next where id != 1 {
                 if w.vis && !stale && !(want[id]?.vis ?? true) { reveal.append(id) }
                 if w.vis { hiddenAt[id] = nil } else if hiddenAt[id] == nil { hiddenAt[id] = now }
@@ -492,7 +499,9 @@ final class Atlas {
         if vt { key += "|vt|" + list.map { e in "\(e.screen)\(live.contains(e.display) ? "" : "t")@\(Int((pri[e.screen] ?? 1) * 20))" }.joined(separator: ",") }
         if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
         let hiddenNow: Set<Int> = vt ? dlock.withLock { Set(want.filter { !$0.value.vis }.keys) } : []
-        let currentW = Dictionary(captures.values.map { ($0.screen, $0.cells[0].frameW) }, uniquingKeysWith: { a, _ in a })
+        // On the first v2 layout after v1, the captures' sizes are v1's: hidden screens start as tails instead.
+        let currentW = vt && !lastVT ? [:] : Dictionary(captures.values.map { ($0.screen, $0.cells[0].frameW) }, uniquingKeysWith: { a, _ in a })
+        lastVT = vt
         let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri, cap: capped, hidden: hiddenNow, current: currentW) : layout(list, tiers, cap: capped)
         let resized = w != W || h != H
         let cj = cells.map { c -> String in
