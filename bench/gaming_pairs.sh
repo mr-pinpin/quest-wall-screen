@@ -9,6 +9,12 @@ cd "$(dirname "$0")/.."
 SECS=${SECS:-120}
 if [ "$1" = run ]; then
   shift
+  # Reordering a hold that is already running: /tmp/pinpin-run-swap holds two lines A and B; a run called with A
+  # runs B instead and vice versa (each run re-reads this script).
+  if [ -f /tmp/pinpin-run-swap ]; then
+    A=$(sed -n 1p /tmp/pinpin-run-swap); B=$(sed -n 2p /tmp/pinpin-run-swap)
+    if [ "$*" = "$A" ]; then set -- $B; elif [ "$*" = "$B" ]; then set -- $A; fi
+  fi
   # A yield for another agent's slot: while /tmp/pinpin-yield-until holds a future epoch, wait (the hold keeps going).
   while [ -f /tmp/pinpin-yield-until ] && [ "$(date +%s)" -lt "$(cat /tmp/pinpin-yield-until)" ]; do sleep 10; done
   for attempt in $(seq 1 80); do  # another agent may hold the bench lock: wait for it (up to 20 min)
