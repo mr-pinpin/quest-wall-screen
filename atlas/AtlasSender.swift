@@ -29,6 +29,11 @@ struct Options {
     //          With the Air's display asleep, WindowServer stops driving the virtual displays and they drop out of
     //          ScreenCaptureKit ("display not found", 0 fps; work-c4, 2026-11-03 14:37).
     //   capfast  capture interval half a refresh (1/120 s at 60 fps) so frames landing a hair early aren't skipped
+    //   nodelay  TCP_NODELAY on the headset connections (Nagle held each frame's last partial segment for an ACK)
+    //   pend1  encode only when nothing is still in flight to any peer (default: up to 1 frame queued behind the one
+    //          sending), so the next frame always carries the newest content and stale frames never queue
+    //   pace   send each frame in 16 KB chunks spread at 1.5x the stream's bitrate, instead of one burst, through one
+    //          ordered queue per peer (bursts on a contended Wi-Fi channel cost retries and head-of-line delay)
     //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
@@ -75,7 +80,11 @@ private let compressionOutput: VTCompressionOutputCallback = { context, refcon, 
     Unmanaged<Atlas>.fromOpaque(context).takeUnretainedValue().encoded(sample, repeated: refcon != nil)
 }
 
-final class Peer { let c: NWConnection; var pending = 0; var needsKey = true; init(_ c: NWConnection) { self.c = c } }
+final class Peer {
+    let c: NWConnection; var pending = 0; var needsKey = true
+    var chunks: [(data: Data, last: Bool)] = [], pumping = false  // pace: this peer's ordered send queue (net queue)
+    init(_ c: NWConnection) { self.c = c }
+}
 
 /// Captures one display into its cells of the atlas buffer (one cell, or several tiles under vt). A capture lives as
 /// long as its display stays put: layout changes only move its cells (`cells`, guarded by atlas.lock) and resize its
@@ -318,6 +327,7 @@ final class Atlas {
         if appliedKbps == 0 || (force && kbps != appliedKbps) || abs(kbps - appliedKbps) * 100 > appliedKbps * 15 {
             appliedKbps = kbps
             VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (kbps * 1000) as CFNumber)
+            let bps = Double(kbps) * 1000 * 1.5; net.async { self.paceBps = max(4_000_000, bps) }
             log("bitrate \(kbps) kbps" + (bpScale < 1 ? String(format: " (backpressure x%.2f)", bpScale) : ""))
         }
     }
@@ -749,7 +759,8 @@ final class Atlas {
     // ---- network (MacScreenSender's peer logic: drop to the next keyframe when a peer falls behind)
     func listen() {
         do {
-            let l = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: o.port)!)
+            let tcp = NWProtocolTCP.Options(); tcp.noDelay = o.flags.contains("nodelay")
+            let l = try NWListener(using: NWParameters(tls: nil, tcp: tcp), on: NWEndpoint.Port(rawValue: o.port)!)
             l.newConnectionHandler = { [weak self] c in self?.accept(c) }
             // A busy port only shows up here, asynchronously: exit so a supervisor never keeps a deaf second copy.
             l.stateUpdateHandler = { if case .failed(let e) = $0 { log("listen failed: \(e)"); exit(1) } }
@@ -788,7 +799,24 @@ final class Atlas {
         log("headset connected"); updateWake()
     }
     // On the net queue: whether any peer still has 2+ frames queued in its socket. Read by tick() under dlock.
-    func updateBusy() { let b = peers.values.contains { $0.pending >= 2 && !$0.needsKey }; dlock.withLock { busy = b } }
+    func updateBusy() {
+        let limit = o.flags.contains("pend1") ? 1 : 2
+        let b = peers.values.contains { $0.pending >= limit && !$0.needsKey }; dlock.withLock { busy = b }
+    }
+    // pace: the send rate in bits/s (1.5x the applied bitrate; set from applyBudget), and the chunk pump (net queue).
+    var paceBps = 60_000_000.0
+    func pump(_ peer: Peer) {
+        guard !peer.pumping, !peer.chunks.isEmpty else { return }
+        let (chunk, last) = peer.chunks.removeFirst(); peer.pumping = true
+        let gap = Double(chunk.count * 8) / paceBps, sentAt = DispatchTime.now()
+        peer.c.send(content: chunk, completion: .contentProcessed { [weak self] e in
+            guard let self = self else { return }
+            if last { peer.pending = max(0, peer.pending - 1); self.updateBusy() }
+            if e != nil { peer.c.cancel(); peer.chunks.removeAll(); peer.pumping = false; return }
+            // the next chunk no sooner than this one's share of the pace rate after it was handed over
+            self.net.asyncAfter(deadline: sentAt + gap) { peer.pumping = false; self.pump(peer) }
+        })
+    }
     func broadcast(_ packet: Data, key: Bool, meta: Bool) {
         net.async {
             var framed = Data(); var n = UInt32(packet.count).bigEndian; Swift.withUnsafeBytes(of: &n) { framed.append(contentsOf: $0) }; framed.append(packet)
@@ -801,6 +829,15 @@ final class Atlas {
                     if key { peer.needsKey = false }
                 }
                 peer.pending += 1
+                if self.o.flags.contains("pace") {
+                    var off = 0
+                    while off < framed.count {
+                        let end = min(framed.count, off + 16_384)
+                        peer.chunks.append((framed.subdata(in: off..<end), end == framed.count)); off = end
+                    }
+                    self.pump(peer)
+                    continue
+                }
                 peer.c.send(content: framed, completion: .contentProcessed { e in
                     peer.pending = max(0, peer.pending - 1); if e != nil { peer.c.cancel() }
                     self.updateBusy()
