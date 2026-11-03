@@ -17,7 +17,7 @@ for f in sorted(glob.glob(str(pathlib.Path(__file__).resolve().parent / "results
     try:
         fps = float(val("fps").split()[0]); p99 = float(val("frame latency p99").split()[0]); st = int(val("no stall").split()[0])
     except (ValueError, IndexError): continue
-    net = (r.get("network") or {}).get("label", "ch36 (no epoch recorded)")
+    net = (r.get("network") or {}).get("laptopChannel") or "36 (5GHz, assumed: not recorded)"
     arms.setdefault(f"{net} | {r.get('scenario')}", []).append((fps, p99, st, stamp))
 for arm, xs in arms.items():
     med = lambda i: statistics.median(x[i] for x in xs)

@@ -235,7 +235,9 @@ def network_epoch():
             p = l.split()
             if len(p) > 3 and p[1] in NET_AGENTS and 'END' in p[3]: ends.append(p[0])
     except OSError: pass
-    return {'epoch': len(ends), 'since': ends[-1] if ends else None, 'label': 'ch36' if not ends else f'after work-42 change {len(ends)} ({ends[-1]})'}
+    # Informational only: verdicts and summaries use the live laptopChannel, since a change can be rolled back
+    # (2026-11-03 17:55: ch157 was tried and reverted to ch36).
+    return {'networkChanges': len(ends), 'lastChange': ends[-1] if ends else None}
 
 
 def network_change(now=None):
