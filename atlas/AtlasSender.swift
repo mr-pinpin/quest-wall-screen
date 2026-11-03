@@ -16,7 +16,7 @@ import VideoToolbox
 func log(_ s: String) { FileHandle.standardError.write(("pinpin-atlas: " + s + "\n").data(using: .utf8)!) }
 
 struct Options {
-    var port: UInt16 = 57720, fps = 60, bitrate = 40_000_000, cellW = 1920, cellH = 1200, maxW = 3840, maxH = 2160
+    var port: UInt16 = 57720, demandPort: UInt16 = 57721, fps = 60, bitrate = 40_000_000, cellW = 1920, cellH = 1200, maxW = 3840, maxH = 2160
     var url = "http://127.0.0.1:57710/displays", test = ""
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -24,6 +24,7 @@ struct Options {
             guard let v = it.next() else { break }
             switch a {
             case "--port": port = UInt16(v) ?? port
+            case "--demand-port": demandPort = UInt16(v) ?? demandPort
             case "--fps": fps = Int(v) ?? fps
             case "--bitrate": bitrate = Int(v) ?? bitrate
             case "--cell": let p = v.split(separator: "x").compactMap { Int($0) }; if p.count == 2 { cellW = p[0]; cellH = p[1] }
@@ -52,7 +53,7 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
         let c = SCStreamConfiguration()
         c.width = cell.w; c.height = cell.h; c.pixelFormat = kCVPixelFormatType_32BGRA; c.showsCursor = true
-        c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps)); c.queueDepth = 3
+        c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps)); c.queueDepth = 5
         let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: c, delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture(); stream = s
@@ -61,15 +62,9 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) { log("screen \(cell.entry.screen) capture stopped: \(error.localizedDescription)"); atlas?.layoutKey = "" }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
-        CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self) else { return }
-        let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, CVPixelBufferGetWidth(pb)), h = min(cell.h, CVPixelBufferGetHeight(pb))
+        let seen = a.visible(cell.entry.screen)
         a.lock.lock(); defer { a.lock.unlock() }
-        guard a.pixels.count == a.W * a.H * 4 else { return }
-        a.pixels.withUnsafeMutableBufferPointer { dst in
-            for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * a.W + cell.x) * 4, base + y * stride, w * 4) }
-        }
-        a.dirty = true
+        if seen { a.stash[cell.entry.screen] = nil; a.blit(pb, cell) } else { a.stash[cell.entry.screen] = pb }
     }
 }
 
@@ -83,8 +78,92 @@ final class Atlas {
     var peers: [UUID: Peer] = [:]
     var forceKey = true, codecBytes: [UInt8] = [0x64, 0, 0x33], frame: Int64 = 0, flushes = 0
     var lastBuffer: CVPixelBuffer?
+    var stash: [Int: CVPixelBuffer] = [:]  // under lock: the latest frame of each screen the headset can't see
+
+    // ---- demand from the headset (docs/PERFORMANCE.md): UDP datagrams at 5 Hz,
+    // {"budgetKbps":60000,"screens":[{"id":1,"vis":1,"px":1400,"pri":1.0},...]}; id 1 is the main panel.
+    // Unseen screens cost nothing (their frames wait in `stash`), the bitrate is the extras' share of the budget
+    // by priority, and each cell shrinks to the smallest width tier covering its px. Stale demand (> 2 s, e.g. no
+    // headset) means: everything visible, full size, full bitrate.
+    struct Want { var vis = true, px = 1920, pri = 1.0 }
+    let dlock = NSLock()
+    var want: [Int: Want] = [:], wantAt = Date.distantPast, budgetKbps = 0, appliedKbps = 0
+    var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
+    static let tiers = [480, 640, 960, 1280, 1920]
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
     init(_ o: Options) { self.o = o }
+
+    // Copies one captured frame into its cell; caller holds `lock`.
+    func blit(_ pb: CVPixelBuffer, _ cell: Cell) {
+        CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self), pixels.count == W * H * 4 else { return }
+        let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, CVPixelBufferGetWidth(pb)), h = min(cell.h, CVPixelBufferGetHeight(pb))
+        pixels.withUnsafeMutableBufferPointer { dst in
+            for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + y * stride, w * 4) }
+        }
+        dirty = true
+    }
+    func visible(_ screen: Int) -> Bool {
+        dlock.lock(); defer { dlock.unlock() }
+        return Date().timeIntervalSince(wantAt) > 2 || (want[screen]?.vis ?? true)
+    }
+    func listenDemand() {
+        do {
+            let l = try NWListener(using: .udp, on: NWEndpoint.Port(rawValue: o.demandPort)!)
+            l.newConnectionHandler = { [weak self] c in guard let self = self else { return }; c.start(queue: self.net); self.receive(c) }
+            l.start(queue: net); log("demand on udp \(o.demandPort)")
+        } catch { log("demand listen failed: \(error)") }
+    }
+    func receive(_ c: NWConnection) {
+        c.receiveMessage { [weak self] data, _, _, error in
+            if let d = data { self?.demand(d) }
+            if error == nil { self?.receive(c) }
+        }
+    }
+    func demand(_ data: Data) {
+        guard let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let list = j["screens"] as? [[String: Any]] else { return }
+        func num(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+        var next: [Int: Want] = [:]
+        for e in list {
+            guard let id = num(e["id"]) else { continue }
+            next[Int(id)] = Want(vis: (num(e["vis"]) ?? 1) != 0, px: Int(num(e["px"]) ?? 1920), pri: num(e["pri"]) ?? 1)
+        }
+        let now = Date(); var reveal: [Int] = []
+        dlock.withLock {
+            if now.timeIntervalSince(wantAt) > 10 { log("demand from headset") }
+            let stale = now.timeIntervalSince(wantAt) > 2
+            for (id, w) in next where id != 1 {
+                if w.vis && !stale && !(want[id]?.vis ?? true) { reveal.append(id) }
+                guard w.vis else { continue }  // unseen screens keep their size
+                let t = Atlas.tiers.first(where: { $0 >= w.px }) ?? o.cellW, cur = tier[id] ?? o.cellW
+                if min(t, o.cellW) == cur { tierWant[id] = nil } else if tierWant[id]?.w != min(t, o.cellW) { tierWant[id] = (min(t, o.cellW), now) }
+            }
+            want = next; wantAt = now; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
+        }
+        if !reveal.isEmpty {
+            lock.withLock {
+                for id in reveal { if let pb = stash.removeValue(forKey: id), let c = cells.first(where: { $0.entry.screen == id }) { blit(pb, c) } }
+            }
+        }
+        work.async { self.applyBudget() }
+    }
+    // The extras' share of the headset's budget, by gaze priority; on the work queue.
+    func applyBudget() {
+        guard let e = encoder else { return }
+        var kbps = o.bitrate / 1000
+        dlock.withLock {
+            guard budgetKbps > 0, Date().timeIntervalSince(wantAt) <= 2 else { return }
+            let all = want.values.reduce(0.0) { $0 + ($1.vis ? $1.pri : 0) }
+            let extras = want.reduce(0.0) { $0 + ($1.key != 1 && $1.value.vis ? $1.value.pri : 0) }
+            kbps = all > 0 ? Int(Double(budgetKbps) * extras / all) : 0
+        }
+        kbps = min(o.bitrate / 1000, max(4000, kbps))
+        if appliedKbps == 0 || abs(kbps - appliedKbps) * 100 > appliedKbps * 15 {
+            appliedKbps = kbps
+            VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (kbps * 1000) as CFNumber)
+            log("bitrate \(kbps) kbps")
+        }
+    }
 
     // ---- display list
     func entries() -> [Entry] {
@@ -105,10 +184,11 @@ final class Atlas {
     }
 
     // Row packing: each display fits a cellW x cellH box keeping its aspect; rows wrap at maxW.
-    func layout(_ list: [Entry]) -> (Int, Int, [Cell]) {
+    func layout(_ list: [Entry], _ tiers: [Int: Int]) -> (Int, Int, [Cell]) {
         var cells: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0
         for e in list {
-            let s = min(Double(o.cellW) / Double(e.w), Double(o.cellH) / Double(e.h), 1.0)
+            let cw = tiers[e.screen] ?? o.cellW, ch = cw * o.cellH / o.cellW
+            let s = min(Double(cw) / Double(e.w), Double(ch) / Double(e.h), 1.0)
             let w = max(16, Int(Double(e.w) * s) / 2 * 2), h = max(16, Int(Double(e.h) * s) / 2 * 2)
             if x + w > o.maxW { x = 0; y += rowH; rowH = 0 }
             if y + h > o.maxH { log("atlas full: screen \(e.screen) skipped"); continue }
@@ -119,14 +199,21 @@ final class Atlas {
 
     func refresh() async {
         let list = entries()
+        // Size tiers settle before they apply (growing after 2 s, shrinking after 5 s): each change costs a keyframe.
+        let now = Date()
+        let tiers: [Int: Int] = dlock.withLock {
+            if now.timeIntervalSince(wantAt) > 2 { tier = [:]; tierWant = [:] }  // no headset: back to full size
+            for (id, t) in tierWant where now.timeIntervalSince(t.since) > (t.w > (tier[id] ?? o.cellW) ? 2 : 5) { tier[id] = t.w; tierWant[id] = nil }
+            return tier
+        }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
         // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
-        let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))" }.joined(separator: ",")
+        let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
         if key == layoutKey { return }
         layoutKey = key
         for c in captures { c.stop() }; captures = []
-        let (w, h, cells) = layout(list)
-        lock.withLock { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4); self.cells = cells; dirty = true }
+        let (w, h, cells) = layout(list, tiers)
+        lock.withLock { stash = [:]; W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4); self.cells = cells; dirty = true }
         let cj = cells.map { "{\"screen\":\($0.entry.screen),\"x\":\($0.x),\"y\":\($0.y),\"w\":\($0.w),\"h\":\($0.h)}" }.joined(separator: ",")
         layoutJSON = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
         work.sync { lastBuffer = nil; makeEncoder() }
@@ -143,6 +230,7 @@ final class Atlas {
     // ---- encoding
     func makeEncoder() {
         if let e = encoder { VTCompressionSessionInvalidate(e); encoder = nil }
+        appliedKbps = 0
         guard !cells.isEmpty else { return }
         var s: VTCompressionSession?
         let spec: [CFString: Any] = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
@@ -259,6 +347,7 @@ final class Atlas {
 
 let atlas = Atlas(Options())
 atlas.listen()
+atlas.listenDemand()
 Task { while true { await atlas.refresh(); try? await Task.sleep(nanoseconds: 2_000_000_000) } }
 let timer = DispatchSource.makeTimerSource(queue: atlas.work)
 timer.schedule(deadline: .now(), repeating: .milliseconds(1000 / atlas.o.fps))

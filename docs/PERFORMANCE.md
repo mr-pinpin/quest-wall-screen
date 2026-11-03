@@ -70,6 +70,29 @@ Five times a second the headset sends one UDP datagram to the laptop, port 57721
 Sender side (owner: the video/encoder session): stop or throttle unseen screens, scale each cell to `px`,
 split the budget by `pri`, encode changed tiles only.
 
+### Sender side (pinpin-atlas, extra screens)
+
+What `atlas/AtlasSender.swift` does with the demand datagrams (UDP :57721):
+
+- **Unseen screens cost nothing.** A screen with `vis: 0` keeps capturing, but its frames go to a one-frame
+  stash instead of the atlas, so its cell stays still and encodes as skipped blocks. When it becomes visible,
+  the stashed frame is copied in immediately, so the user never sees an old picture.
+- **Bitrate follows gaze.** The atlas encoder gets `budgetKbps × Σpri(visible extras) / Σpri(all visible)`,
+  4–40 Mbps. It is retuned live (no keyframe) whenever the share moves by more than 15 %.
+- **Resolution follows distance.** Each cell's width is the smallest tier in 480/640/960/1280/1920 covering
+  its `px`. A new tier must hold for 2 s (growing) or 5 s (shrinking) before it applies, since each layout
+  change costs one keyframe and a capture restart. Unseen screens keep their size. Smaller cells also let
+  more screens fit the 3840×2160 atlas: ten screens at 960 px fit where only two at 1920 did.
+- **Still screens are nearly free.** The sender encodes only on change, plus three flush repeats (hardware
+  decoders release a frame when the next arrives) and a 1/s heartbeat. Repeats carry header bit 1, so the
+  headset's latency figure leaves them out. Within a changed frame, H.264 skip-codes unchanged macroblocks.
+  That is the "changed tiles only" behaviour, without a separate tile protocol.
+- **Fail-safe.** Demand older than 2 s (no headset, lost packets) means everything visible, full size, full
+  bitrate: the behaviour before demand existed.
+
+Still open: the main panel (Sunshine, id 1) ignores the budget; per-screen frame-rate caps for low-`pri`
+screens; congestion control from measured delay rather than a fixed budget.
+
 ### Stress test (to build)
 
 A test mode that summons N screens (target 10) showing a moving test pattern plus a static desktop, and
