@@ -24,5 +24,6 @@ for r in "${BASE[@]}" "${PAIRS[@]}"; do
   res=$(echo "$out" | sed -n "s/^stress: result //p" | tail -1)
   echo "=== $r -> ${res:-no result}"; echo "$out" | grep -E "not running|aborted" | tail -1
   [ -n "$res" ] && python3 bench/gate.py "$res" | head -1
+  sleep ${YIELD:-60}   # leave the lock free a moment so another agent's queued slot (profiling) can take it
 done
 echo "rebaseline ($1) done"
