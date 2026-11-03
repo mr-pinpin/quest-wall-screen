@@ -1206,13 +1206,37 @@ void main(){
         d.pri = !d.vis ? 0.0f : off < 0.21f ? 1.0f : std::fmax(0.1f, 1.0f - (off - 0.21f) / 0.75f);
         return d;
     }
+    // Stress test (bench/stress.py): files/stress.json {"n":10,"sweep":3} replaces the extras' demand with N
+    // synthetic screens 2..N+1 on a ring around the user, at 1.5/2.5/3.5 m, while a virtual gaze turns one
+    // screen every `sweep` seconds. Exercises the sender's stash/resize/bitrate paths with nobody wearing it.
+    int stressN = 0; float stressSweep = 3; std::chrono::steady_clock::time_point stressCheck{};
+    void pollStress() {
+        auto t = std::chrono::steady_clock::now();
+        if (t - stressCheck < std::chrono::seconds(2)) return;
+        stressCheck = t;
+        std::ifstream f(gDir + "/stress.json"); int n = 0;
+        if (f) { std::string j((std::istreambuf_iterator<char>(f)), {}); n = atoi(SharpLayer::field(j, "n").c_str());
+                 float sw = atof(SharpLayer::field(j, "sweep").c_str()); if (sw > 0.2f) stressSweep = sw; }
+        n = std::max(0, std::min(n, 16));
+        if (n != stressN) { stressN = n; event("stress: " + std::to_string(n) + " synthetic screens"); }
+    }
+    Demand stressDemand(int k) {
+        const float tau = 6.2831853f;
+        float gaze = std::fmod(now() / (stressSweep * stressN), 1.0) * tau, at = tau * k / stressN;
+        float off = std::fabs(std::remainder(at - gaze, tau)), dist = 1.5f + (k % 3), half = std::atan(0.7f / dist);
+        Demand d{k + 2, off - half < 0.95f, (int)(2 * half * kPxPerRad), 0};
+        d.pri = !d.vis ? 0.0f : off < 0.21f ? 1.0f : std::fmax(0.1f, 1.0f - (off - 0.21f) / 0.75f);
+        return d;
+    }
     void sendDemand() {
         auto t = std::chrono::steady_clock::now();
         if (t - demandAt < std::chrono::milliseconds(200)) return;
         demandAt = t;
+        pollStress();
         std::vector<Demand> ds;
         ds.push_back(demandFor(1, placed, placed.active ? wallById(placed.wall) : nullptr));
-        for (auto& sc : extras) ds.push_back(demandFor(sc.id, sc.p, wallById(sc.p.wall)));
+        if (stressN > 0) for (int k = 0; k < stressN; k++) ds.push_back(stressDemand(k));
+        else for (auto& sc : extras) ds.push_back(demandFor(sc.id, sc.p, wallById(sc.p.wall)));
         std::string j = "{\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
         for (size_t i = 0; i < ds.size(); i++) {
             char b[96]; snprintf(b, sizeof b, "%s{\"id\":%d,\"vis\":%d,\"px\":%d,\"pri\":%.2f}", i ? "," : "", ds[i].id, ds[i].vis ? 1 : 0, ds[i].px, ds[i].pri);
@@ -1987,7 +2011,7 @@ void main(){
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
-        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
+        j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";

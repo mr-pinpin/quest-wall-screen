@@ -1,0 +1,53 @@
+{
+ "when": "20261103-082043",
+ "n": 4,
+ "secs": 30,
+ "wan": 0,
+ "headset": true,
+ "wanPingMs": {
+  "p50": 18.0,
+  "p95": 82.8,
+  "p99": 229.6,
+  "max": 349.921,
+  "count": 146
+ },
+ "lanPingMs": {
+  "p50": 47.3,
+  "p95": 138.5,
+  "p99": 189.4,
+  "count": 145
+ },
+ "headsetFps": {
+  "min": 72,
+  "mean": 72,
+  "samples": 13
+ },
+ "atlas": {
+  "mbps": 0.0,
+  "latencyP50": 25.3,
+  "latencyP99": 25.3,
+  "dropped": 0,
+  "size": [
+   3456,
+   2160
+  ],
+  "state": "decoding"
+ },
+ "laptopWifiMbps": {
+  "tx": 0.1,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [],
+  "layouts": 4,
+  "lastLayout": "{\"atlas\":[3840,1200],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":1920,\"h\":1200},{\"screen\":3,\"x\":1920,\"y\":0,\"w\":1920,\"h\":1200}]}",
+  "skipped": []
+ },
+ "checks": {
+  "internet ping p95 < 50 ms": false,
+  "headset >= 70 fps": true,
+  "atlas within 40 Mbit/s": true,
+  "no screen skipped": true
+ },
+ "pass": false
+}

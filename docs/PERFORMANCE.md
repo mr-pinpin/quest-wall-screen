@@ -93,9 +93,33 @@ What `atlas/AtlasSender.swift` does with the demand datagrams (UDP :57721):
 Still open: the main panel (Sunshine, id 1) ignores the budget; per-screen frame-rate caps for low-`pri`
 screens; congestion control from measured delay rather than a fixed budget.
 
-### Stress test (to build)
+### Stress test (bench/stress.py, built 2026-11-03)
 
-A test mode that summons N screens (target 10) showing a moving test pattern plus a static desktop, and
-records for 2 minutes: total LAN Mbps, headset decode fps and latency p50/p99, ping from a third device to
-the router and to the internet. Pass: the third device stays under 50 ms, the headset holds 72 fps, total
-LAN traffic stays within the budget whatever N is.
+`sudo -n python3 bench/stress.py --n 10 --secs 120 [--wan K] [--no-headset] [--keep]` from the VPS:
+- **Screens.** Creates the missing laptop displays 2..N+1 at 1x. Fills the ones it created with a moving pattern
+  (bench/stress/pattern.swift, built as ~/Applications/PinPin Stress Pattern.app on the Air): sliding bars, scrolling text,
+  a noise block.
+- **Headset.** Puts the headset in stress mode (files/stress.json): synthetic demand for N screens on a ring, the
+  virtual gaze moving one screen every `--sweep` s.
+- **Measures.** Gateway ping to the internet over en1 and to the headset, the headset status every 2 s, the laptop's
+  Wi-Fi bytes and the sender log.
+- **Teardown and output.** Removes everything it created and writes bench/results/stress-*.json (with the time series)
+  plus a row in bench/results/stress.md.
+
+Pass when all of these hold:
+- internet ping p95 < 50 ms
+- headset >= 70 fps
+- atlas <= 40 Mbit/s
+- no screen skipped
+- stress mode engaged
+- the atlas kept flowing
+
+First 10-screen run (shaping on):
+- **Held:** internet p95 44 ms, headset 69-73 fps, atlas 9.7 Mbit/s average, never over its cap.
+- **Failed:** the extra screens froze in bursts. There were 10 s windows at 0 Mbit/s and atlas latency p99 was 2.2 s.
+- **Cause:** every demand-driven cell resize is a new layout, which restarts every capture and sends a keyframe. A
+  moving gaze turns that into a storm.
+- **Next on the sender:** resize cells without restarting captures, and refit the layout rarely, with hysteresis on
+  the whole layout and not just per cell.
+- **Caveat:** eight animated patterns plus ten captures load the Air to ~13, so the pattern itself costs CPU. A
+  GPU-drawn pattern would isolate the sender.

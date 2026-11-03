@@ -1,0 +1,313 @@
+{
+ "when": "20261103-082824",
+ "n": 4,
+ "secs": 40,
+ "wan": 0,
+ "headset": true,
+ "wanPingMs": {
+  "p50": 17.5,
+  "p95": 21.4,
+  "p99": 34.2,
+  "max": 45.855,
+  "count": 195
+ },
+ "lanPingMs": {
+  "p50": 22.0,
+  "p95": 91.8,
+  "p99": 154.3,
+  "count": 195
+ },
+ "headsetFps": {
+  "min": 72,
+  "mean": 72.7,
+  "samples": 19
+ },
+ "atlas": {
+  "mbps": 0.1,
+  "latencyP50": 29.9,
+  "latencyP99": 31.0,
+  "dropped": 0,
+  "size": [
+   2880,
+   1600
+  ],
+  "state": "decoding"
+ },
+ "laptopWifiMbps": {
+  "tx": 0.2,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [
+   29072,
+   34137,
+   39310,
+   30297,
+   35806,
+   10819,
+   10819,
+   10819
+  ],
+  "layouts": 3,
+  "lastLayout": "{\"atlas\":[1600,608],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":640,\"h\":400},{\"screen\":3,\"x\":640,\"y\":0,\"w\":960,\"h\":600}]}",
+  "skipped": []
+ },
+ "series": [
+  {
+   "t": 299.2,
+   "fps": 72,
+   "stressN": 4,
+   "bytes": 130903243,
+   "packets": 7238,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 31.0,
+   "live": 2
+  },
+  {
+   "t": 301.3,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131189083,
+   "packets": 7244,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 303.3,
+   "fps": 72,
+   "stressN": 4,
+   "bytes": 131214638,
+   "packets": 7246,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 305.3,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131228417,
+   "packets": 7248,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 307.3,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131231645,
+   "packets": 7250,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 309.4,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131234057,
+   "packets": 7252,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 311.4,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131236440,
+   "packets": 7254,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 313.4,
+   "fps": 72,
+   "stressN": 4,
+   "bytes": 131240019,
+   "packets": 7257,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 316.4,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131243583,
+   "packets": 7260,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 318.4,
+   "fps": 72,
+   "stressN": 4,
+   "bytes": 131245955,
+   "packets": 7262,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 320.4,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131248327,
+   "packets": 7264,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 322.5,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131250699,
+   "packets": 7266,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 324.5,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131253071,
+   "packets": 7268,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 326.5,
+   "fps": 72,
+   "stressN": 4,
+   "bytes": 131255443,
+   "packets": 7270,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 328.5,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131257815,
+   "packets": 7272,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 330.5,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131260187,
+   "packets": 7274,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 333.6,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131264931,
+   "packets": 7278,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 335.6,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131267303,
+   "packets": 7280,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  },
+  {
+   "t": 337.6,
+   "fps": 73,
+   "stressN": 4,
+   "bytes": 131269675,
+   "packets": 7282,
+   "size": [
+    2880,
+    1600
+   ],
+   "lat": 29.9,
+   "live": 2
+  }
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "headset >= 70 fps": true,
+  "atlas within 40 Mbit/s": true,
+  "no screen skipped": true,
+  "headset stress mode engaged": true,
+  "atlas stream kept flowing": true
+ },
+ "pass": true
+}
