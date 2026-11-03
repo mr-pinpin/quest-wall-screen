@@ -69,6 +69,16 @@ def wifi_bytes():
     return 0, 0
 
 
+def longest_gap(series):
+    # longest stretch (s) in which the atlas carried under 0.2 Mbit/s: a frozen picture (heartbeats only)
+    worst = run = 0.0
+    for a, b in zip(series, series[1:]):
+        dt = max(0.1, b['t'] - a['t'])
+        run = run + dt if (b['bytes'] - a['bytes']) * 8 / 1e6 / dt < 0.2 else 0.0
+        worst = max(worst, run)
+    return round(worst, 1)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--n', type=int, default=10); ap.add_argument('--secs', type=int, default=120)
@@ -125,6 +135,8 @@ def main():
         if not a.keep:
             for i in created: air(f"curl -s -m10 -X POST 'localhost:57710/remove?id={i}'")
 
+    # crash reports the sender left during the run (macOS DiagnosticReports, newer than the start)
+    crashes = air(f"find ~/Library/Logs/DiagnosticReports -name 'pinpin-atlas-*.ips' -mmin -{math.ceil((time.time() - st0) / 60) + 1} 2>/dev/null").split()
     samples = []
     dec = json.JSONDecoder()
     for line in status_text.splitlines():
@@ -162,9 +174,10 @@ def main():
         'atlas within 40 Mbit/s': r['atlas']['mbps'] is not None and r['atlas']['mbps'] <= 40,
         'no screen skipped': not skipped,
         'headset stress mode engaged': engaged,
-        'atlas stream kept flowing': len(series) > 1 and series[-1]['packets'] > series[len(series) // 2]['packets'],
+        'no atlas freeze over 5 s': longest_gap(series) <= 5,
+        'sender never crashed': not crashes,
     }
-    r['series'] = series
+    r['series'] = series; r['atlas']['longestGapS'] = longest_gap(series); r['sender']['crashes'] = crashes
     r['checks'] = checks; r['pass'] = all(checks.values())
     out = ROOT / 'bench' / 'results'; out.mkdir(parents=True, exist_ok=True)
     (out / f'stress-{t0}-n{a.n}.json').write_text(json.dumps(r, indent=1))
