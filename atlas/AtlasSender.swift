@@ -183,18 +183,27 @@ final class Atlas {
         }
     }
 
-    // Row packing: each display fits a cellW x cellH box keeping its aspect; rows wrap at maxW.
+    // Row packing: each display fits its tier's box (cellW x cellH by default) keeping its aspect; rows wrap at maxW.
+    // When the screens don't all fit maxW x maxH, every cell shrinks by the same factor until they do, so a screen
+    // is never dropped (ten 1920-wide screens become ten ~760-wide cells).
     func layout(_ list: [Entry], _ tiers: [Int: Int]) -> (Int, Int, [Cell]) {
-        var cells: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0
-        for e in list {
-            let cw = tiers[e.screen] ?? o.cellW, ch = cw * o.cellH / o.cellW
-            let s = min(Double(cw) / Double(e.w), Double(ch) / Double(e.h), 1.0)
-            let w = max(16, Int(Double(e.w) * s) / 2 * 2), h = max(16, Int(Double(e.h) * s) / 2 * 2)
-            if x + w > o.maxW { x = 0; y += rowH; rowH = 0 }
-            if y + h > o.maxH { log("atlas full: screen \(e.screen) skipped"); continue }
-            cells.append(Cell(entry: e, x: x, y: y, w: w, h: h)); x += w; rowH = max(rowH, h); W = max(W, x)
+        var f = 1.0
+        while true {
+            var cells: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0, fits = true
+            for e in list {
+                let cw = Double(tiers[e.screen] ?? o.cellW) * f, ch = cw * Double(o.cellH) / Double(o.cellW)
+                let s = min(cw / Double(e.w), ch / Double(e.h), 1.0)
+                let w = max(16, Int(Double(e.w) * s) / 2 * 2), h = max(16, Int(Double(e.h) * s) / 2 * 2)
+                if x + w > o.maxW { x = 0; y += rowH; rowH = 0 }
+                if y + h > o.maxH { fits = false; break }
+                cells.append(Cell(entry: e, x: x, y: y, w: w, h: h)); x += w; rowH = max(rowH, h); W = max(W, x)
+            }
+            if fits || f < 0.05 {
+                if f < 1 { log("atlas: \(list.count) screens fit at \(Int(f * 100))% size") }
+                return (max(16, (W + 15) / 16 * 16), max(16, (y + rowH + 15) / 16 * 16), cells)
+            }
+            f *= 0.9
         }
-        return (max(16, (W + 15) / 16 * 16), max(16, (y + rowH + 15) / 16 * 16), cells)
     }
 
     func refresh() async {
