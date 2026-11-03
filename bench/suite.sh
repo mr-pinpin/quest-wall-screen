@@ -26,7 +26,11 @@ for attempt in $(seq 1 60); do
     out=$(timeout 600 python3 bench/stress.py ${RUNS[$i]} --secs $SECS $EXTRA 2>&1)
     case "$out" in
       *"not running"*|*"aborted"*) echo "$(date +%T) waiting: $(echo "$out" | tail -1)"; break;;
-      *) echo "=== ${RUNS[$i]}"; echo "$out" | grep -E '"(pass|mbps|p95|p99|longestSilenceS)"|warning' | head -12; i=$((i+1));;
+      *) echo "=== ${RUNS[$i]}"; echo "$out" | grep -E '"(pass|mbps|p95|p99|longestSilenceS)"|warning' | head -12
+         # one verdict for every row, gaming criteria included (exit 1 = fail; the suite goes on)
+         res=$(echo "$out" | sed -n 's/^stress: result //p' | tail -1)
+         [ -n "$res" ] && { python3 bench/gate.py "$res" || echo "gate: FAIL ($res)"; }
+         i=$((i+1));;
     esac
   done
   [ $i -ge ${#RUNS[@]} ] && { echo "suite done"; tail -12 bench/results/stress.md; exit 0; }

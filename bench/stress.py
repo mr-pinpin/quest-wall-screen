@@ -317,7 +317,10 @@ def main():
                    'bytes': x['atlas']['video']['bytes'], 'packets': x['atlas']['video']['packets'],
                    'size': x['atlas']['video']['size'], 'lat': x['atlas']['video']['latencyMs'],
                    'game': {'stage': x['moonlight']['stage'], 'lat': x['video']['latencyMs'], 'rtt': x['video']['rttMs'],
-                            'displayed': x['video']['displayed'], 'dropped': x['video']['dropped']}} for x in samples]
+                            'displayed': x['video']['displayed'], 'dropped': x['video']['dropped'],
+                            # v0.38 per-frame counters, cumulative; bench/gate.py diffs them for exact p50/p99 and stalls
+                            'latHist': x['video'].get('latHist'), 'stalls50': x['video'].get('stalls50'), 'stalls100': x['video'].get('stalls100'),
+                            'gapMaxMs': x['video'].get('gapMaxMs'), 'hostMs': x['video'].get('hostMs')}} for x in samples]
         lat = [x['lat'] for x in series if x['lat'] > 0]
         mbps = round((series[-1]['bytes'] - series[0]['bytes']) * 8 / 1e6 / max(1, series[-1]['t'] - series[0]['t']), 1) if len(series) > 1 else None
         gap = longest_gap(series)
@@ -342,7 +345,9 @@ def main():
     r['checks'] = checks; r['pass'] = all(checks.values())
 
     out_dir = ROOT / 'bench' / 'results'; out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f'stress-{t0}-{r["scenario"]}-n{a.n}.json').write_text(json.dumps(r, indent=1))
+    result = out_dir / f'stress-{t0}-{r["scenario"]}-n{a.n}.json'
+    result.write_text(json.dumps(r, indent=1))
+    print(f'stress: result {result}')  # suite.sh runs bench/gate.py on it
     md = out_dir / 'stress.md'
     if not md.exists():
         md.write_text('# Stress runs\n\n')
