@@ -26,7 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
-import argparse, atexit, base64, json, math, pathlib, statistics, subprocess, sys, time
+import argparse, atexit, base64, json, math, pathlib, shlex, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent / 'stress'
@@ -137,6 +137,19 @@ def lock_release():
     air(f"L={BENCH_LOCK}; [ -d $L ] && mv $L $L.done-$(date +%s); ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf")
 
 
+def plugin_override(name, extra_args):
+    """Append args to a PinPin Host plugin for one run and restart it; returns the original spec for plugin_restore."""
+    path = f'{HOST_PLUGINS}/{name}.json'
+    orig = air(f'cat {path}').strip()
+    spec = json.loads(orig); spec['args'] = list(spec.get('args', [])) + list(extra_args)
+    air(f"printf %s {shlex.quote(json.dumps(spec))} > {path}; curl -s -m10 -X POST '127.0.0.1:57790/restart?name={name}'")
+    return orig
+
+
+def plugin_restore(name, orig):
+    air(f"printf %s {shlex.quote(orig)} > {HOST_PLUGINS}/{name}.json; curl -s -m10 -X POST '127.0.0.1:57790/restart?name={name}'")
+
+
 def busy(force):
     """Why the gear is in use right now, or '' when the test may run."""
     if headset_worn(): return 'someone is wearing the headset'
@@ -155,7 +168,11 @@ def main():
     ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
-    ap.add_argument('--flags', default='', help='sender flags for the test copy, e.g. bpcut (stand-in mode; see AtlasSender --flags)')
+    ap.add_argument('--flags', default='', help='sender flags, e.g. bpcut (AtlasSender --flags): on the test copy in stand-in mode, '
+                    'on the live sender (restarted, restored after) with --headset')
+    ap.add_argument('--sunshine', action='append', default=[], metavar='NAME=VALUE',
+                    help='Sunshine config override for this run, e.g. vt_realtime=enabled (appended to the sunshine plugin args, '
+                         'restored after); repeatable')
     ap.add_argument('--allow-over-20', action='store_true', help='allow more than 20 screens (30 crashed replayd and wedged WindowServer)')
     ap.add_argument('--cinema-size', default='', help='WxH for screen 2 (the cinema screen), e.g. 2560x1600: wider than one '
                     '1920 cell, so vt tiles it (3840x2160 was not capturable on the Air). Pair runs with the same size')
@@ -196,9 +213,14 @@ def main():
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
     log0 = '' if sim else air(f'cat {log_path}')
-    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False
+    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}
     try:
-        # 2. demand source
+        # 2. per-run overrides of the live plugins (restored in `finally`), before any game session starts
+        if a.sunshine:
+            overrides['sunshine'] = plugin_override('sunshine', a.sunshine); time.sleep(6)  # Sunshine re-probes its encoders
+        if a.flags and not sim:
+            overrides['pinpin-atlas'] = plugin_override('pinpin-atlas', ['--flags', a.flags]); time.sleep(3)
+        # demand source
         if sim:
             # Pause the live sender so only the test copy captures (agreed with work-09); restarted in `finally`.
             air("curl -s -m5 -X POST '127.0.0.1:57790/stop?name=pinpin-atlas'"); live_paused = True
@@ -255,6 +277,7 @@ def main():
         zyxel = pings(mini('cat /tmp/stress-zyxel.txt'))  # the Mini's 2.4 GHz hop alone: link jitter vs the internet
     finally:
         # 4. teardown
+        for name, orig in overrides.items(): plugin_restore(name, orig)
         if proc and proc.poll() is None: proc.kill()
         if sim: air(f'printf %s {json.dumps(json.dumps(dict(TEST_PLUGIN, enabled=False)))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
         if live_paused: air("curl -s -m5 -X POST '127.0.0.1:57790/start?name=pinpin-atlas'")
@@ -276,7 +299,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else ''),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
