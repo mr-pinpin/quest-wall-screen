@@ -10,3 +10,10 @@
 | 20261103-084304 | 10 | 0 | 17.6/22.6 | 5.1/67.6 | 72 | 8.5 | 44.7/31764.9 | 12.1 | - | yes |
 
 Notes: the 4-screen runs had no visible pattern (launch bug, fixed), so their atlas numbers mean nothing. Runs before 1bbcb91 lacked the freeze and crash checks: 083851 and 084304 "passed" with 22 s freezes, and 084304 had 4 sender segfaults.
+| 20261103-085153 | 10 | 0 | 18.2/76.6 | 4.7/25.5 | 71 | 24.2 | 36.6/47.0 | 27.8 | - | NO |
+| 20261103-085802 | 10 | 0 | 17.4/20.8 | 54.4/172.0 | 48 | 0.0 | 28.4/28.4 | 0.4 | - | NO |
+
+## From 2026-11-03 12:30: stand-in headset (sim) and guarded runs
+
+| when | mode | N | wan | internet ping p50/p95 ms | headset ping p50/p95 | house internet Mbit/s down | fps min | atlas Mbit/s | longest freeze s | atlas latency p50/p99 | laptop tx Mbit/s | sender crashes | pass |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

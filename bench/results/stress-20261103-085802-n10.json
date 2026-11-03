@@ -1,0 +1,792 @@
+{
+ "when": "20261103-085802",
+ "n": 10,
+ "secs": 120,
+ "wan": 0,
+ "headset": true,
+ "wanPingMs": {
+  "p50": 17.4,
+  "p95": 20.8,
+  "p99": 34.3,
+  "max": 91.284,
+  "count": 585
+ },
+ "lanPingMs": {
+  "p50": 54.4,
+  "p95": 172.0,
+  "p99": 207.2,
+  "count": 581
+ },
+ "headsetFps": {
+  "min": 48,
+  "mean": 48,
+  "samples": 56
+ },
+ "atlas": {
+  "mbps": 0.0,
+  "latencyP50": 28.4,
+  "latencyP99": 28.4,
+  "dropped": 0,
+  "size": [
+   1440,
+   608
+  ],
+  "state": "decoding",
+  "longestGapS": 5.5
+ },
+ "houseInternetMbps": {
+  "down": 0.9,
+  "up": 1.0
+ },
+ "laptopWifiMbps": {
+  "tx": 0.4,
+  "rx": 0.7
+ },
+ "sender": {
+  "bitrateKbps": [],
+  "layouts": 8,
+  "lastLayout": "{\"atlas\":[3840,1200],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":1920,\"h\":1200},{\"screen\":3,\"x\":1920,\"y\":0,\"w\":1920,\"h\":1200}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "series": [
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  },
+  {
+   "t": 2031.8,
+   "fps": 48,
+   "stressN": 0,
+   "bytes": 1645172726,
+   "packets": 41629,
+   "size": [
+    1440,
+    608
+   ],
+   "lat": 28.4,
+   "live": 2
+  }
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "headset >= 70 fps": false,
+  "atlas within 40 Mbit/s": true,
+  "no screen skipped": true,
+  "headset stress mode engaged": false,
+  "no atlas freeze over 5 s": false,
+  "sender never crashed": true
+ },
+ "pass": false
+}

@@ -95,7 +95,7 @@ screens; congestion control from measured delay rather than a fixed budget.
 
 ### Stress test (bench/stress.py, built 2026-11-03)
 
-`sudo -n python3 bench/stress.py --n 10 --secs 120 [--wan K] [--no-headset] [--keep]` from the VPS:
+`sudo -n python3 bench/stress.py --n 10 --secs 120 [--wan K] [--headset] [--keep]` from the VPS. **Nobody has to wear anything, and it never runs while the gear is in use.** It refuses to start, and aborts mid-run, if the laptop was touched in the last 10 minutes or the headset is being worn. By default a stand-in headset on the Mini (bench/stress/headset_sim.py) receives the stream from a separate test copy of the sender on ports 57730/57731, so the live sender and the headset are untouched. `--headset` uses the real Quest, only while unworn, for fps and decode numbers. What it does:
 - **Screens.** Creates the missing laptop displays 2..N+1 at 1x. Fills the ones it created with a moving pattern
   (bench/stress/pattern.swift, built as ~/Applications/PinPin Stress Pattern.app on the Air): sliding bars, scrolling text,
   a noise block.
