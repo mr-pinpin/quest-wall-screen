@@ -13,7 +13,11 @@ RUNS=(
   "--scenario wall --n 20"
   "--scenario cinema --n 10 --wan 3"
   "--scenario cinema --n 10 --wan 3 --flags bpcut"
+  "--scenario cinema --n 10 --flags vt"
+  "--scenario wall --n 20 --flags vt"
 )
+# Flag A/B pairs: each "--flags X" run pairs with the same scenario without it above (bpcut: cinema-10 --wan 3;
+# vt: cinema-10, wall-20). A flag stays only if its pair proves it (bench/results/stress.md).
 SECS=${SECS:-60}
 EXTRA=${EXTRA:-}   # e.g. EXTRA=--force to run while the laptop is in use
 i=0

@@ -26,7 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
-import argparse, base64, json, math, pathlib, statistics, subprocess, sys, time
+import argparse, atexit, base64, json, math, pathlib, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent / 'stress'
@@ -36,6 +36,11 @@ APP = '~/Applications/PinPin Stress Pattern.app'
 HEADSET_IP = '192.168.0.3'
 LAPTOP_IP = '192.168.0.102'
 IDLE_NEEDED = 600
+# Shared bench lock on the laptop (agreed by work-c4 and work-09): a directory made with mkdir (atomic), holding an
+# owner note. Every test that creates displays or runs a test sender takes it; afterwards it is moved aside.
+# Older than LOCK_STALE_S means its holder died: taken over.
+BENCH_LOCK = '~/.local/share/pinpin-bench.lock'
+LOCK_STALE_S = 1800
 HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
 TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731'],
                'log': '~/.local/share/pinpin-atlas/atlas-sim.log', 'truncateLog': True, 'restartDelay': 1.5}
@@ -120,6 +125,18 @@ def longest_gap(series):
     return round(worst, 1)
 
 
+def lock_take(owner):
+    """'' when this run now holds the bench lock, else who holds it."""
+    out = air(f"L={BENCH_LOCK}; if [ -d $L ] && [ $(( $(date +%s) - $(stat -f %m $L) )) -gt {LOCK_STALE_S} ]; then "
+              f"mv $L $L.stale-$(date +%s); echo stale; fi; mkdir $L 2>/dev/null && echo {json.dumps(owner)} > $L/owner && echo taken "
+              f"|| cat $L/owner")
+    return '' if 'taken' in out.split() else (out.strip().splitlines() or ['?'])[-1]
+
+
+def lock_release():
+    air(f"L={BENCH_LOCK}; [ -d $L ] && mv $L $L.done-$(date +%s); ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf")
+
+
 def busy(force):
     """Why the gear is in use right now, or '' when the test may run."""
     if headset_worn(): return 'someone is wearing the headset'
@@ -147,6 +164,9 @@ def main():
     test_plugin = dict(TEST_PLUGIN, args=TEST_PLUGIN['args'] + (['--flags', a.flags] if a.flags else []))
     why = busy(a.force)
     if why: sys.exit(f'stress: not running, {why}')
+    holder = lock_take(f'stress.py {" ".join(sys.argv[1:])} since {time.strftime("%H:%M:%S")}')
+    if holder: sys.exit(f'stress: not running, the bench lock is held ({holder})')
+    atexit.register(lock_release)
     ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
@@ -203,6 +223,7 @@ def main():
                  f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);")
         if sim:
             probe += f"python3 - {LAPTOP_IP} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
+            if 'vt' in a.flags.split(','): probe += ' --v2'  # the vt flag only acts on v2 demand
             stdin = (HERE / 'headset_sim.py').read_text()
         else:
             probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
@@ -267,6 +288,14 @@ def main():
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
         r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
         r['series'] = s.get('perSecondMbps', [])
+        if 'v2Layouts' in s:
+            # vt: every v2 layout the stand-in saw, checked offline (bench/vt_check.py)
+            sys.path.insert(0, str(ROOT / 'bench')); import vt_check
+            vt_file = ROOT / 'bench' / 'results' / f'stress-{t0}-{a.scenario}+{a.flags}-n{a.n}-layouts.jsonl'
+            vt_file.parent.mkdir(parents=True, exist_ok=True)
+            vt_file.write_text(''.join(json.dumps(x) + '\n' for x in s['v2Layouts']))
+            r['vt'] = {'v2Layouts': len(s['v2Layouts']), 'belowWantedPct': s.get('belowWantedPct'), 'layoutsFile': vt_file.name}
+            checks['vt layouts valid (vt_check.py)'] = vt_check.recorded(str(vt_file))
         checks['atlas within 40 Mbit/s'] = s.get('mbps') is not None and s['mbps'] <= 40
         checks['no atlas freeze over 5 s'] = s.get('longestSilenceS') is not None and s['longestSilenceS'] <= 5
         if a.scenario == 'vr':
