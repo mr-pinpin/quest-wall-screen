@@ -260,6 +260,11 @@ def main():
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
 
+    # 0. keep the Air's display awake for the run: when its built-in display sleeps, WindowServer stops driving the
+    #    virtual displays and they drop out of ScreenCaptureKit entirely (measured 2026-11-03 14:38 UTC: 29.5 fps
+    #    awake vs "display not found" asleep). Released in teardown. -u wakes a display that already slept.
+    air(f"(nohup caffeinate -u -d -t {a.secs + 900} >/dev/null 2>&1 &)")
+    atexit.register(lambda: air("pkill -f 'caffeinate -u -d -t' || true"))
     # 1. displays and pattern
     have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
     if cinema and 2 in have and have[2] != cinema:  # a leftover screen 2 of another size: recreate it
