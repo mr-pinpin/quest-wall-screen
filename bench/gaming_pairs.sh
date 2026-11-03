@@ -1,7 +1,7 @@
 #!/bin/bash
 # Gaming-latency A/B pairs on the real headset (docs/gaming-latency-laptop.md, verdict rules in docs/bench-scoreboard.md).
 # Each pair runs back to back so both halves see the same house network; each run goes through bench/gate.py.
-#   bash bench/gaming_pairs.sh            # wait for the headset's wake window (bench/headset_hold.py), run all pairs
+#   [APK=room-lab.apk] bash bench/gaming_pairs.sh   # (install APK if its version differs, then) wait for the headset's wake window (bench/headset_hold.py), run all pairs
 #   bash bench/gaming_pairs.sh run ARGS   # one stress.py --headset --game LAPTOP run with ARGS, then its gate
 # Nobody wears anything: headset_hold.py simulates wear only while the real sensor says unworn and lets go the moment
 # someone puts it on; stress.py takes the shared bench lock and checks the laptop is idle.
@@ -26,4 +26,4 @@ PAIRS=(
 # Verdicts: python3 bench/verdict.py vt_realtime|gameyield|codec-h264 OFF.json ON.json (docs/bench-scoreboard.md)
 THEN=()
 for p in "${PAIRS[@]}"; do THEN+=(--then "bash bench/gaming_pairs.sh run $p"); done
-exec python3 bench/headset_hold.py --minutes $(( ${#PAIRS[@]} * (SECS + 90) / 60 + 5 )) "${THEN[@]}"
+exec python3 bench/headset_hold.py ${APK:+--install "$APK"} --minutes $(( ${#PAIRS[@]} * (SECS + 90) / 60 + 5 )) "${THEN[@]}"
