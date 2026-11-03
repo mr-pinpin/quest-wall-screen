@@ -154,6 +154,25 @@ struct Heroes {
     }
 };
 
+// Keyframe requests (pairs with the sender's noperiodic flag: no periodic keyframes, so the headset asks). The demand
+// carries a counter, "keyReq": n; any change makes the sender key the atlas and every hero (a counter survives lost
+// datagrams and 5 Hz repeats). It goes up on a decoder error, a format change, or 1.5 s without a shown frame while
+// packets keep arriving; at most one request per 0.5 s.
+struct KeyReq {
+    long count = 0; double last = -1e9, lastShown = -1, lastPacket = -1;
+    bool request(double now) { if (now - last < 0.5) return false; last = now; count++; return true; }
+    bool decodeError(double now) { return request(now); }
+    bool formatChanged(double now) { return request(now); }
+    void shown(double now) { lastShown = now; }
+    void packet(double now) { lastPacket = now; if (lastShown < 0) lastShown = now; }
+    // Call every frame: a stall (packets flowing, nothing shown for 1.5 s) asks for a keyframe, then again each 1.5 s.
+    bool tick(double now) {
+        if (lastPacket < 0 || now - lastPacket > 1.0 || lastShown < 0) return false;
+        if (now - lastShown > 1.5 && now - last > 1.5) return request(now);
+        return false;
+    }
+};
+
 // Hold rule: a screen that shows an image and gets a new panel size keeps the old image until the new one exists.
 inline bool needsHold(bool hasImage, int cw, int ch, int contentW, int contentH) { return hasImage && (cw != contentW || ch != contentH); }
 

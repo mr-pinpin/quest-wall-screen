@@ -25,6 +25,7 @@
 #include <thread>
 #include <vector>
 #include "sharp.h"
+#include "vt.h"
 
 struct VideoStream {
     int port = 8087;
@@ -45,6 +46,8 @@ struct VideoStream {
     int width = 0, height = 0;
     long packets = 0, keyframes = 0, decoded = 0, displayed = 0, dropped = 0, bytes = 0, reconnects = 0;
     double latencyMs = 0, latencyMaxMs = 0;  // packet arrival -> image on the GPU
+    vt::KeyReq keyReq;  // under lock: keyframe requests for the sender (demand "keyReq"; vt.h)
+    long keyRequests() { std::lock_guard<std::mutex> g(lock); keyReq.tick(now()); return keyReq.count; }
     // Exact per-frame figures for the real-time gaming benchmark (bench/stress.py --game), as running counters the
     // harness diffs over a run: arrival -> GPU latency in 5 ms buckets (the last is >= 150 ms), and stalls, i.e.
     // gaps between displayed frames over 50 / 100 ms (a 60 fps stream has ~17 ms gaps).
@@ -211,7 +214,7 @@ struct VideoStream {
         double t = now();
         {
             std::lock_guard<std::mutex> g(lock);
-            packets++; bytes += (long)len; if (key) keyframes++; width = w; height = h;
+            packets++; bytes += (long)len; if (key) keyframes++; width = w; height = h; keyReq.packet(t);
             // A repeat waits in the decoder for the next frame (up to a second when the screen is still) but shows
             // nothing new, so it stays out of the latency figure.
             if (!repeat) arrivals.emplace_back(pts, t);
@@ -219,9 +222,9 @@ struct VideoStream {
         }
         if (key && (!codec || w != codecW || h != codecH || hevc != codecHevc)) configure(w, h, data, len, hevc);
         if (!codec) return false;
-        if (needKey && !key) { std::lock_guard<std::mutex> g(lock); dropped++; return false; }
+        if (needKey && !key) { std::lock_guard<std::mutex> g(lock); dropped++; keyReq.decodeError(t); return false; }
         ssize_t idx = AMediaCodec_dequeueInputBuffer(codec, 20000);
-        if (idx < 0) { needKey = true; std::lock_guard<std::mutex> g(lock); dropped++; return false; }  // decoder backed up: resync on next key
+        if (idx < 0) { needKey = true; std::lock_guard<std::mutex> g(lock); dropped++; keyReq.decodeError(t); return false; }  // decoder backed up: resync on next key
         size_t cap = 0; uint8_t* in = AMediaCodec_getInputBuffer(codec, (size_t)idx, &cap);
         if (!in || cap < len) { AMediaCodec_queueInputBuffer(codec, (size_t)idx, 0, 0, pts, 0); return false; }
         memcpy(in, data, len);
@@ -236,7 +239,8 @@ struct VideoStream {
         for (;;) {
             ssize_t o = AMediaCodec_dequeueOutputBuffer(codec, &info, 0);
             if (o >= 0) { AMediaCodec_releaseOutputBuffer(codec, (size_t)o, info.size > 0); std::lock_guard<std::mutex> g(lock); decoded++; }
-            else if (o == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED || o == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) continue;
+            else if (o == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) { std::lock_guard<std::mutex> g(lock); keyReq.formatChanged(now()); continue; }
+            else if (o == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) continue;
             else break;
         }
     }
@@ -369,7 +373,7 @@ void main(){
         int64_t ns = 0; AImage_getTimestamp(img, &ns);
         int64_t pts = ns / 1000; double t = now();
         std::lock_guard<std::mutex> g(lock);
-        displayed++;
+        displayed++; keyReq.shown(t);
         if (lastShown > 0) {
             double gap = (t - lastShown) * 1000.0;
             stalls50 += gap > 50; stalls100 += gap > 100; gapMaxMs = std::max(gapMaxMs, gap);

@@ -187,6 +187,8 @@ struct App {
     // demuxed from 0x81 packets into a decoder-only VideoStream each (created on the render thread; packets that
     // arrive first wait from their last IDR). files/hero-on forces it.
     bool heroMenu = false, heroFile = false; bool heroOn() const { return heroMenu || heroFile; }
+    // KEYREQ flag (pairs with the sender's noperiodic): demand "keyReq" counts keyframe requests (vt::KeyReq).
+    bool keyReqMenu = false, keyReqFile = false; bool keyReqOn() const { return keyReqMenu || keyReqFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -444,12 +446,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 26;
+    static constexpr int kMenuItems = 27;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}, {"HERO", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}, {"HERO", "SCREENS"}, {"KEYREQ", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -468,6 +470,7 @@ struct App {
         if (l == "MODELS") return models();
         if (l == "LODPOSE") return lodPose();
         if (l == "HERO") return heroOn();
+        if (l == "KEYREQ") return keyReqOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -555,6 +558,7 @@ struct App {
         else if (l == "MODELS") modelsMenu = !modelsMenu;                     // headset-rendered 3D model (files/model.json)
         else if (l == "LODPOSE") lodPoseMenu = !lodPoseMenu;                  // detail from the screen's projection, both axes
         else if (l == "HERO") heroMenu = !heroMenu;                           // big in-gaze screens get their own stream
+        else if (l == "KEYREQ") keyReqMenu = !keyReqMenu;                     // ask the sender for keyframes (noperiodic)
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1418,7 +1422,8 @@ void main(){
         std::vector<int> heroes;
         if (v3) {
             std::vector<vt::HeroIn> hin; for (auto& d : ds) if (d.id != 1) hin.push_back({d.id, d.vis, d.px, d.pri});
-            heroes = heroPicker.pick(hin, now());
+            int maxHeroes = budgetOn() && lastBudget.mode == budget::Mode::Game ? 1 : 3;  // the decoder budget around a game
+            heroes = heroPicker.pick(hin, now(), maxHeroes);
         }
         std::string j = std::string(v3 ? "{\"v\":3,\"heroOk\":1,\"heroCodec\":\"hevc\"," : v2 ? "{\"v\":2," : "{") + "\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
         for (size_t i = 0; i < ds.size(); i++) {
@@ -1430,6 +1435,11 @@ void main(){
             j += b;
         }
         j += "]";
+        if (keyReqOn()) {  // KEYREQ: a counter of keyframe requests (atlas + heroes); the sender keys on any change
+            long kr = atlasVideo.keyRequests();
+            { std::lock_guard<std::mutex> g(heroLock); for (auto& h : heroStreams) kr += h.second->keyRequests(); }
+            j += ",\"keyReq\":" + std::to_string(kr);
+        }
         // "game":1 while a game/desktop stream plays: the sender's gameyield flag then halves the atlas encode rate
         // so the shared media engine serves the game first (docs/gaming-latency-laptop.md).
         if (moonlight.get(moonlight.stage) == "streaming") j += ",\"game\":1";
@@ -2071,9 +2081,12 @@ void main(){
             if (!heroLayout.count(e.id)) continue;
             VideoStream* hv = nullptr; { std::lock_guard<std::mutex> g(heroLock); auto it = heroStreams.find(e.id); if (it != heroStreams.end()) hv = it->second.get(); }
             if (!hv || !hv->update(display) || !hv->mipTex) continue;
-            PanelLayer& L = extraLayers[e.id]; L.superSample = panelLayer.superSample; L.super = panelLayer.super;
+            PanelLayer& L = extraLayers[e.id]; PanelLayer& H = holdLayers[e.id];
+            if (vt::needsHold(L.hasImage, hv->mipW, hv->mipH, L.contentW, L.contentH)) { H.destroy(); std::swap(H, L); vtHolds++; }  // a rung switch: hold the old image
+            L.superSample = panelLayer.superSample; L.super = panelLayer.super;
             L.update(session, hv->mipFbo, hv->mipW, hv->mipH, hv->mipVersion);
-            if (L.hasImage) extraLive.insert(e.id);
+            if (L.hasImage && H.chain) H.destroy();
+            if (L.hasImage || H.hasImage) extraLive.insert(e.id);
         }
         if (atlasOk) {
             for (auto& e : extras) {
@@ -2113,6 +2126,7 @@ void main(){
             modelsFile = access((gDir + "/models-on").c_str(), F_OK) == 0;    // forces MODELS for self-tests
             lodPoseFile = access((gDir + "/lodpose-on").c_str(), F_OK) == 0;  // forces LODPOSE for self-tests
             heroFile = access((gDir + "/hero-on").c_str(), F_OK) == 0;        // forces HERO for self-tests
+            keyReqFile = access((gDir + "/keyreq-on").c_str(), F_OK) == 0;    // forces KEYREQ for self-tests
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
                 if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
