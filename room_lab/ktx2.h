@@ -1,7 +1,8 @@
 // KTX2 textures, read progressively (docs/3d-content.md). KTX2 stores mip levels smallest first, so a plain
 // sequential download makes the coarse levels usable as soon as their bytes have arrived: the headset shows the
 // coarsest level at once and swaps in finer ones as they complete (the screens' "hold until fine" rule). Only
-// uncompressed / GPU-native formats without supercompression are accepted (no Basis transcoder on the headset yet).
+// uncompressed / GPU-native formats (RGBA8, ETC2, ASTC 4x4/6x6/8x8 sRGB) without supercompression are accepted
+// (no Basis transcoder on the headset yet; ASTC is native on the Quest's Adreno).
 #pragma once
 #include <algorithm>
 #include <cstddef>
@@ -13,7 +14,8 @@
 namespace ktx2 {
 
 static const uint8_t kId[12] = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, '\r', '\n', 0x1A, '\n'};
-enum : uint32_t { VK_R8G8B8A8_UNORM = 37, VK_R8G8B8A8_SRGB = 43, VK_ETC2_R8G8B8_SRGB = 148, VK_ETC2_R8G8B8A8_SRGB = 152 };
+enum : uint32_t { VK_R8G8B8A8_UNORM = 37, VK_R8G8B8A8_SRGB = 43, VK_ETC2_R8G8B8_SRGB = 148, VK_ETC2_R8G8B8A8_SRGB = 152,
+                  VK_ASTC_4x4_SRGB = 158, VK_ASTC_6x6_SRGB = 166, VK_ASTC_8x8_SRGB = 172 };
 
 struct Level { uint64_t offset = 0, length = 0; };
 struct Header {
@@ -54,8 +56,10 @@ inline int finestComplete(const Header& h, uint64_t received) {
     return best;
 }
 
+// ASTC block edge in texels (1 otherwise), for byte-size checks.
+inline uint32_t blockSize(uint32_t f) { return f == VK_ASTC_4x4_SRGB ? 4 : f == VK_ASTC_6x6_SRGB ? 6 : f == VK_ASTC_8x8_SRGB ? 8 : 1; }
 inline uint32_t levelWidth(const Header& h, int i) { return std::max(1u, h.width >> i); }
 inline uint32_t levelHeight(const Header& h, int i) { return std::max(1u, h.height >> i); }
-inline bool supported(uint32_t f) { return f == VK_R8G8B8A8_UNORM || f == VK_R8G8B8A8_SRGB || f == VK_ETC2_R8G8B8_SRGB || f == VK_ETC2_R8G8B8A8_SRGB; }
+inline bool supported(uint32_t f) { return f == VK_R8G8B8A8_UNORM || f == VK_R8G8B8A8_SRGB || f == VK_ETC2_R8G8B8_SRGB || f == VK_ETC2_R8G8B8A8_SRGB || blockSize(f) > 1; }
 
 }  // namespace ktx2

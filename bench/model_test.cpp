@@ -89,14 +89,21 @@ int main(int argc, char** argv) {
       budget::Output o = a.split(in); CHECK(o.assetKbps > 0, "cinema: assets flow (%d kbps)", o.assetKbps);
       in.gameActive = true; o = a.split(in); CHECK(o.assetKbps == 0, "game: assets paused"); }
 
-    if (argc > 1) {
-        std::string d = argv[1];
+    for (int ai = 1; ai < argc; ai++) {
+        std::string d = argv[ai]; printf("== %s\n", d.c_str());
         auto g = readAll(d + "/model.glb"); gltf::Mesh m = gltf::load(g.data(), g.size());
         CHECK(m.error.empty() && m.vertices() > 1000 && !m.uv.empty() && m.baseColorUri == "basecolor.ktx2", "real model: %zu vertices, %s", m.vertices(), m.error.c_str());
         printf("model: %zu vertices, %zu triangles, bounds %.2f..%.2f x %.2f..%.2f x %.2f..%.2f\n", m.vertices(), m.idx.size() / 3, m.min[0], m.max[0], m.min[1], m.max[1], m.min[2], m.max[2]);
         auto k = readAll(d + "/basecolor.ktx2"); ktx2::Header h;
         CHECK(ktx2::parse(k.data(), k.size(), h) && ktx2::finestComplete(h, k.size()) == 0, "real ktx2: all %u levels present", h.levels);
         for (uint32_t i = 0; i + 1 < h.levels; i++) CHECK(h.level[i].offset > h.level[i + 1].offset, "level %u stored after level %u (smallest first)", i, i + 1);
+        uint32_t bs = ktx2::blockSize(h.vkFormat);
+        for (uint32_t i = 0; i < h.levels; i++) {
+            uint64_t want = bs > 1 ? (uint64_t)((ktx2::levelWidth(h, i) + bs - 1) / bs) * ((ktx2::levelHeight(h, i) + bs - 1) / bs) * 16 : (uint64_t)ktx2::levelWidth(h, i) * ktx2::levelHeight(h, i) * 4;
+            CHECK(h.level[i].length == want, "level %u: %llu bytes, expected %llu for format %u", i, (unsigned long long)h.level[i].length, (unsigned long long)want, h.vkFormat);
+            if (bs > 1) CHECK(h.level[i].offset % 16 == 0, "ASTC level %u aligned to 16", i);
+        }
+        printf("texture: vkFormat %u (%s), %zu bytes\n", h.vkFormat, bs > 1 ? "ASTC" : "uncompressed", k.size());
         // Time to first pixels and to full detail at the cinema-mode asset share.
         budget::Arbiter a; budget::Input in; in.screens = {{2, true, 3000, 1.0f}}; int kbps = a.split(in).assetKbps;
         double bps = kbps * 125.0, first = (h.level[h.levels - 1].offset + h.level[h.levels - 1].length + g.size()) / bps, full = (k.size() + g.size()) / bps;

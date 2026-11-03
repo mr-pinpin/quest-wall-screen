@@ -113,6 +113,18 @@ struct ModelView {
     GLsizei indexCount = 0; int uploadedFinest = -1, texLevels = 0;
     GLuint quadVao = 0, quadVbo = 0;
 
+    // GL internal format for a KTX2 vkFormat (ASTC enums from KHR_texture_compression_astc_ldr, core in GLES 3.2).
+    static GLenum glFormat(uint32_t vk) {
+        switch (vk) {
+            case ktx2::VK_R8G8B8A8_UNORM: return GL_RGBA8;
+            case ktx2::VK_ETC2_R8G8B8_SRGB: return GL_COMPRESSED_SRGB8_ETC2;
+            case ktx2::VK_ETC2_R8G8B8A8_SRGB: return GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC;
+            case ktx2::VK_ASTC_4x4_SRGB: return 0x93D0;  // GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR
+            case ktx2::VK_ASTC_6x6_SRGB: return 0x93D4;  // ..._6x6_KHR
+            case ktx2::VK_ASTC_8x8_SRGB: return 0x93D7;  // ..._8x8_KHR
+            default: return GL_SRGB8_ALPHA8;
+        }
+    }
     GLuint compile(GLenum t, const char* s) { GLuint sh = glCreateShader(t); glShaderSource(sh, 1, &s, nullptr); glCompileShader(sh); return sh; }
     void initGL() {
         const char* vs = R"(#version 300 es
@@ -148,7 +160,7 @@ void main(){ vec3 base = uHasTex == 1 ? texture(uTex, vUv).rgb : vec3(0.55);
         if (thReady && !texId) {
             glGenTextures(1, &texId); glBindTexture(GL_TEXTURE_2D, texId);
             texLevels = (int)th.levels;
-            GLenum fmt = th.vkFormat == ktx2::VK_R8G8B8A8_UNORM ? GL_RGBA8 : th.vkFormat == ktx2::VK_ETC2_R8G8B8_SRGB ? GL_COMPRESSED_SRGB8_ETC2 : th.vkFormat == ktx2::VK_ETC2_R8G8B8A8_SRGB ? GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC : GL_SRGB8_ALPHA8;
+            GLenum fmt = glFormat(th.vkFormat);
             glTexStorage2D(GL_TEXTURE_2D, texLevels, fmt, th.width, th.height);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, texLevels - 1); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, texLevels - 1);
@@ -158,8 +170,7 @@ void main(){ vec3 base = uHasTex == 1 ? texture(uTex, vUv).rgb : vec3(0.55);
             int fin = ktx2::finestComplete(th, texRecv);
             if (fin >= 0 && fin < uploadedFinest) {
                 glBindTexture(GL_TEXTURE_2D, texId);
-                bool compressed = th.vkFormat == ktx2::VK_ETC2_R8G8B8_SRGB || th.vkFormat == ktx2::VK_ETC2_R8G8B8A8_SRGB;
-                GLenum cfmt = th.vkFormat == ktx2::VK_ETC2_R8G8B8_SRGB ? GL_COMPRESSED_SRGB8_ETC2 : GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC;
+                GLenum cfmt = glFormat(th.vkFormat); bool compressed = cfmt != GL_RGBA8 && cfmt != GL_SRGB8_ALPHA8;
                 for (int i = uploadedFinest - 1; i >= fin; i--) {
                     const uint8_t* d = tex.data() + th.level[i].offset;
                     if (compressed) glCompressedTexSubImage2D(GL_TEXTURE_2D, i, 0, 0, ktx2::levelWidth(th, i), ktx2::levelHeight(th, i), cfmt, (GLsizei)th.level[i].length, d);
