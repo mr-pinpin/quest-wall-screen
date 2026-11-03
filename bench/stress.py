@@ -326,6 +326,9 @@ def main():
     atexit.register(lambda: activity(f'END {run_desc} (bench lock released)'))
     atexit.register(lock_release)
     lap_ip = laptop_ip()
+    # The laptop's actual Wi-Fi channel/band at run start (a router change once left it on 2.4 GHz ch13).
+    try: laptop_channel = air("system_profiler SPAirPortDataType 2>/dev/null | grep -m1 -E '^ +Channel:' | sed 's/^ *Channel: *//'", timeout=30).strip()
+    except subprocess.TimeoutExpired: laptop_channel = ''
     ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
@@ -521,7 +524,7 @@ def main():
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
-        'network': network_epoch(),
+        'network': dict(network_epoch(), laptopChannel=laptop_channel),
         'host': dict(host, standIn=('pinpin-air' if a.sim_on == 'air' else 'pinpin-mini') if sim else 'quest'),
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,
