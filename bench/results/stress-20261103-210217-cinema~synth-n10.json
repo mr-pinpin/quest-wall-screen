@@ -1,0 +1,215 @@
+{
+ "when": "20261103-210217",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "cinema~synth",
+ "wanPingMs": {
+  "p50": 17.4,
+  "p95": 24.6,
+  "p99": 71.6,
+  "max": 102.527,
+  "count": 293
+ },
+ "zyxelPingMs": {
+  "p50": 3.3,
+  "p95": 10.5,
+  "p99": 22.9,
+  "count": 293
+ },
+ "lanPingMs": {
+  "p50": 24.8,
+  "p95": 119.8,
+  "p99": 123.1,
+  "count": 293
+ },
+ "laptopPingMs": {
+  "p50": 4.3,
+  "p95": 6.5,
+  "p99": 97.3,
+  "count": 293,
+  "ip": "192.168.0.102"
+ },
+ "houseInternetMbps": {
+  "down": 0.8,
+  "up": 0.8
+ },
+ "laptopWifiMbps": {
+  "tx": 23.1,
+  "rx": 0.8
+ },
+ "sender": {
+  "bitrateKbps": [
+   40000,
+   40000
+  ],
+  "layouts": 3,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "captureFps": {
+  "2": 60.0,
+  "3": 60.0,
+  "4": 0.2,
+  "5": 0.2,
+  "6": 0.2,
+  "7": 0.2,
+  "8": 0.2,
+  "9": 0.2,
+  "10": 0.2,
+  "11": 60.0
+ },
+ "network": {
+  "networkChanges": 1,
+  "lastChange": "2026-11-03T20:05:45Z",
+  "laptopChannel": "157 (5GHz, 80MHz)"
+ },
+ "phases": [
+  {
+   "phase": "setup",
+   "utc": "2026-11-03T21:02:17Z",
+   "sinceStartS": 0.0
+  },
+  {
+   "phase": "overrides",
+   "utc": "2026-11-03T21:02:17Z",
+   "sinceStartS": 0.0
+  },
+  {
+   "phase": "demand",
+   "utc": "2026-11-03T21:02:17Z",
+   "sinceStartS": 0.0
+  },
+  {
+   "phase": "measure",
+   "utc": "2026-11-03T21:02:30Z",
+   "sinceStartS": 12.8
+  },
+  {
+   "phase": "teardown",
+   "utc": "2026-11-03T21:04:03Z",
+   "sinceStartS": 105.2
+  },
+  {
+   "phase": "result",
+   "utc": "2026-11-03T21:04:16Z",
+   "sinceStartS": 119.0
+  }
+ ],
+ "host": {
+  "name": "pinpin-air",
+  "chip": "Apple M1",
+  "model": "MacBookAir10,1",
+  "macos": "15.6.1",
+  "standIn": "pinpin-mini"
+ },
+ "contentHz": 60,
+ "patternScreens": [
+  2,
+  3,
+  11
+ ],
+ "senderCpuPct": 27.0,
+ "atlas": {
+  "mbps": 26.8,
+  "mbpsMax": 39.1,
+  "freshFps": {
+   "p5": 32,
+   "p50": 39
+  },
+  "freshGapMs": {
+   "p50": 25.3,
+   "p99": 52.6,
+   "max": 161.0
+  },
+  "receiverCpuPct": 1.4,
+  "longestSilenceS": 0.25,
+  "emptySeconds": 0,
+  "keyframes": 22,
+  "layouts": 2,
+  "connects": 1,
+  "sizes": [
+   [
+    3680,
+    1728
+   ],
+   [
+    3680,
+    2128
+   ]
+  ]
+ },
+ "series": [
+  37.9,
+  39.1,
+  32.2,
+  21.9,
+  20.7,
+  31.3,
+  32.3,
+  32.7,
+  29.3,
+  26.6,
+  26.9,
+  24.6,
+  30.7,
+  27.6,
+  28.1,
+  25.8,
+  25.8,
+  25.8,
+  26.3,
+  25.1,
+  26.0,
+  25.5,
+  27.2,
+  26.1,
+  28.2,
+  27.8,
+  27.6,
+  20.9,
+  18.3,
+  26.9,
+  26.0,
+  26.4,
+  25.1,
+  26.4,
+  25.6,
+  25.9,
+  25.8,
+  26.1,
+  26.2,
+  25.8,
+  25.6,
+  26.6,
+  26.3,
+  25.9,
+  25.7,
+  26.0,
+  25.8,
+  25.8,
+  26.1,
+  26.3,
+  26.3,
+  25.8,
+  25.7,
+  26.0,
+  26.9,
+  26.0,
+  26.2,
+  26.0
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "stand-in reached the sender": true,
+  "atlas within 40 Mbit/s": true,
+  "no atlas freeze over 5 s": true,
+  "stream kept 30+ fresh frames/s (median)": true,
+  "fresh-frame gap p99 < 50 ms": false
+ },
+ "pass": false
+}

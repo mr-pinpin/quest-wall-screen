@@ -1,0 +1,178 @@
+{
+ "when": "20261103-174852",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "cinema~synth+nodelay",
+ "wanPingMs": {
+  "p50": 17.6,
+  "p95": 24.2,
+  "p99": 41.8,
+  "max": 65.331,
+  "count": 294
+ },
+ "zyxelPingMs": {
+  "p50": 2.8,
+  "p95": 8.8,
+  "p99": 17.3,
+  "count": 294
+ },
+ "lanPingMs": {
+  "p50": 45.8,
+  "p95": 160.7,
+  "p99": 209.6,
+  "count": 292
+ },
+ "laptopPingMs": {
+  "p50": 4.4,
+  "p95": 7.1,
+  "p99": 9.6,
+  "count": 294,
+  "ip": "192.168.0.102"
+ },
+ "houseInternetMbps": {
+  "down": 0.6,
+  "up": 0.7
+ },
+ "laptopWifiMbps": {
+  "tx": 26.4,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [
+   40000,
+   40000
+  ],
+  "layouts": 3,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "captureFps": {
+  "2": 60.0,
+  "3": 60.0,
+  "4": 0.2,
+  "5": 0.2,
+  "6": 0.2,
+  "7": 0.2,
+  "8": 0.2,
+  "9": 0.2,
+  "10": 0.2,
+  "11": 60.0
+ },
+ "host": {
+  "name": "pinpin-air",
+  "chip": "Apple M1",
+  "model": "MacBookAir10,1",
+  "macos": "15.6.1",
+  "standIn": "pinpin-mini"
+ },
+ "contentHz": 60,
+ "patternScreens": [
+  2,
+  3,
+  11
+ ],
+ "senderCpuPct": 30.3,
+ "atlas": {
+  "mbps": 31.5,
+  "mbpsMax": 40.8,
+  "freshFps": {
+   "p5": 47,
+   "p50": 47
+  },
+  "freshGapMs": {
+   "p50": 20.7,
+   "p99": 27.7,
+   "max": 104.2
+  },
+  "receiverCpuPct": 1.1,
+  "longestSilenceS": 0.1,
+  "emptySeconds": 0,
+  "keyframes": 25,
+  "layouts": 2,
+  "connects": 1,
+  "sizes": [
+   [
+    3680,
+    1728
+   ],
+   [
+    3680,
+    2128
+   ]
+  ]
+ },
+ "series": [
+  40.8,
+  39.0,
+  35.4,
+  34.2,
+  29.8,
+  33.8,
+  33.5,
+  33.6,
+  30.7,
+  30.8,
+  31.4,
+  30.3,
+  31.5,
+  30.8,
+  30.8,
+  31.6,
+  30.8,
+  30.9,
+  31.5,
+  31.4,
+  30.6,
+  30.7,
+  30.6,
+  30.7,
+  30.7,
+  31.3,
+  30.7,
+  30.6,
+  30.8,
+  31.4,
+  30.6,
+  31.5,
+  30.6,
+  30.9,
+  30.6,
+  30.6,
+  31.5,
+  30.8,
+  30.6,
+  31.3,
+  30.8,
+  30.8,
+  31.2,
+  31.0,
+  30.9,
+  31.6,
+  30.5,
+  30.8,
+  32.1,
+  30.8,
+  31.4,
+  30.8,
+  30.0,
+  30.8,
+  30.7,
+  30.7,
+  30.7,
+  30.9
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "stand-in reached the sender": true,
+  "atlas within 40 Mbit/s": true,
+  "no atlas freeze over 5 s": true,
+  "stream kept 30+ fresh frames/s (median)": true,
+  "fresh-frame gap p99 < 50 ms": true
+ },
+ "pass": true
+}

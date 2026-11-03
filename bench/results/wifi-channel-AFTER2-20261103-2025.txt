@@ -1,0 +1,9 @@
+== AFTER2 2026-11-03T20:32:24Z
+              PHY Mode: 802.11ax
+              Channel: 157 (5GHz, 80MHz)
+              Signal / Noise: -48 dBm / -93 dBm
+              Transmit Rate: 960
+air2mini: n=3000 loss=0 p50=4.7 p95=78.3 p99=243.4 p99.9=366.8 max=565.2 ms  over50ms=295 over100ms=73
+mini2air: n=3000 loss=0 p50=4.6 p95=86.2 p99=281.9 p99.9=403.6 max=412.5 ms  over50ms=317 over100ms=91
+0 snapshots in /root/work/quest-wall-screen-sharp/bench/results/headset-net-2026-11-03.jsonl
+cinema-10 wifi (AFTER2, sck): stress-20261103-204331-cinema-n10.json fresh {'p5': 30, 'p50': 41} gap {'p50': 22.5, 'p99': 117.5, 'max': 432.7} mbps 27.3 laptopPing {'p50': 4.3, 'p95': 77.4, 'p99': 278.5} source None
