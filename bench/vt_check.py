@@ -23,7 +23,7 @@ packing algorithm, not the Swift build; recorded mode checks the real sender.
 """
 import argparse, json, math, random, sys
 
-MAX_W, MAX_H, TILE_W, TILE_H, TAIL = 3840, 2400, 1920, 1200, 240
+MAX_W, MAX_H, TILE_W, TILE_H, TAIL = 3840, 2304, 1920, 1200, 240
 
 
 def check_layout(L, displays=None, demand=None):
@@ -80,14 +80,44 @@ def check_layout(L, displays=None, demand=None):
     return errs, info
 
 
-# ---- model of AtlasSender.layoutVT (Swift), for synthetic runs
-def layout_vt(entries, tiers, live, pri, cell_w=TILE_W, cell_h=TILE_H):
+# ---- model of AtlasSender.layoutVT and Atlas.skyline (Swift), for synthetic runs; keep in step
+def skyline(tiles, width, max_h):
+    sky, out, used = [(0, width, 0)], [], 0
+    for t in tiles:
+        bx, by = -1, None
+        for i, (x, w, y0) in enumerate(sky):
+            if x + t['w'] > width: break
+            y, j, covered = 0, i, 0
+            while covered < t['w']: y = max(y, sky[j][2]); covered += sky[j][1]; j += 1
+            if by is None or y < by: by, bx = y, x
+        if bx < 0 or by + t['h'] > max_h: return None
+        out.append(dict(t, x=bx, y=by)); used = max(used, by + t['h'])
+        nxt = []
+        for (x, w, y) in sky:
+            e = x + w
+            if e <= bx or x >= bx + t['w']: nxt.append((x, w, y)); continue
+            if x < bx: nxt.append((x, bx - x, y))
+            if e > bx + t['w']: nxt.append((bx + t['w'], e - bx - t['w'], y))
+        nxt.append((bx, t['w'], by + t['h'])); nxt.sort()
+        sky = []
+        for seg in nxt:
+            if sky and sky[-1][2] == seg[2] and sky[-1][0] + sky[-1][1] == seg[0]: sky[-1] = (sky[-1][0], sky[-1][1] + seg[1], seg[2])
+            else: sky.append(seg)
+    return used, out
+
+
+def layout_vt(entries, tiers, live, pri, cell_w=TILE_W, cell_h=TILE_H, hidden=(), current=None):
+    current = current or {}
     def tail(e):
         w = e['w']
         while w > TAIL: w //= 2
         return max(16, w // 2 * 2)
     def height(e, w): return max(16, w * e['h'] // max(1, e['w']) // 2 * 2)
-    width = {e['screen']: (max(tail(e), min(e['w'], tiers.get(e['screen'], min(e['w'], cell_w))) // 2 * 2) if e['screen'] in live else tail(e)) for e in entries}
+    width = {}
+    for e in entries:
+        if e['screen'] not in live: width[e['screen']] = tail(e)
+        elif e['screen'] in hidden: width[e['screen']] = current.get(e['screen'], tail(e))
+        else: width[e['screen']] = max(tail(e), min(e['w'], tiers.get(e['screen'], min(e['w'], cell_w))) // 2 * 2)
     def pack():
         tiles = []
         for e in entries:
@@ -95,13 +125,15 @@ def layout_vt(entries, tiers, live, pri, cell_w=TILE_W, cell_h=TILE_H):
             for ty in range(0, fh, cell_h):
                 for tx in range(0, fw, cell_w):
                     tiles.append(dict(e=e, w=min(cell_w, fw - tx), h=min(cell_h, fh - ty), sx=tx, sy=ty, fw=fw, fh=fh))
-        tiles = [t for _, t in sorted(enumerate(tiles), key=lambda p: (-p[1]['h'], p[0]))]
-        out, x, y, row_h, W = [], 0, 0, 0, 0
-        for t in tiles:
-            if x + t['w'] > MAX_W: x = 0; y += row_h; row_h = 0
-            if y + t['h'] > MAX_H: return None
-            out.append(dict(t, x=x, y=y)); x += t['w']; row_h = max(row_h, t['h']); W = max(W, x)
-        return max(16, min(MAX_W, (W + 15) // 16 * 16)), max(16, min(MAX_H, (y + row_h + 15) // 16 * 16)), out
+        tiles = [t for _, t in sorted(enumerate(tiles), key=lambda p: (-p[1]['h'], -p[1]['w'], p[0]))]
+        min_w = max(t['w'] for t in tiles)
+        best = None
+        for aw in range((min_w + 15) // 16 * 16, MAX_W + 1, 16):
+            r = skyline(tiles, aw, MAX_H)
+            if r is None: continue
+            ah = max(16, (r[0] + 15) // 16 * 16)
+            if best is None or aw * ah < best[0]: best = (aw * ah, aw, ah, r[1])
+        return None if best is None else (best[1], min(MAX_H, best[2]), best[3])
     while True:
         p = pack()
         if p: break

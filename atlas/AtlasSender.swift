@@ -28,8 +28,8 @@ struct Options {
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
     //          one media engine to Sunshine's game encode: it encodes on 1 tick in N (N = 2, rising to 4 while its
     //          own encode time says the engine is contended), with one flush repeat instead of three
-    //   damage  ScreenCaptureKit damage: frames that report no dirty rects are not copied (no re-encode), and a
-    //          frame's copy covers only the rows its dirty rects touch
+    //   damage  a frame identical to the screen's previous one is not copied (no re-encode), and a frame's copy
+    //          covers only the rows that differ (compared row by row; SCK's dirty rects cover everything)
     //   prifps  per-screen frame-rate by demand priority: pri >= 0.8 full rate, >= 0.3 15 fps, else 10 fps; when no
     //          full-rate screen changed, the atlas encodes at most 15 times a second
     var flags = Set<String>(), statSecs = 30.0
@@ -102,19 +102,15 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
-        // damage: the rows this frame changed, in frame pixels; nil = all of it
+        // damage: the rows this frame changed, in frame pixels; nil = all of it. ScreenCaptureKit marks virtual
+        // displays dirty on every frame (0% clean measured), so compare with the previous frame instead: exact, and
+        // about the cost of the copy it saves.
         var rows: Range<Int>? = nil
-        if a.o.flags.contains("damage"),
-           let info = (CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
-           let raw = info[.dirtyRects] as? [NSDictionary] {
-            let rects = raw.compactMap { CGRect(dictionaryRepresentation: $0) }
-            if rects.isEmpty { a.lock.withLock { frames += 1; clean += 1; latest = pb }; return }  // nothing changed
-            // Dirty rects are in display points; only at 1:1 (frame width = display width in points) are they rows.
-            let pts = CGDisplayBounds(cells[0].entry.display).width, ph = CVPixelBufferGetHeight(pb)
-            if Int(pts) == CVPixelBufferGetWidth(pb) {
-                let u = rects.reduce(CGRect.null) { $0.union($1) }
-                let r0 = max(0, Int(u.minY.rounded(.down))), r1 = min(ph, Int(u.maxY.rounded(.up)))
-                if r0 < r1 { rows = r0..<r1 }
+        if a.o.flags.contains("damage"), let prev = a.lock.withLock({ latest }), prev !== pb {
+            switch Atlas.changedRows(prev, pb) {
+            case .some(let r) where r.isEmpty: a.lock.withLock { frames += 1; clean += 1; latest = pb }; return  // identical
+            case .some(let r): rows = r
+            case .none: break  // size changed: copy all
             }
         }
         a.lock.lock(); defer { a.lock.unlock() }
@@ -169,6 +165,21 @@ final class Atlas {
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
     init(_ o: Options) { self.o = o }
 
+    // damage: the range of rows where two same-sized frames differ (empty if identical), nil if they can't be compared.
+    static func changedRows(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Range<Int>? {
+        let w = CVPixelBufferGetWidth(a), h = CVPixelBufferGetHeight(a)
+        guard w == CVPixelBufferGetWidth(b), h == CVPixelBufferGetHeight(b) else { return nil }
+        CVPixelBufferLockBaseAddress(a, .readOnly); CVPixelBufferLockBaseAddress(b, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(a, .readOnly); CVPixelBufferUnlockBaseAddress(b, .readOnly) }
+        guard let pa = CVPixelBufferGetBaseAddress(a), let pb = CVPixelBufferGetBaseAddress(b) else { return nil }
+        let sa = CVPixelBufferGetBytesPerRow(a), sb = CVPixelBufferGetBytesPerRow(b), n = w * 4
+        var top = 0
+        while top < h && memcmp(pa + top * sa, pb + top * sb, n) == 0 { top += 1 }
+        if top == h { return 0..<0 }
+        var bottom = h - 1
+        while bottom > top && memcmp(pa + bottom * sa, pb + bottom * sb, n) == 0 { bottom -= 1 }
+        return top..<(bottom + 1)
+    }
     // Copies one captured frame (its sx, sy part) into a cell; caller holds `lock`.
     func blit(_ pb: CVPixelBuffer, _ cell: Cell, rows: Range<Int>? = nil) {
         CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
@@ -330,17 +341,25 @@ final class Atlas {
         }
     }
 
-    // vt layout: each screen at its level's width (no 1920 cap), cut into tiles of at most cellW x cellH, packed in
-    // shelves (tallest first) into at most 3840x2304: H.264 level 5.1, which the Quest decodes, capped by the Mac's
-    // hardware encoder (4096x2304; at 3840x2400 it produced no frames at all, 2026-11-03). Paused screens are
-    // mip tails (<= 240 px wide). Too big: the screen with the most area per unit of priority shrinks 10%, repeat;
-    // a single cinema screen at level 0 keeps the whole atlas while the rest are tails.
-    func layoutVT(_ list: [Entry], _ tiers: [Int: Int], _ live: Set<CGDirectDisplayID>, _ pri: [Int: Double], cap: Bool = false) -> (Int, Int, [Cell]) {
+    // vt layout: each screen at its level's width (no 1920 cap), cut into tiles of at most cellW x cellH, packed
+    // skyline bottom-left (tallest first) at the atlas width that gives the smallest area, within 3840x2304: H.264
+    // level 5.1, which the Quest decodes, capped by the Mac's hardware encoder (4096x2304; at 3840x2400 it produced no
+    // frames at all, 2026-11-03). The encoder pays for the whole atlas, empty space included: row shelves across 3840
+    // left cinema-10 at 3840x1360 where 2400x1200 holds the same cells. Paused screens are mip tails (<= 240 px wide);
+    // a hidden screen still capturing keeps its current size, or starts as a tail. Too big: the screen with the most
+    // area per unit of priority shrinks 10%, repeat; a single cinema screen at level 0 keeps the whole atlas while the
+    // rest are tails.
+    func layoutVT(_ list: [Entry], _ tiers: [Int: Int], _ live: Set<CGDirectDisplayID>, _ pri: [Int: Double], cap: Bool = false,
+                  hidden: Set<Int> = [], current: [Int: Int] = [:]) -> (Int, Int, [Cell]) {
         let maxW = cap ? 1920 : 3840, maxH = cap ? 1152 : 2304
         func tail(_ e: Entry) -> Int { var w = e.w; while w > 240 { w /= 2 }; return max(16, w / 2 * 2) }
         func height(_ e: Entry, _ w: Int) -> Int { max(16, w * e.h / max(1, e.w) / 2 * 2) }
         var width: [Int: Int] = [:]
-        for e in list { width[e.screen] = live.contains(e.display) ? max(tail(e), min(e.w, tiers[e.screen] ?? min(e.w, o.cellW)) / 2 * 2) : tail(e) }
+        for e in list {
+            if !live.contains(e.display) { width[e.screen] = tail(e) }
+            else if hidden.contains(e.screen) { width[e.screen] = current[e.screen] ?? tail(e) }
+            else { width[e.screen] = max(tail(e), min(e.w, tiers[e.screen] ?? min(e.w, o.cellW)) / 2 * 2) }
+        }
         func pack() -> (Int, Int, [Cell])? {
             var tiles: [Cell] = []
             for e in list {
@@ -351,15 +370,15 @@ final class Atlas {
                     }
                 }
             }
-            tiles = tiles.enumerated().sorted { ($0.element.h, -$0.offset) > ($1.element.h, -$1.offset) }.map { $0.element }
-            var out: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0
-            for t in tiles {
-                if x + t.w > maxW { x = 0; y += rowH; rowH = 0 }
-                if y + t.h > maxH { return nil }
-                out.append(Cell(entry: t.entry, x: x, y: y, w: t.w, h: t.h, sx: t.sx, sy: t.sy, fw: t.fw, fh: t.fh))
-                x += t.w; rowH = max(rowH, t.h); W = max(W, x)
+            tiles = tiles.enumerated().sorted { ($0.element.h, $0.element.w, -$0.offset) > ($1.element.h, $1.element.w, -$1.offset) }.map { $0.element }
+            let minW = tiles.map { $0.w }.max() ?? 16
+            var best: (area: Int, w: Int, h: Int, cells: [Cell])? = nil
+            for aw in stride(from: (minW + 15) / 16 * 16, through: maxW, by: 16) {
+                guard let (h, cells) = Atlas.skyline(tiles, width: aw, maxH: maxH) else { continue }
+                let ah = max(16, (h + 15) / 16 * 16), area = aw * ah
+                if best == nil || area < best!.area { best = (area, aw, ah, cells) }
             }
-            return (max(16, min(maxW, (W + 15) / 16 * 16)), max(16, min(maxH, (y + rowH + 15) / 16 * 16)), out)
+            return best.map { ($0.w, min(maxH, $0.h), $0.cells) }
         }
         while true {
             if let p = pack() { return p }
@@ -369,6 +388,37 @@ final class Atlas {
             }
             width[e.screen] = max(tail(e), Int(Double(width[e.screen]!) * 0.9) / 2 * 2)
         }
+    }
+    // Skyline bottom-left packing of tiles (already sorted) into a strip `width` wide: each tile goes where its top
+    // edge is lowest, then leftmost. Returns the used height and the placed cells, or nil past maxH.
+    static func skyline(_ tiles: [Cell], width: Int, maxH: Int) -> (Int, [Cell])? {
+        var sky: [(x: Int, w: Int, y: Int)] = [(0, width, 0)], out: [Cell] = [], used = 0
+        out.reserveCapacity(tiles.count)
+        for t in tiles {
+            var bx = -1, by = Int.max
+            for i in sky.indices {
+                let x = sky[i].x
+                if x + t.w > width { break }
+                var y = 0, j = i, covered = 0
+                while covered < t.w { y = max(y, sky[j].y); covered += sky[j].w; j += 1 }
+                if y < by { by = y; bx = x }
+            }
+            if bx < 0 || by + t.h > maxH { return nil }
+            out.append(Cell(entry: t.entry, x: bx, y: by, w: t.w, h: t.h, sx: t.sx, sy: t.sy, fw: t.fw, fh: t.fh))
+            used = max(used, by + t.h)
+            // new skyline: the tile's top replaces whatever it covers
+            var next: [(x: Int, w: Int, y: Int)] = []
+            for s in sky {
+                let e = s.x + s.w
+                if e <= bx || s.x >= bx + t.w { next.append(s); continue }
+                if s.x < bx { next.append((s.x, bx - s.x, s.y)) }
+                if e > bx + t.w { next.append((bx + t.w, e - bx - t.w, s.y)) }
+            }
+            next.append((bx, t.w, by + t.h)); next.sort { $0.x < $1.x }
+            sky = []
+            for s in next { if let l = sky.last, l.y == s.y, l.x + l.w == s.x { sky[sky.count - 1].w += s.w } else { sky.append(s) } }
+        }
+        return (used, out)
     }
 
     func refresh() async {
@@ -393,9 +443,23 @@ final class Atlas {
         }
         // Screens worth a capture stream: all of them without fresh demand, else the visible ones plus those
         // hidden for under 2 s.
+        let capturing = Set(captures.filter { !$0.value.dead }.keys)
         let live: Set<CGDirectDisplayID> = dlock.withLock {
             let stale = now.timeIntervalSince(wantAt) > 2
-            return Set(list.filter { e in stale || (want[e.screen]?.vis ?? true) || now.timeIntervalSince(hiddenAt[e.screen] ?? now) < 2 }.map { $0.display })
+            var l = Set(list.filter { e in stale || (want[e.screen]?.vis ?? true) || now.timeIntervalSince(hiddenAt[e.screen] ?? now) < 2 }.map { $0.display })
+            // vt: a reveal goes live at once, but a screen becomes a mip tail only once hidden for 10 s, and demotions
+            // wait for the 5 s refit gate and go together: the gaze sweeping a ring of screens relayouted every 2 s
+            // pass (29 keyframes a minute in work-c4's replay of the ring-10 trace, bench/demand_replay.py; 14 with
+            // this), and a revealed screen still sharpens at once.
+            if vt {
+                let demote = capturing.subtracting(l).intersection(list.map { $0.display })
+                let ready = Set(list.filter { e in demote.contains(e.display) && now.timeIntervalSince(hiddenAt[e.screen] ?? now) >= 10 }.map { $0.display })
+                l.formUnion(demote.subtracting(ready))
+                if !ready.isEmpty {
+                    if now.timeIntervalSince(lastRefit) < 5 { l.formUnion(ready) } else { lastRefit = now }
+                }
+            }
+            return l
         }
         // prifps: each capture's rate follows its screen's priority (full rate without fresh demand)
         if o.flags.contains("prifps") {
@@ -427,7 +491,9 @@ final class Atlas {
         if capped { key += "|gamecap" }
         if vt { key += "|vt|" + list.map { e in "\(e.screen)\(live.contains(e.display) ? "" : "t")@\(Int((pri[e.screen] ?? 1) * 20))" }.joined(separator: ",") }
         if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
-        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri, cap: capped) : layout(list, tiers, cap: capped)
+        let hiddenNow: Set<Int> = vt ? dlock.withLock { Set(want.filter { !$0.value.vis }.keys) } : []
+        let currentW = Dictionary(captures.values.map { ($0.screen, $0.cells[0].frameW) }, uniquingKeysWith: { a, _ in a })
+        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri, cap: capped, hidden: hiddenNow, current: currentW) : layout(list, tiers, cap: capped)
         let resized = w != W || h != H
         let cj = cells.map { c -> String in
             var j = "{\"screen\":\(c.entry.screen),\"x\":\(c.x),\"y\":\(c.y),\"w\":\(c.w),\"h\":\(c.h)"
