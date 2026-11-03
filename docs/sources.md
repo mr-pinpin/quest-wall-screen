@@ -51,4 +51,50 @@ one of three ways, and all three already exist:
 
 ## Sender side
 
-(work-09: synthetic source, SCK source, where a WebGPU renderer plugs into AtlasSender.)
+The sender is one renderer with several picture sources, like a game with several kinds of assets. Every source
+delivers frames for a *screen* (an id the headset knows) into the same pipeline:
+
+```
+source -> deliver(frame) -> atlas cells (layout, VT levels/tiles/mip tails) -> H.264 encode -> paced send -> headset
+```
+
+`CellCapture.deliver(_:)` is the one entry point. Everything after it (damage compare, stash while hidden, blit into
+tiles, prifps, VT sizing, the encoder, pacing, the network) is shared, so a new source only has to produce frames at
+the size the layout asks for (`resize(w, h, fps)`) and stop when its screen leaves view (`stop()`).
+
+| Source | Selected by | Produces | Cost / limits | Use |
+|---|---|---|---|---|
+| **macOS screen** (`CellCapture`, ScreenCaptureKit) | displays helper `/displays`, or `--test S:<displayID>:WxH` | a Mac display's pixels, scaled by SCK to the cell size | WindowServer must drive the display: asleep display = no frames; ~8.6 fps per display with 10 virtual 1920x1200 displays animating, ~30 fps with 1-4 (2026-11-03); every frame is marked dirty | the user's real Mac screens |
+| **synthetic** (`SynthSource`) | `--synth "S:WxH,..."` [`--synth-animate "S,..."` or `none`], or `--test S:synth:WxH` | 8 precomputed IOSurface pictures per screen cycled at the capture rate (animated), or one still picture (static) | ~0: no SCK, no WindowServer | pipeline benchmarks (default for stress.py `--source synth`); measures packing, VT, encode, send |
+| **owned renderer** (proposed) | `--surface S:<name>` | frames we render ourselves (WebGPU) into a shared IOSurface | GPU time of our own renderer only | our own UI/scenes rendered on the Mac at exactly the needed level |
+| **video** (proposed) | `--video S:<file or URL>` | decoded frames (AVPlayerItemVideoOutput, IOSurface-backed) | one hardware decode | cinema content without screen capture |
+
+Heavy 3D content is not a sender source: it is rendered on the headset from streamed assets (docs/3d-content.md).
+
+### Adapting to the macOS screen source
+
+SCK is one source with known costs, adapted around rather than treated as the system's ceiling:
+- capture only screens in view (visibility-only capture, default since 4d28e69);
+- background screens at lower rates (`prifps`), mip tails for hidden ones (`vt`);
+- keep the display awake while a headset is connected (default since a4709fe; `nowake` turns it off).
+
+### Where a WebGPU renderer plugs in (proposal)
+
+Cleanest path: a separate renderer process using **Dawn** (Chrome's WebGPU implementation, C++) or **wgpu-native**,
+rendering each screen into a texture backed by an **IOSurface**, shared with the sender by IOSurface ID — zero copies:
+
+1. Renderer creates `IOSurface`s (BGRA, the cell's size for the wanted VT level) and wraps them as `MTLTexture`s;
+   with Dawn, `SharedTextureMemory` imports an IOSurface as a `wgpu::Texture`, so WebGPU code renders into it.
+2. It announces `{screen, iosurfaceID, w, h, seq}` over a local socket (or a small shared-memory ring of seq numbers)
+   after each finished frame (after its command buffer completes).
+3. The sender's `SurfaceSource` looks up the IOSurface (`IOSurfaceLookup(id)`), wraps it as a `CVPixelBuffer`
+   (`CVPixelBufferCreateWithIOSurface`) and calls `deliver(_:)` — the same path as SCK frames.
+4. The sender tells the renderer the wanted size per screen (the VT level from demand), so the renderer draws exactly
+   the detail the headset can show — virtual texturing driving a renderer we own.
+
+Why out of process: the renderer can be a Chrome/Dawn build or a web page's WebGPU (through a small native host) and
+crash or restart without taking the sender down; IOSurfaces are designed for cross-process sharing. In-process
+(linking wgpu into the sender) is simpler to start but couples the sender to the renderer's dependencies.
+
+Not via SCK: capturing a WebGPU page's window through ScreenCaptureKit would put WindowServer back in the loop,
+the very cost this source avoids.
