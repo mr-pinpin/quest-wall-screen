@@ -27,6 +27,10 @@ if action=='install':
     root=sh('test -x /debug_ramdisk/su && echo yes')=='yes'
     su=(lambda c:"/debug_ramdisk/su -c '%%s'"%%c) if root else (lambda c:c)
     print('INSTALL',sh(su('pm install -r -g /data/local/tmp/pinpin-room-lab.apk')))
+    # The wireless adb link drops right after an install (seen 2026-11-03): reconnect before going on.
+    for _ in range(5):
+        if subprocess.run(adb+['get-state'],capture_output=True,text=True).stdout.strip()=='device':break
+        subprocess.run([adb[0],'connect','127.0.0.1:26351'],capture_output=True,timeout=20);time.sleep(2)
     print('GRANT',sh(su('pm grant %%s com.oculus.permission.USE_SCENE'%%P)) or 'ok','(root)' if root else '(no root)')
     sh('am force-stop '+P)
     print('LAUNCH',sh("am broadcast -a com.oculus.vrpowermanager.prox_close >/dev/null; input keyevent KEYCODE_WAKEUP; am start -n %%s/.MainActivity --ez capture %%s"%%(P,'true' if capture else 'false')))
