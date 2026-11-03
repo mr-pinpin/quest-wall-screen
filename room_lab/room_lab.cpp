@@ -182,7 +182,7 @@ struct App {
     // old image (holdLayers) until the new one has arrived; demand carries the wanted level ("lvl") and the one
     // shown ("have"). files/vt-on forces it for self-tests.
     bool vtMenu = false, vtFile = false; bool vt() const { return vtMenu || vtFile; }
-    std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0;
+    std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0; std::map<int, vt::Resident> vtResident;
     // BUDGET flag (docs/3d-content.md, room_lab/budget.h): one arbiter splits the link between the atlas, the game
     // stream and asset downloads by mode (wall / cinema / game) and, under frame-time pressure, makes unfocused
     // screens one or two levels coarser (with VT). Frame time: the GPU's (GPUTIME flag, gpu_timer.h) when the driver
@@ -2018,13 +2018,17 @@ void main(){
                 }
                 PanelLayer& H = holdLayers[e.id];
                 bool vis = demandFor(e.id, e.p, wallById(e.p.wall)).vis;
-                if (!vis && (L.hasImage || H.hasImage)) { vtSkipped++; extraLive.insert(e.id); continue; }  // keep the sharp copy
+                vt::Resident& R = vtResident[e.id];
+                if ((L.hasImage || H.hasImage) && !R.shouldCopy(vis, vt::levelOf(it->second, vtSrcW(e.id)), now())) {  // keep the sharp copy
+                    vtSkipped++; extraLive.insert(e.id); continue;
+                }
                 int cw = 0, ch = 0; std::vector<vt::Tile> tiles = vt::tiles(atlasTiles[e.id], cw, ch);
                 if (vt::needsHold(L.hasImage, cw, ch, L.contentW, L.contentH)) {  // new size: show the old image until the new one is in
                     H.destroy(); std::swap(H, L); vtHolds++;
                 }
                 L.superSample = panelLayer.superSample; L.super = panelLayer.super;
                 L.update(session, atlasVideo.mipFbo, cw, ch, atlasVideo.mipVersion, tiles);
+                if (L.hasImage) R.copied(vt::levelOf(it->second, vtSrcW(e.id)));
                 if (L.hasImage && H.chain) H.destroy();
                 if (L.hasImage || H.hasImage) extraLive.insert(e.id);
             }

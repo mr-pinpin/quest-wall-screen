@@ -81,6 +81,25 @@ inline int levelOf(const Cell& c, int srcWidth) {
     return std::max(0, (int)std::lround(std::log2((double)srcWidth / std::max(1, c.w))));
 }
 
+// Per-screen residency: whether this frame's atlas cell should be copied into the screen's layer.
+//  - hidden: never, once the screen has an image (it keeps its last sharp copy; the sender may shrink it to a tail)
+//  - just revealed: the sender's first layouts after a reveal can still carry the mip-tail cell (its resize waits
+//    for the next refresh), so for `grace` seconds a cell coarser than the shown level is not copied: the sharp,
+//    slightly stale image beats a blurry fresh one; after that, fresh content wins whatever its level.
+//  - otherwise: always (level changes the user asked for, by distance or size, apply at once).
+struct Resident {
+    int shownLvl = -1; bool visible = false; double revealedAt = -1;
+    long skippedHidden = 0, keptSharp = 0;
+    bool shouldCopy(bool vis, int cellLvl, double now, double grace = 1.0) {
+        if (vis && !visible) revealedAt = now;
+        visible = vis;
+        if (!vis) { if (shownLvl >= 0) { skippedHidden++; return false; } return true; }
+        if (shownLvl >= 0 && cellLvl > shownLvl && revealedAt >= 0 && now - revealedAt < grace) { keptSharp++; return false; }
+        return true;
+    }
+    void copied(int lvl) { shownLvl = lvl; }
+};
+
 // Hold rule: a screen that shows an image and gets a new panel size keeps the old image until the new one exists.
 inline bool needsHold(bool hasImage, int cw, int ch, int contentW, int contentH) { return hasImage && (cw != contentW || ch != contentH); }
 

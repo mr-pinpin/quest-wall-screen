@@ -11,6 +11,7 @@ run "budget arbiter (room_lab/budget.h)" bash -c "g++ -std=c++17 -Wall -I room_l
 run "VT headset logic + recorded layouts" bash -c "g++ -std=c++17 -O1 -Wall -Wno-misleading-indentation -I room_lab bench/vt_headset_test.cpp -o $T/vt && $T/vt $LAYOUTS"
 for f in $LAYOUTS; do run "vt_check recorded $(basename $f)" python3 bench/vt_check.py recorded "$f"; done
 run "vt_check synthetic packer model" python3 bench/vt_check.py synthetic --runs 500 --seed 1
+run "VT replay: recorded sessions through vt::Resident" bash -c "g++ -std=c++17 -Wall -I room_lab bench/vt_replay.cpp -o $T/replay && $T/replay $LAYOUTS"
 run "gate.py self-test" python3 bench/gate_test.py
 run "3D models: json, glb, progressive ktx2, asset budget" bash -c "g++ -std=c++17 -Wall -I room_lab bench/model_test.cpp -o $T/model && $T/model $ASSETS"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
