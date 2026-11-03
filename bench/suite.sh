@@ -1,5 +1,5 @@
 #!/bin/bash
-# The benchmark suite (bench/suite.sh): cinema, VR, wall and moving-gaze scenarios at 10, 20 and 30 screens,
+# The benchmark suite (bench/suite.sh): cinema, VR, wall and moving-gaze scenarios at 10 and 20 screens (30 wedged macOS screen capture on 2026-11-03; re-add only after visibility-only capture is proven),
 # plus one with heavy internet load. Every run is guarded by stress.py itself: it starts only while the laptop
 # has been idle 10 min and nobody wears the headset, and aborts (cleaning up) when either is picked up.
 # Waits for an idle window (checks every 10 min, up to 10 h), then runs what is left; an aborted run is retried.
@@ -11,8 +11,6 @@ RUNS=(
   "--scenario ring --n 10"
   "--scenario cinema --n 20"
   "--scenario wall --n 20"
-  "--scenario cinema --n 30"
-  "--scenario wall --n 30"
   "--scenario cinema --n 10 --wan 3"
 )
 SECS=${SECS:-60}
