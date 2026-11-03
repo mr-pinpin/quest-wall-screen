@@ -1324,14 +1324,16 @@ void main(){
     // Stress test (bench/stress.py): files/stress.json {"n":10,"sweep":3} replaces the extras' demand with N
     // synthetic screens 2..N+1 on a ring around the user, at 1.5/2.5/3.5 m, while a virtual gaze turns one
     // screen every `sweep` seconds. Exercises the sender's stash/resize/bitrate paths with nobody wearing it.
-    int stressN = 0; float stressSweep = 3; std::chrono::steady_clock::time_point stressCheck{};
+    // "scenario" (optional): ring (default), cinema, vr or wall, the same patterns as bench/stress/headset_sim.py.
+    int stressN = 0; float stressSweep = 3; std::string stressScenario = "ring"; std::chrono::steady_clock::time_point stressCheck{};
     void pollStress() {
         auto t = std::chrono::steady_clock::now();
         if (t - stressCheck < std::chrono::seconds(2)) return;
         stressCheck = t;
         std::ifstream f(gDir + "/stress.json"); int n = 0;
         if (f) { std::string j((std::istreambuf_iterator<char>(f)), {}); n = atoi(SharpLayer::field(j, "n").c_str());
-                 float sw = atof(SharpLayer::field(j, "sweep").c_str()); if (sw > 0.2f) stressSweep = sw; }
+                 float sw = atof(SharpLayer::field(j, "sweep").c_str()); if (sw > 0.2f) stressSweep = sw;
+                 std::string sc = SharpLayer::field(j, "scenario"); stressScenario = sc.empty() ? "ring" : sc; }
         n = std::max(0, std::min(n, 16));
         if (n != stressN) { stressN = n; event("stress: " + std::to_string(n) + " synthetic screens"); }
         // files/launch ("LAPTOP" or "MINI"): start that stream as if its menu button was pressed (bench/stress.py --game)
@@ -1342,6 +1344,12 @@ void main(){
         }
     }
     Demand stressDemand(int k) {
+        if (stressScenario == "cinema") {  // screen 2 fills the view; its two neighbours peek in; the rest are behind
+            bool peek = k == 1 || k == stressN - 1;
+            return k == 0 ? Demand{2, true, 3000, 1.0f} : Demand{k + 2, peek, peek ? 300 : 0, peek ? 0.1f : 0.0f};
+        }
+        if (stressScenario == "vr") return Demand{k + 2, false, 0, 0.0f};  // a full VR game: no screen visible
+        if (stressScenario == "wall") return Demand{k + 2, true, 500, k == 0 ? 1.0f : 0.3f};  // all visible, small
         const float tau = 6.2831853f;
         float gaze = std::fmod(now() / (stressSweep * stressN), 1.0) * tau, at = tau * k / stressN;
         float off = std::fabs(std::remainder(at - gaze, tau)), dist = 1.5f + (k % 3), half = std::atan(0.7f / dist);

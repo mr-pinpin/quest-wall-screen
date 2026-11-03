@@ -307,7 +307,7 @@ def main():
             if a.headset_flag: time.sleep(2)
             if a.codec:  # before the launch below, which reads it; removed in teardown
                 headset(f"run-as {PKG} sh -c '{'touch' if a.codec == 'H264' else 'rm -f'} files/codec-h264'"); time.sleep(2)  # polled ~1/s
-            spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep}).encode()).decode()
+            spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep, 'scenario': a.scenario}).encode()).decode()  # app v0.41+ reads scenario
             headset(f"run-as {PKG} sh -c 'echo {spec} | base64 -d > files/stress.json'")
             if a.game:
                 headset(f"run-as {PKG} sh -c 'echo {a.game} > files/launch'"); time.sleep(12)  # session setup
@@ -381,7 +381,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
