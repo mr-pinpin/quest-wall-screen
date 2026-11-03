@@ -29,6 +29,8 @@ PAIRS=(
                                             #    (encprobe: game encode 40 fps/277 ms -> 60 fps/13 ms, bench/results/encshare-2026-11-03.md)
   ""                                        # 4. baseline again
   "--headset-flag wifill"                   #    Wi-Fi low-latency lock while streaming (headset v0.40+ WIFILL flag)
+  ""                                        # 5. baseline again
+  "--flags vt,gamecap,gameyield --headset-flag vt"  # the screens around a game: vt (encode 9.7 vs 36 ms) + game-aware caps
 )
 # Verdicts: python3 bench/verdict.py vt_realtime|gameyield|codec-h264|encshare OFF.json ON.json (docs/bench-scoreboard.md)
 THEN=()
