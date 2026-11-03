@@ -26,8 +26,10 @@ check(kinds(w.check(T + 31 * 60, [], {'owner': 'someone', 'age_s': 31 * 60}, {},
 # Stalled queue: suite running, lock free, last event 6 min ago.
 ev3 = w.parse([f"{at(0)} work-c4 stress.py[200] START sim run: --scenario vr --n 10 --secs 60", f"{at(4)} work-c4 stress.py[200] END sim run"])
 procs = {'300': 'bash bench/suite.sh'}
-check(kinds(w.check(T + 10 * 60, ev3, None, procs, [])) == ['stalled queue'], 'stalled queue')
-check(w.check(T + 8 * 60, ev3, None, procs, []) == [], 'queue waiting under 5 min: fine')
+check(kinds(w.check(T + 15 * 60, ev3, None, procs, [])) == ['stalled queue'], 'stalled queue')
+check(w.check(T + 12 * 60, ev3, None, procs, []) == [], 'queue waiting under 10 min: fine')
+other = ev3 + w.parse([f"{at(12)} work-09 x.sh[manual] START+END Air: a slot"])
+check(kinds(w.check(T + 15 * 60, other, None, procs, [])) == ['stalled queue'], 'another agent''s slot does not hide our stall')
 check(w.check(T + 10 * 60, ev3, {'owner': 'work-09 test', 'age_s': 60}, procs, []) == [], 'queue waiting on another holder: fine')
 # Ghost job: our START, pid gone, no lock.
 ev4 = w.parse([f"{at(0)} work-c4 stress.py[400] START sim run: --secs 60"])
