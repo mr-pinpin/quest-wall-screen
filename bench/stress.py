@@ -290,7 +290,7 @@ def main():
             stdin = (HERE / 'headset_sim.py').read_text()
         else:
             probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
-                      f"{ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")
+                      f"perl -e 'alarm 5; exec @ARGV' {ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")  # 5 s cap: a sleeping headset hangs adb
             stdin = None
         proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-mini', probe], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -298,9 +298,13 @@ def main():
         proc.stdin.close()
         idle_before = laptop_idle_s()
         sender = 'pinpin-atlas-test' if sim else 'pinpin-atlas'
+        probe_deadline = time.time() + a.secs + 90  # a probe that overruns never ends on its own (2026-11-03: 23 min)
         while proc.poll() is None:
             time.sleep(10)
             if proc.poll() is not None: break
+            if time.time() > probe_deadline:
+                aborted = 'the probe overran (headset or laptop unreachable)'
+                proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break
             # the sender's CPU (one sample per 10 s; ps %cpu is a decaying average, enough to compare flags)
             try: cpu.append(float(air(f"ps -Ao %cpu,comm | awk '$2 ~ /{sender}$/ {{print $1; exit}}'", timeout=15).strip()))
             except ValueError: pass
