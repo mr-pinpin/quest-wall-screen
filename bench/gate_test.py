@@ -33,4 +33,16 @@ nogame = copy.deepcopy(good); [x.pop('game') for x in nogame['series']]
 check('gaming' not in gate.judge(nogame), 'runs without a game stream have no gaming section')
 sim = copy.deepcopy(good); sim['series'] = [1.5, 2.0, 0.3]
 check('gaming' not in gate.judge(sim), 'sim runs (numeric series) judge without a gaming section')
+# Relative screen rule: fresh fps >= 95% of the source, gap p99 <= 2 source frames; absolute lines informational.
+scr = {'scenario': 'cinema', 'captureFps': {'2': 29.4, '3': 29.0},
+       'checks': {'stream kept 30+ fresh frames/s (median)': False, 'fresh-frame gap p99 < 50 ms': False, 'sender never crashed': True},
+       'atlas': {'freshFps': {'p50': 28.5}, 'freshGapMs': {'p99': 60.0}}}
+v = gate.judge(scr)
+check(v['pass'] and 'info' in v, f'28.5 of 29.4 fps and 60 ms pass relative; absolute lines informational: {v}')
+low = copy.deepcopy(scr); low['atlas']['freshFps']['p50'] = 23
+check(not gate.judge(low)['pass'], '23 of 29.4 fps fails (< 95%)')
+slow = copy.deepcopy(scr); slow['atlas']['freshGapMs']['p99'] = 80
+check(not gate.judge(slow)['pass'], '80 ms > 2 frames at 29.4 fps fails')
+old = copy.deepcopy(scr); old.pop('captureFps')
+check(any('assumed' in k for k in gate.judge(old)['screens']), 'runs without captureFps use the assumed SCK rate')
 print(f'gate self-test: {fails} failures'); sys.exit(1 if fails else 0)

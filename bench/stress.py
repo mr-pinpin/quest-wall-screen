@@ -26,7 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
-import argparse, atexit, base64, contextlib, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
+import argparse, atexit, base64, contextlib, re, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent / 'stress'
@@ -43,7 +43,7 @@ IDLE_NEEDED = 600
 BENCH_LOCK = '~/.local/share/pinpin-bench.lock'
 LOCK_STALE_S = 1800
 HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
-TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731'],
+TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731', '--stat-secs', '5'],
                'log': '~/.local/share/pinpin-atlas/atlas-sim.log', 'truncateLog': True, 'restartDelay': 1.5}
 
 
@@ -403,6 +403,13 @@ def main():
     skipped = sorted({l.split('screen ')[1].split()[0] for l in log if 'atlas full' in l})
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
+    # The source rate: what ScreenCaptureKit delivered per screen (the sender's --stat-secs lines "capture: S F fps").
+    # gate.py judges the stream relative to it: SCK delivers ~29.4 fps per display, so an absolute 30 fps is impossible.
+    cap = {}
+    for l in log:
+        m = re.search(r'capture: (\d+) ([\d.]+) fps', l)
+        if m and float(m.group(2)) > 0: cap.setdefault(m.group(1), []).append(float(m.group(2)))
+    capture_fps = {s: round(statistics.median(v), 1) for s, v in cap.items()}
     r = {
         'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
@@ -413,6 +420,7 @@ def main():
         'laptopWifiMbps': {'tx': round((tx1 - tx0) * 8 / 1e6 / dt, 1), 'rx': round((rx1 - rx0) * 8 / 1e6 / dt, 1)},
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
+        'captureFps': capture_fps,
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {

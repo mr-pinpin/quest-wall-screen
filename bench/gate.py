@@ -71,12 +71,44 @@ def gaming(r):
     return out
 
 
+ABSOLUTE = ('stream kept 30+ fresh frames/s (median)', 'fresh-frame gap p99 < 50 ms', 'internet ping p95 < 50 ms')  # informational since 2026-11-03 (the ping is the Mini 2.4 GHz hop: house Wi-Fi, not our stream)
+SCK_FPS = 29.4  # ScreenCaptureKit's measured per-display delivery, used when a run did not record its capture rate
+
+
+def source(r):
+    # The focused screen's capture rate: screen 2 in cinema, else the fastest screen; measured or assumed.
+    cap = {str(k): v for k, v in (r.get('captureFps') or {}).items()}
+    if cap:
+        sc = r.get('scenario', '')
+        f = cap.get('2') if sc.startswith('cinema') and '2' in cap else max(cap.values())
+        return f, 'measured'
+    return SCK_FPS, 'assumed'
+
+
+def screens_relative(r):
+    # Relative to the source (user decision via work-df 2026-11-03): an absolute 30 fps can't be met when the
+    # source delivers ~29.4; the stream must keep >= 95% of the source rate and lose at most 2 source frames.
+    a = r.get('atlas') or {}
+    fresh, gap = (a.get('freshFps') or {}).get('p50'), (a.get('freshGapMs') or {}).get('p99')
+    if fresh is None and gap is None: return {}
+    src, how = source(r)
+    out = {}
+    if fresh is not None and src: out[f'fresh fps >= 95% of source ({how} {src})'] = (fresh >= 0.95 * src, f'{fresh} fps')
+    if gap is not None and src: out[f'gap p99 <= 2 source frames ({round(2000 / src)} ms)'] = (gap <= 2000 / src, f'{gap} ms')
+    return out
+
+
 def judge(r):
-    v = {'screens': {k: (bool(ok), '') for k, ok in (r.get('checks') or {}).items()
-                     if not k.startswith('game ')}}  # stress.py's own game checks are replaced by the stricter ones
+    checks = r.get('checks') or {}
+    v = {'screens': {k: (bool(ok), '') for k, ok in checks.items()
+                     if not k.startswith('game ') and k not in ABSOLUTE}}  # stress.py's own game checks are replaced by the stricter ones
+    rel = screens_relative(r) if any(k in checks for k in ABSOLUTE[:2]) else {}
+    v['screens'].update(rel)
+    info = {k: (bool(checks[k]), 'informational') for k in ABSOLUTE if k in checks}
+    if info: v['info'] = info
     g = gaming(r)
     if g is not None: v['gaming'] = g
-    v['pass'] = all(ok for part in ('screens', 'gaming') for ok, _ in (v.get(part) or {}).values())
+    v['pass'] = all(ok for part in ('screens', 'gaming') for ok, _ in (v.get(part) or {}).values())  # 'info' never fails a run
     return v
 
 
@@ -87,7 +119,7 @@ def main():
         r = json.load(open(path)); v = judge(r); out[path] = v; failed |= not v['pass']
         if as_json: continue
         print(f"{'PASS' if v['pass'] else 'FAIL'}  {path}  ({r.get('mode')}/{r.get('scenario')}, n={r.get('n')}, wan={r.get('wan')})")
-        for part in ('gaming', 'screens'):
+        for part in ('gaming', 'screens', 'info'):
             for name, (ok, why) in (v.get(part) or {}).items():
                 print(f"   {'ok  ' if ok else 'FAIL'} {part}: {name}{'  - ' + why if why else ''}")
     if as_json: print(json.dumps(out, indent=1))

@@ -69,3 +69,30 @@
 {"t": "2026-11-03T14:18:33", "mode": "unmounted_wake", "adb": false}
 {"t": "2026-11-03T14:19:40", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": ""}
 {"t": "2026-11-03T14:20:53", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:32:02", "mode": "autosleep 14400", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T14:33:09", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:34:13", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:35:16", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:36:19", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:37:27", "mode": "autosleep 14400", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T14:38:37", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:39:50", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:40:59", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:42:05", "mode": "autosleep 14400", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T14:43:17", "mode": "autosleep 14400", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T14:44:24", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:45:28", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:46:31", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:47:54", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:48:58", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:50:05", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:51:09", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:52:15", "mode": "autosleep 14400", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T14:53:22", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:54:25", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:55:29", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:56:32", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:57:55", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T14:58:58", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T15:00:05", "mode": "autosleep 14400", "adb": false}
+{"t": "2026-11-03T15:01:09", "mode": "autosleep 14400", "adb": false}
