@@ -100,6 +100,9 @@ final class Atlas {
     struct Want { var vis = true, px = 1920, pri = 1.0 }
     let dlock = NSLock()
     var busy = false, busyTicks = 0, heldTicks = 0
+    // Capture only what is seen: a screen hidden for 2 s loses its SCStream (its cell keeps the last frame) and gets
+    // one again when it comes into view. 30 screens x 2 senders of always-on streams crashed replayd.
+    var hiddenAt: [Int: Date] = [:], wake = false, refreshSince: Date? = nil
     var want: [Int: Want] = [:], wantAt = Date.distantPast, budgetKbps = 0, appliedKbps = 0
     var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
     static let tiers = [480, 640, 960, 1280, 1920]
@@ -149,6 +152,7 @@ final class Atlas {
             let stale = now.timeIntervalSince(wantAt) > 2
             for (id, w) in next where id != 1 {
                 if w.vis && !stale && !(want[id]?.vis ?? true) { reveal.append(id) }
+                if w.vis { hiddenAt[id] = nil } else if hiddenAt[id] == nil { hiddenAt[id] = now }
                 guard w.vis else { continue }  // unseen screens keep their size
                 let t = Atlas.tiers.first(where: { $0 >= w.px }) ?? o.cellW, cur = tier[id] ?? o.cellW
                 if min(t, o.cellW) == cur { tierWant[id] = nil } else if tierWant[id]?.w != min(t, o.cellW) { tierWant[id] = (min(t, o.cellW), now) }
@@ -156,6 +160,7 @@ final class Atlas {
             want = next; wantAt = now; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
         }
         if !reveal.isEmpty {
+            dlock.withLock { wake = true }  // start its capture now, not at the next 2 s pass
             lock.withLock {
                 for id in reveal { if let pb = stash.removeValue(forKey: id), let c = cells.first(where: { $0.entry.screen == id }) { blit(pb, c) } }
             }
@@ -233,16 +238,23 @@ final class Atlas {
             }
             return tier
         }
+        // Screens worth a capture stream: all of them without fresh demand, else the visible ones plus those
+        // hidden for under 2 s.
+        let live: Set<CGDirectDisplayID> = dlock.withLock {
+            let stale = now.timeIntervalSince(wantAt) > 2
+            return Set(list.filter { e in stale || (want[e.screen]?.vis ?? true) || now.timeIntervalSince(hiddenAt[e.screen] ?? now) < 2 }.map { $0.display })
+        }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
         // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
         let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
-        if key == layoutKey && !captures.values.contains(where: { $0.dead }) && captures.count == list.count { return }
+        if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
         let (w, h, cells) = layout(list, tiers)
         let resized = w != W || h != H
         let cj = cells.map { "{\"screen\":\($0.entry.screen),\"x\":\($0.x),\"y\":\($0.y),\"w\":\($0.w),\"h\":\($0.h)}" }.joined(separator: ",")
         let json = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
         // Stop captures whose display is gone, died, or moved (a capture started mid-move shows only the wallpaper).
-        for (d, c) in captures where c.dead || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
+        for (d, c) in captures where c.dead || !live.contains(d) || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
+            if !live.contains(d) && !c.dead { log("screen \(c.cell.entry.screen) out of view: capture paused") }
             c.stop(); captures[d] = nil
         }
         var resizes: [(CellCapture, Cell)] = []
@@ -262,18 +274,18 @@ final class Atlas {
             layoutJSON = json
             work.sync { if resized || encoder == nil { lastBuffer = nil; makeEncoder() } }
         }
-        let missing = cells.filter { captures[$0.entry.display] == nil }
+        let missing = cells.filter { captures[$0.entry.display] == nil && live.contains($0.entry.display) }
         if !missing.isEmpty {
             if let content = try? await SCShareableContent.current {
                 for c in missing {
                     // A display created moments ago may not be capturable yet; it is retried on the next pass.
                     guard let d = content.displays.first(where: { $0.displayID == c.entry.display }) else { log("display \(c.entry.display) not found yet"); continue }
                     let cap = CellCapture(c, self)
-                    do { try await cap.start(d, fps: o.fps, queue: capQ); captures[c.entry.display] = cap } catch { log("capture \(c.entry.screen): \(error.localizedDescription)") }
+                    do { try await cap.start(d, fps: o.fps, queue: capQ); captures[c.entry.display] = cap; log("screen \(c.entry.screen) capturing") } catch { log("capture \(c.entry.screen): \(error.localizedDescription)") }
                 }
             } else { log("no shareable content") }
         }
-        layoutKey = captures.count == cells.count ? key : ""  // anything missing: try again in 2 s
+        layoutKey = Set(captures.keys) == live.intersection(cells.map { $0.entry.display }) ? key : ""  // anything missing: retry
         if changed { log("layout \(layoutJSON)"); forceKey = true }
     }
 
@@ -428,7 +440,26 @@ final class Atlas {
 let atlas = Atlas(Options())
 atlas.listen()
 atlas.listenDemand()
-Task { while true { await atlas.refresh(); try? await Task.sleep(nanoseconds: 2_000_000_000) } }
+// One refresh loop (refresh is not reentrant): every 2 s, or at once when demand reveals a screen.
+// When replayd (ScreenCaptureKit's daemon) crashes, an await on it can hang forever and the sender silently stops
+// (seen 2026-11-03 13:11 under 30 screens). A refresh pass stuck for 20 s exits; the supervisor restarts us clean.
+let stuckCheck = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "atlas.stuck"))
+stuckCheck.schedule(deadline: .now() + 5, repeating: 5)
+stuckCheck.setEventHandler {
+    if let t = atlas.dlock.withLock({ atlas.refreshSince }), Date().timeIntervalSince(t) > 20 { log("refresh stuck for 20 s (ScreenCaptureKit not answering): exiting for a clean restart"); exit(3) }
+}
+stuckCheck.resume()
+Task {
+    while true {
+        atlas.dlock.withLock { atlas.refreshSince = Date() }
+        await atlas.refresh()
+        atlas.dlock.withLock { atlas.refreshSince = nil }
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if atlas.dlock.withLock({ let w = atlas.wake; atlas.wake = false; return w }) { break }
+        }
+    }
+}
 let timer = DispatchSource.makeTimerSource(queue: atlas.work)
 timer.schedule(deadline: .now(), repeating: .milliseconds(1000 / atlas.o.fps))
 timer.setEventHandler { atlas.tick() }
