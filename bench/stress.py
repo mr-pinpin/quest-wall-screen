@@ -271,6 +271,26 @@ def activity(what, who=None):
         f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {who} {pathlib.Path(sys.argv[0]).name}[{os.getpid()}] {what}\n")
 
 
+# Per-phase timestamps (UTC): printed as the run goes and saved in the result, so a slow or hung run shows which step
+# took the time (setup, overrides, demand, measure, teardown) instead of only its START and END in activity.log.
+PHASES = []
+
+
+def _stamp(t):
+    return {'utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t)),
+            'sinceStartS': round(t - PHASES[0]['t'], 1) if PHASES else 0.0}
+
+
+def phase(name):
+    t = time.time()
+    PHASES.append(dict(phase=name, t=t, **_stamp(t)))
+    print(f"  phase {name} {PHASES[-1]['utc']} (+{PHASES[-1]['sinceStartS']} s)", flush=True)
+
+
+def phases():
+    return [{k: v for k, v in x.items() if k != 't'} for x in PHASES] + [dict(phase='result', **_stamp(time.time()))]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--n', type=int, default=10); ap.add_argument('--secs', type=int, default=120)
@@ -335,6 +355,7 @@ def main():
         sys.exit(f'stress: not running, the bench lock is held (the laptop is on {laptop_channel}, not 5 GHz: waiting for it to rejoin)')
     ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
+    phase('setup')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
 
     shown = {'cinema': [2, 3, a.n + 1], 'vr': []}.get(a.scenario, ids)
@@ -387,11 +408,13 @@ def main():
     log0 = '' if sim else air(f'cat {log_path}')
     aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}; cpu = []; air_proc = None
     try:
+        phase('overrides')
         # 2. per-run overrides of the live plugins (restored in `finally`), before any game session starts
         if a.sunshine:
             overrides['sunshine'] = plugin_override('sunshine', a.sunshine); time.sleep(6)  # Sunshine re-probes its encoders
         if a.flags and not sim:
             overrides['pinpin-atlas'] = plugin_override('pinpin-atlas', ['--flags', a.flags]); time.sleep(3)
+        phase('demand')
         # demand source
         if sim:
             # Pause the live sender so only the test copy captures (agreed with work-09); restarted in `finally`.
@@ -421,6 +444,7 @@ def main():
             air(f"for i in $(seq {a.wan}); do nohup curl -s -o /dev/null -m {a.secs + 5} "
                 f"'https://speed.cloudflare.com/__down?bytes=2000000000' > /dev/null 2>&1 & done")
 
+        phase('measure')
         # 3. measure (in the background, while watching that nobody starts using the gear)
         rx0, tx0 = link_bytes(air, 'en0'); w0 = link_bytes(mini, 'en1'); st0 = time.time()
         probe = (f"(ping -b en1 -i 0.2 -t {a.secs} 1.1.1.1 > /tmp/stress-wan.txt 2>&1 &);"
@@ -486,6 +510,7 @@ def main():
         lap = pings(mini('cat /tmp/stress-laptop.txt'))  # the stand-in's own link (the headset may be asleep: lanPingMs)
         zyxel = pings(mini('cat /tmp/stress-zyxel.txt'))  # the Mini's 2.4 GHz hop alone: link jitter vs the internet
     finally:
+        phase('teardown')
         # 4. teardown
         for name, orig in overrides.items(): plugin_restore(name, orig)
         if proc and proc.poll() is None: proc.kill()
@@ -529,6 +554,7 @@ def main():
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
         'network': dict(network_epoch(), laptopChannel=laptop_channel),
+        'phases': phases(),
         'host': dict(host, standIn=('pinpin-air' if a.sim_on == 'air' else 'pinpin-mini') if sim else 'quest'),
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,
