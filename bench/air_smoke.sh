@@ -6,7 +6,7 @@
 #   bash bench/air_smoke.sh [MIN]      # exit 0 = pass; prints the fps samples
 MIN=${1:-25}
 out=$(ssh -o BatchMode=yes pinpin-air "MIN=$MIN bash -s" <<'AIR'
-P="$HOME/Library/Application Support/PinPin Host/plugins"; ID=49
+P="$HOME/Library/Application Support/PinPin Host/plugins"; ID=48  # not 29 or 49: macOS remembers a display identity's wallpaper, and those two kept the still wallpaper that stops the pattern from reaching capture (2026-11-03)
 caffeinate -u -t 60 & CP=$!
 curl -s -m40 -X POST "127.0.0.1:57710/displays?id=$ID&w=1920&h=1200&scale=1" >/dev/null; sleep 4
 DID=$(curl -s -m10 127.0.0.1:57710/displays | python3 -c "import json,sys; l=[d[\"display\"] for d in json.load(sys.stdin) if d[\"screen\"]==$ID]; print(l[0] if l else \"\")")
@@ -20,6 +20,6 @@ curl -s -m40 -X POST "127.0.0.1:57710/remove?id=$ID" >/dev/null; kill $CP 2>/dev
 AIR
 )
 echo "$out"
-fps=$(echo "$out" | sed -n "s/.*capture: 49 \([0-9.]*\) fps.*/\1/p" | sort -n | sed -n 2p)
+fps=$(echo "$out" | sed -n "s/.*capture: 48 \([0-9.]*\) fps.*/\1/p" | sort -n | sed -n 2p)
 if [ -n "$fps" ] && python3 -c "import sys; sys.exit(0 if float(\"$fps\") >= $MIN else 1)"; then echo "SMOKE PASS: median $fps fps >= $MIN"; exit 0; fi
 echo "SMOKE FAIL: median ${fps:-none} fps < $MIN"; exit 1
