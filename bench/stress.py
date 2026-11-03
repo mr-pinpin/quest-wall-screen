@@ -203,7 +203,9 @@ def busy(force, sim=False):
     return ''
 
 
-ACTIVITY_LOG = pathlib.Path(__file__).resolve().parent / 'activity.log'
+# One shared log for every checkout (a run started from another checkout logged into its own copy, unseen: 2026-11-03)
+_SHARED_LOG = pathlib.Path('/root/work/quest-wall-screen/bench/activity.log')
+ACTIVITY_LOG = _SHARED_LOG if _SHARED_LOG.parent.is_dir() else pathlib.Path(__file__).resolve().parent / 'activity.log'
 
 
 def activity(what, who=None):

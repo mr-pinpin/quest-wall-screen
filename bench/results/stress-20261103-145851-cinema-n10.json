@@ -1,0 +1,154 @@
+{
+ "when": "20261103-145851",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "cinema",
+ "wanPingMs": {
+  "p50": 17.7,
+  "p95": 28.8,
+  "p99": 41.5,
+  "max": 49.523,
+  "count": 292
+ },
+ "zyxelPingMs": {
+  "p50": 2.8,
+  "p95": 9.7,
+  "p99": 23.1,
+  "count": 293
+ },
+ "lanPingMs": {
+  "p50": null,
+  "p95": null,
+  "p99": null,
+  "count": 0
+ },
+ "laptopPingMs": {
+  "p50": 4.6,
+  "p95": 128.9,
+  "p99": 355.0,
+  "count": 293,
+  "ip": "192.168.0.102"
+ },
+ "houseInternetMbps": {
+  "down": 2.6,
+  "up": 0.8
+ },
+ "laptopWifiMbps": {
+  "tx": 5.9,
+  "rx": 0.7
+ },
+ "sender": {
+  "bitrateKbps": [
+   40000,
+   40000
+  ],
+  "layouts": 3,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "senderCpuPct": 12.6,
+ "atlas": {
+  "mbps": 7.3,
+  "mbpsMax": 20.1,
+  "freshFps": {
+   "p5": 13,
+   "p50": 20
+  },
+  "freshGapMs": {
+   "p50": 31.7,
+   "p99": 218.8,
+   "max": 478.7
+  },
+  "receiverCpuPct": 0.8,
+  "longestSilenceS": 0.43,
+  "emptySeconds": 0,
+  "keyframes": 24,
+  "layouts": 2,
+  "connects": 1,
+  "sizes": [
+   [
+    3680,
+    1728
+   ],
+   [
+    3680,
+    2128
+   ]
+  ]
+ },
+ "series": [
+  12.4,
+  20.1,
+  17.6,
+  10.7,
+  10.0,
+  6.2,
+  5.5,
+  8.1,
+  5.9,
+  8.4,
+  6.1,
+  6.8,
+  6.7,
+  5.3,
+  7.8,
+  5.4,
+  8.2,
+  6.2,
+  6.1,
+  8.1,
+  5.5,
+  8.2,
+  5.7,
+  5.4,
+  7.0,
+  5.8,
+  5.4,
+  7.6,
+  5.3,
+  5.7,
+  7.8,
+  5.2,
+  8.2,
+  5.3,
+  5.8,
+  7.3,
+  5.5,
+  8.1,
+  5.8,
+  5.3,
+  8.1,
+  5.6,
+  8.2,
+  6.7,
+  6.0,
+  8.6,
+  5.1,
+  9.2,
+  5.7,
+  6.4,
+  8.7,
+  6.3,
+  8.2,
+  5.7,
+  6.4,
+  8.5,
+  5.8,
+  7.9,
+  6.9
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "stand-in reached the sender": true,
+  "atlas within 40 Mbit/s": true,
+  "no atlas freeze over 5 s": true,
+  "stream kept 30+ fresh frames/s (median)": false,
+  "fresh-frame gap p99 < 50 ms": false
+ },
+ "pass": false
+}

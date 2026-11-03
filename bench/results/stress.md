@@ -39,3 +39,4 @@ Notes: the 4-screen runs had no visible pattern (launch bug, fixed), so their at
 | 20261103-144359 | sim/cinema~simair | 10 | 0 | 17.8/30.4 | None/None | 3.4 | - | 8.3 | 0.13 | - | 0.1 | 0 | NO |
 | 20261103-144849 | sim/cinema~simair+vt | 10 | 0 | 17.9/32.6 | 30.6/50.7 | 3.4 | - | 19.5 | 0.18 | - | 0.1 | 0 | NO |
 | 20261103-145348 | sim/cinema~simair+longgop | 10 | 0 | 17.8/22.9 | None/None | 2.3 | - | 6.7 | 0.17 | - | 0.1 | 0 | NO |
+| 20261103-145851 | sim/cinema | 10 | 0 | 17.7/28.8 | None/None | 2.6 | - | 7.3 | 0.43 | - | 5.9 | 0 | NO |
