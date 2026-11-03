@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include "vt.h"
 
 struct PanelLayer {
     bool enabled = true;        // QUAD toggle (default since the user preferred it); files/quad-on forces it on
@@ -104,7 +105,7 @@ void main(){
     // One source rectangle (sx, sy, w, h: source pixels, top-left origin) and where it lands in the panel image
     // (dx, dy, dw, dh: top-left origin). A screen streamed as several atlas cells (docs/virtual-texturing.md) is
     // several tiles; scaled tiles are filtered.
-    struct Tile { int sx, sy, w, h, dx, dy, dw, dh; };
+    using Tile = vt::Tile;
     // Copy the latest panel image (the video's mipmapped frame, exact tiles included) into the swapchain,
     // flipped to OpenXR's bottom-up image rows, and build its mip chain. Only when a new frame arrived.
     void update(XrSession session, GLuint srcFbo, int width, int height, long mipVersion, int srcX = 0, int srcY = 0) {

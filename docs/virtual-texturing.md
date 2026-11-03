@@ -53,7 +53,7 @@ What v1 lacks (this spec):
 Headset level choice (per screen, every demand tick):
 
 ```
-want = clamp(ceil(log2(srcW / max(px, 1))), 0, tailLevel)    // srcW from the layout's src rect, else 1920
+want = clamp(floor(log2(srcW / max(px, 1))), 0, tailLevel)   // coarsest level still >= px wide; srcW from src, else 1920
 up   : apply at once when want < current                      // detail is visible immediately
 down : apply after 3 s with want > current                    // shrinking saves bits but costs a keyframe
 hidden (vis 0): lvl = tailLevel                               // sender may shrink it; headset keeps its sharp copy

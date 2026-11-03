@@ -170,7 +170,7 @@ struct App {
     VideoStream atlasVideo;
     // lvl and src (the part of the Mac display the cell covers) are protocol v2 (docs/virtual-texturing.md); a v1
     // sender leaves lvl -1 and sw 0. A screen may come as several cells (tiles).
-    struct AtlasCell { int x, y, w, h, lvl = -1, sx = 0, sy = 0, sw = 0, sh = 0; };
+    using AtlasCell = vt::Cell;
     std::map<int, AtlasCell> atlasCells; std::map<int, std::vector<AtlasCell>> atlasTiles; int atlasW = 0, atlasH = 0; std::string atlasMeta;
     std::map<int, PanelLayer> extraLayers; std::set<int> extraLive;
     // VT flag (virtual texturing, headset side; docs/virtual-texturing.md): hidden screens are not re-copied from
@@ -179,37 +179,14 @@ struct App {
     // shown ("have"). files/vt-on forces it for self-tests.
     bool vtMenu = false, vtFile = false; bool vt() const { return vtMenu || vtFile; }
     std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0;
-    struct VtLevel { int lvl = 0; double downSince = -1; };
-    std::map<int, VtLevel> vtLevels;
-    int vtSrcW(int id) {  // the screen's Mac display width in pixels, from v2 src rects; 1920 (the v1 cell cap) otherwise
-        int w = 0; auto it = atlasTiles.find(id);
-        if (it != atlasTiles.end()) for (auto& c : it->second) w = std::max(w, c.sx + c.sw);
-        return w > 0 ? w : 1920;
-    }
-    int vtWant(int id, int px, bool vis) {  // up at once, down after 3 s; hidden screens want the mip tail
-        const int tail = 4; VtLevel& v = vtLevels[id];
-        int want = !vis ? tail : std::min(tail, std::max(0, (int)std::ceil(std::log2((double)vtSrcW(id) / std::max(px, 1)) - 1e-6)));
-        if (want < v.lvl || !vis) { v.lvl = want; v.downSince = -1; }
-        else if (want > v.lvl) { if (v.downSince < 0) v.downSince = now(); else if (now() - v.downSince > 3) { v.lvl = want; v.downSince = -1; } }
-        else v.downSince = -1;
-        return v.lvl;
-    }
+    std::map<int, vt::Level> vtLevels;
+    int vtSrcW(int id) { auto it = atlasTiles.find(id); return it == atlasTiles.end() ? 1920 : vt::srcW(it->second); }
+    int vtWant(int id, int px, bool vis) { return vtLevels[id].want(vtSrcW(id), px, vis, now()); }
     int vtHave(int id) {  // the level on screen: the cell's lvl (v2), else derived from its width; -1 = nothing yet
         auto L = extraLayers.find(id), H = holdLayers.find(id);
         bool shown = (L != extraLayers.end() && L->second.hasImage) || (H != holdLayers.end() && H->second.hasImage);
         auto c = atlasCells.find(id); if (!shown || c == atlasCells.end()) return -1;
-        if (c->second.lvl >= 0) return c->second.lvl;
-        return std::max(0, (int)std::lround(std::log2((double)vtSrcW(id) / std::max(1, c->second.w))));
-    }
-    // The tiles of one screen in panel-image space, and that image's size.
-    std::vector<PanelLayer::Tile> vtTiles(int id, int& cw, int& ch) {
-        std::vector<PanelLayer::Tile> out; const auto& cells = atlasTiles[id];
-        if (cells.size() == 1 && cells[0].sw <= 0) { const AtlasCell& c = cells[0]; cw = c.w; ch = c.h; out.push_back({c.x, c.y, c.w, c.h, 0, 0, c.w, c.h}); return out; }
-        int sw = 0, sh = 0; for (auto& c : cells) { sw = std::max(sw, c.sx + c.sw); sh = std::max(sh, c.sy + c.sh); }
-        double k = cells.empty() || cells[0].sw <= 0 ? 1.0 : (double)cells[0].w / cells[0].sw;
-        cw = (int)std::lround(sw * k); ch = (int)std::lround(sh * k);
-        for (auto& c : cells) out.push_back({c.x, c.y, c.w, c.h, (int)std::lround(c.sx * k), (int)std::lround(c.sy * k), c.w, c.h});
-        return out;
+        return vt::levelOf(c->second, vtSrcW(id));
     }
     VideoStream video;
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
@@ -1714,17 +1691,9 @@ void main(){
     void parseAtlas() {
         std::string m; { std::lock_guard<std::mutex> g(atlasVideo.lock); m = atlasVideo.meta; }
         if (m == atlasMeta) return;
-        atlasMeta = m; atlasCells.clear(); atlasTiles.clear();
-        size_t a = m.find("\"atlas\":["); if (a != std::string::npos) sscanf(m.c_str() + a + 9, "%d,%d", &atlasW, &atlasH);
-        for (size_t p = m.find("{\"screen\":"); p != std::string::npos; p = m.find("{\"screen\":", p + 1)) {
-            int id; AtlasCell c{};
-            if (sscanf(m.c_str() + p, "{\"screen\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d", &id, &c.x, &c.y, &c.w, &c.h) != 5) continue;
-            std::string cell = m.substr(p, m.find('}', p) - p);  // v2 fields, in any order
-            size_t l = cell.find("\"lvl\":"); if (l != std::string::npos) c.lvl = atoi(cell.c_str() + l + 6);
-            size_t s = cell.find("\"src\":["); if (s != std::string::npos) sscanf(cell.c_str() + s + 7, "%d,%d,%d,%d", &c.sx, &c.sy, &c.sw, &c.sh);
-            if (!atlasCells.count(id)) atlasCells[id] = c;  // the first tile: bezel colours, v1 paths
-            atlasTiles[id].push_back(c);
-        }
+        vt::Layout L = vt::parse(m);
+        atlasMeta = m; atlasW = L.W; atlasH = L.H; atlasTiles = L.screens; atlasCells.clear();
+        for (auto& [id, cells] : atlasTiles) atlasCells[id] = cells.front();  // the first tile: bezel colours, v1 paths
         event("atlas layout: " + std::to_string(atlasCells.size()) + " screens");
     }
     // cell: the screen's rectangle in atlas texture space {u0, v0, u1, v1} (v from the top) for extra screens;
@@ -1937,8 +1906,8 @@ void main(){
                 PanelLayer& H = holdLayers[e.id];
                 bool vis = demandFor(e.id, e.p, wallById(e.p.wall)).vis;
                 if (!vis && (L.hasImage || H.hasImage)) { vtSkipped++; extraLive.insert(e.id); continue; }  // keep the sharp copy
-                int cw = 0, ch = 0; std::vector<PanelLayer::Tile> tiles = vtTiles(e.id, cw, ch);
-                if (L.hasImage && (cw != L.contentW || ch != L.contentH)) {  // new size: show the old image until the new one is in
+                int cw = 0, ch = 0; std::vector<vt::Tile> tiles = vt::tiles(atlasTiles[e.id], cw, ch);
+                if (vt::needsHold(L.hasImage, cw, ch, L.contentW, L.contentH)) {  // new size: show the old image until the new one is in
                     H.destroy(); std::swap(H, L); vtHolds++;
                 }
                 L.superSample = panelLayer.superSample; L.super = panelLayer.super;
