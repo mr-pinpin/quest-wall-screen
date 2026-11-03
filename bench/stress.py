@@ -58,7 +58,12 @@ def ssh(host, cmd, timeout=60, check=False, stdin=None):
 
 def air(cmd, **k): return ssh('pinpin-air', cmd, **k)
 def mini(cmd, **k): return ssh('pinpin-mini', cmd, **k)
-def headset(cmd, **k): return mini(f"{ADB} shell {json.dumps(cmd)}", **k)
+# If the Mini's adb server is not running, the first adb call forks one that inherits the ssh session's stdout, and
+# that ssh never returns (2026-11-03: a game run's probe overran by minutes). Start it detached first.
+ADB_SERVER = f"{ADB.split(' -s ')[0]} start-server </dev/null >/dev/null 2>&1; "
+
+
+def headset(cmd, **k): return mini(f"{ADB_SERVER}{ADB} shell {json.dumps(cmd)}", **k)
 
 
 def displays():
@@ -400,7 +405,7 @@ def main():
             else:
                 probe += sim_cmd
         else:
-            probe += (f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
+            probe += (ADB_SERVER + f"end=$(( $(date +%s) + {a.secs} )); while [ $(date +%s) -lt $end ]; do "
                       f"LC_ALL=C LANG=C perl -e 'alarm 5; exec @ARGV' {ADB} shell run-as {PKG} cat files/status.json; echo; sleep 2; done")  # 5 s cap: a sleeping headset hangs adb
             stdin = None
         proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-mini', probe], stdin=subprocess.PIPE,
