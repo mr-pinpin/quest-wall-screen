@@ -99,6 +99,7 @@ final class Atlas {
     // headset) means: everything visible, full size, full bitrate.
     struct Want { var vis = true, px = 1920, pri = 1.0 }
     let dlock = NSLock()
+    var busy = false, busyTicks = 0, heldTicks = 0
     var want: [Int: Want] = [:], wantAt = Date.distantPast, budgetKbps = 0, appliedKbps = 0
     var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
     static let tiers = [480, 640, 960, 1280, 1920]
@@ -306,6 +307,21 @@ final class Atlas {
     // stream the laptop's encoder fell to ~40 fps and latency rose to ~125 ms.
     func tick() {
         guard let e = encoder, !peers.isEmpty, let pool = VTCompressionSessionGetPixelBufferPool(e) else { return }
+        // Pacing: while the network is still sending earlier frames, encode nothing (the pending change stays dirty
+        // and goes out as soon as the socket drains). Dropping P-frames instead broke the reference chain, and the
+        // keyframe that repaired it was bigger still: 118 keyframes a minute at ~39 Mbit/s in the stress suite.
+        if dlock.withLock({ busy }) {
+            busyTicks += 1; heldTicks += 1
+            // Held back for over half a second: a peer is stuck, not just slow. Cut it loose (it skips to the next
+            // keyframe, the old behaviour) so it can't freeze the stream for everyone else.
+            if heldTicks > o.fps / 2 {
+                heldTicks = 0
+                net.async { for p in self.peers.values where p.pending >= 2 { p.needsKey = true }; self.forceKey = true; self.updateBusy() }
+                log("peer stuck for 0.5 s: skipping it to a keyframe")
+            }
+            return
+        }
+        heldTicks = 0
         lock.lock(); let changed = dirty; dirty = false; lock.unlock()
         let key = forceKey; forceKey = false
         // Three flush repeats, then one per second as a heartbeat (the headset drops a link silent for 10 s).
@@ -385,18 +401,26 @@ final class Atlas {
         c.start(queue: net)
         log("headset connected")
     }
+    // On the net queue: whether any peer still has 2+ frames queued in its socket. Read by tick() under dlock.
+    func updateBusy() { let b = peers.values.contains { $0.pending >= 2 && !$0.needsKey }; dlock.withLock { busy = b } }
     func broadcast(_ packet: Data, key: Bool, meta: Bool) {
         net.async {
             var framed = Data(); var n = UInt32(packet.count).bigEndian; Swift.withUnsafeBytes(of: &n) { framed.append(contentsOf: $0) }; framed.append(packet)
             for peer in self.peers.values {
                 if !meta {
-                    if peer.pending >= 3 { peer.needsKey = true; self.forceKey = true; continue }
+                    // Only a peer that is truly stuck loses frames (and then needs a keyframe); ordinary
+                    // backpressure is handled at the source by tick(), which waits instead of encoding.
+                    if peer.pending >= 8 { peer.needsKey = true; self.forceKey = true; continue }
                     if peer.needsKey && !key { continue }
                     if key { peer.needsKey = false }
                 }
                 peer.pending += 1
-                peer.c.send(content: framed, completion: .contentProcessed { e in peer.pending = max(0, peer.pending - 1); if e != nil { peer.c.cancel() } })
+                peer.c.send(content: framed, completion: .contentProcessed { e in
+                    peer.pending = max(0, peer.pending - 1); if e != nil { peer.c.cancel() }
+                    self.updateBusy()
+                })
             }
+            self.updateBusy()
         }
     }
 }
