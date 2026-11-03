@@ -445,13 +445,26 @@ struct App {
     // Settings items, in order. The panel lays itself out from this list (ui_grid.h): items flow into rows of three,
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
-    struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 27;
-    const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
-                                            {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
-                                            {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
-                                            {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}, {"HERO", "SCREENS"}, {"KEYREQ", "SCREENS"}};
+    // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
+    struct MenuItem { const char* label; const char* section; const char* hint; };
+    static constexpr int kMenuItems = 29;
+    const MenuItem menuItems[kMenuItems] = {
+        {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
+        {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
+        {"SMALL", "SIZE", "MAIN SCREEN 1 M WIDE"}, {"MEDIUM", "SIZE", "MAIN SCREEN 1.6 M WIDE"}, {"LARGE", "SIZE", "MAIN SCREEN 2.4 M WIDE"},
+        {"LOCK", "PANEL", "PIN SCREENS AND THIS PANEL"}, {"QUAD", "PANEL", "SHARPER MAIN SCREEN"}, {"CLOSE", "PANEL", "HIDE THIS PANEL"},
+        {"CURVE", "DISPLAY", "BEND THE SCREEN AROUND YOU"},
+        {"MARGIN", "BORDER", "SOFT CLEAR EDGE"}, {"SUPER", "BORDER", "SMOOTHER EDGES MORE GPU"}, {"BEZEL", "BORDER", "FRAME AROUND THE SCREEN"},
+        {"FADE", "BEZEL", "DARK FRAME THAT FADES"}, {"GLASS", "BEZEL", "FROSTED GLASS FRAME"}, {"AMBI", "BEZEL", "FRAME GLOWS WITH SCREEN COLOURS"},
+        {"SPELL", "GESTURES", "DRAW A CIRCLE FOR A NEW SCREEN"}, {"MACDISP", "SCREENS", "EXTRA SCREENS ARE MAC DISPLAYS"},
+        {"SAVESET", "MEMORY", "REMEMBER THESE SETTINGS"}, {"RESUME", "MEMORY", "REOPEN LAST SOURCE AT START"},
+        {"VT", "EXPERIMENTAL", "SHARP ONLY WHERE YOU LOOK"}, {"BUDGET", "EXPERIMENTAL", "SHARE WI-FI BETWEEN STREAMS"},
+        {"GPUTIME", "EXPERIMENTAL", "MEASURE GPU TIME"}, {"WIFILL", "EXPERIMENTAL", "LOW LATENCY WI-FI"},
+        {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
+        {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"}};
+    // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
+    // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
+    bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -478,11 +491,13 @@ struct App {
         if (l == "FADE") return bezelFade;
         if (l == "GLASS") return bezelGlass;
         if (l == "AMBI") return bezelAmbi;
+        if (l == "SAVESET") return saveSet;
+        if (l == "RESUME") return resumeOn;
         return -1;
     }
     void layoutMenu() {
         std::vector<UiGrid::Item> items; menuShown.clear();
-        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) { items.push_back({menuItems[i].label, menuItems[i].section}); menuShown.push_back(i); }
+        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) { items.push_back({menuItems[i].label, menuItems[i].section, menuItems[i].hint}); menuShown.push_back(i); }
         menuGrid.layout(items);
     }
     bool palmFacing(V3& at) {
@@ -521,7 +536,19 @@ struct App {
         std::ofstream f(gDir + "/settings.json");
         f << "{\"locked\":" << (editLocked ? 1 : 0) << ",\"menuSaved\":" << (menuSaved ? 1 : 0) << ",\"menuWall\":\"" << menuWall << "\",\"menu\":["
           << menuRel.position.x << "," << menuRel.position.y << "," << menuRel.position.z << "," << menuRel.orientation.x << ","
-          << menuRel.orientation.y << "," << menuRel.orientation.z << "," << menuRel.orientation.w << "]}";
+          << menuRel.orientation.y << "," << menuRel.orientation.z << "," << menuRel.orientation.w << "]";
+        f << ",\"saveset\":" << (saveSet ? 1 : 0) << ",\"resume\":" << (resumeOn ? 1 : 0) << ",\"source\":\"" << lastSource << "\"";
+        if (saveSet) {
+            f << ",\"toggles\":{";
+            const std::pair<const char*, bool> t[] = {{"QUAD", panelLayer.enabled}, {"CURVE", panelLayer.curve}, {"MARGIN", panelLayer.margin},
+                {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
+                {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
+                {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}};
+            bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
+            f << "}";
+        }
+        f << "}";
     }
     void loadSettings() {
         std::ifstream f(gDir + "/settings.json"); if (!f) return;
@@ -533,13 +560,33 @@ struct App {
         menuStickWall = menuWall;
         if (b != std::string::npos) sscanf(j.c_str() + b + 8, "%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
         menuRel.position = {v[0], v[1], v[2]}; menuRel.orientation = {v[3], v[4], v[5], v[6]};
-        event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off"));
+        saveSet = j.find("\"saveset\":0") == std::string::npos;  // absent (a v0.43 or older file): on
+        resumeOn = j.find("\"resume\":0") == std::string::npos;
+        size_t sp = j.find("\"source\":\""); if (sp != std::string::npos) { sp += 10; lastSource = j.substr(sp, j.find('"', sp) - sp); }
+        size_t tp = j.find("\"toggles\":{"); int restored = 0;
+        if (saveSet && tp != std::string::npos) {
+            auto get = [&](const char* k, bool& v) {
+                size_t q = j.find(std::string("\"") + k + "\":", tp); if (q == std::string::npos) return;
+                v = j[q + strlen(k) + 3] == '1'; restored++;
+            };
+            get("QUAD", panelLayer.enabled); get("CURVE", panelLayer.curve); get("MARGIN", panelLayer.margin); get("SUPER", panelLayer.super);
+            get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
+            get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
+            get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu);
+        }
+        if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
+        event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
+              (pendingResume.empty() ? "" : ", resume " + pendingResume));
     }
     void choose(int i) {
         std::string l = menuItems[i].label;
         auto* w = placed.active ? wallById(placed.wall) : nullptr;
+        if (l == "MINI" || l == "LAPTOP") lastSource = l;
         if (l == "MINI") launcher.launch(hostFor(0));
         else if (l == "LAPTOP") launcher.launch(hostFor(1));
+        else if (l == "SAVESET") saveSet = !saveSet;
+        else if (l == "RESUME") resumeOn = !resumeOn;
         else if (w && (l == "SMALL" || l == "MEDIUM" || l == "LARGE")) {
             resizeTo(l == "SMALL" ? 1.0f : l == "MEDIUM" ? 1.6f : 2.4f, *w); validate(placed, *w); savePlacement();
         } else if (l == "LOCK") editLocked = !editLocked;
@@ -571,13 +618,17 @@ struct App {
             if (auto* w = placed.active ? wallById(placed.wall) : nullptr)
                 panelLayer.radius = std::fmin(4.0f, std::fmax(1.0f, len(v3(head.position) - xform(w->pose, {placed.x, placed.y, 0}))));
         }
-        if (l == "LOCK") saveSettings();
+        if (l == "LOCK" || saveSet || l == "SAVESET" || l == "RESUME" || (resumeOn && (l == "MINI" || l == "LAPTOP"))) saveSettings();
         int on = itemOn(l);
         event("settings: " + l + (on < 0 || l == "MINI" || l == "LAPTOP" ? "" : on ? " on" : " off"));
     }
     // Returns true when the settings panel takes the right hand this frame.
     bool updateMenu() {
         if (!settingsLoaded) { settingsLoaded = true; loadSettings(); loadScreens(); }
+        if (!resumeDone && !pendingResume.empty() && placed.active && std::chrono::steady_clock::now() - start > std::chrono::seconds(4)) {
+            resumeDone = true; event("resume: " + pendingResume);
+            launcher.launch(hostFor(pendingResume == "MINI" ? 0 : 1));
+        }
         // Bring the saved panel back once its wall is located (the scene loads a moment after start).
         if (menuSaved && !menuRestored) if (auto* w = wallById(menuWall)) if (w->located) {
             menuRestored = true;
@@ -1509,7 +1560,8 @@ void main(){
             if (extraLive.count(extras[i].id)) {  // its compositor layer shows the Mac display; frame it like the main panel
                 const AtlasCell& c = atlasCells[extras[i].id];
                 const float cell[4] = {c.x / (float)atlasW, c.y / (float)atlasH, (c.x + c.w) / (float)atlasW, (c.y + c.h) / (float)atlasH};
-                if (bezel) bezelFrame(b, *w, p, cell);
+                auto tl = atlasTiles.find(extras[i].id);
+                if (bezel) bezelFrame(b, *w, p, cell, vt() && tl != atlasTiles.end() ? &tl->second : nullptr);
             } else {
             b.quad(P(x0, y0, 0.02f), P(x1, y0, 0.02f), P(x1, y1, 0.02f), P(x0, y1, 0.02f), bg);
             V3 n = rot(w->pose.orientation, {0, 0, 1});
@@ -1880,7 +1932,8 @@ void main(){
     }
     // cell: the screen's rectangle in atlas texture space {u0, v0, u1, v1} (v from the top) for extra screens;
     // null for the main panel, whose AMBI colours come from uVideo.
-    void bezelFrame(Batch& b, const Entity& wall, const Placement& pl, const float* cell = nullptr) {
+    void bezelFrame(Batch& b, const Entity& wall, const Placement& pl, const float* cell = nullptr, const std::vector<vt::Cell>* tiles = nullptr) {
+        const bool tiled = tiles && tiles->size() > 1 && atlasW > 0 && atlasH > 0;  // VT: the screen arrives as several tiles
         float l = pl.x - pl.w / 2, r = pl.x + pl.w / 2, bt = pl.y - pl.h / 2, t = pl.y + pl.h / 2;
         const float z = 0.022f, in = 0.004f;
         auto P = [&](float x, float y) { return xform(wall.pose, {x, y, z}); };
@@ -1888,16 +1941,27 @@ void main(){
         auto ring = [&](float d0, float d1, const float* col) {
             float xs[4][4] = {{l - d1, t + d0, r + d1, t + d1}, {l - d1, bt - d1, r + d1, bt - d0},   // top, bottom
                               {l - d1, bt - d0, l - d0, t + d0}, {r + d0, bt - d0, r + d1, t + d0}};  // left, right
-            for (auto& q : xs) {
+            for (auto& q0 : xs) {
+                // Tiled (VT): cut the strip along its length so each piece samples the tile under it; else one piece.
+                int segs = tiled && bezelAmbi ? 16 : 1; bool alongX = (q0[2] - q0[0]) >= (q0[3] - q0[1]);
+                for (int s = 0; s < segs; s++) {
+                float q[4] = {q0[0], q0[1], q0[2], q0[3]};
+                if (segs > 1) {
+                    if (alongX) { float L0 = q0[0], L1 = q0[2]; q[0] = L0 + (L1 - L0) * s / segs; q[2] = L0 + (L1 - L0) * (s + 1) / segs; }
+                    else { float L0 = q0[1], L1 = q0[3]; q[1] = L0 + (L1 - L0) * s / segs; q[3] = L0 + (L1 - L0) * (s + 1) / segs; }
+                }
                 V3 a = P(q[0], q[1]), bb = P(q[2], q[1]), c = P(q[2], q[3]), d = P(q[0], q[3]);
                 if (!bezelAmbi) { b.quad(a, bb, c, d, col); continue; }
                 auto uv = [&](float x, float y, float* o) {
                     float u = std::fmin(1, std::fmax(0, (x - l) / pl.w)), v = std::fmin(1, std::fmax(0, (y - bt) / pl.h));
-                    if (cell) { o[0] = cell[0] + u * (cell[2] - cell[0]) - 20; o[1] = cell[1] + (1 - v) * (cell[3] - cell[1]); }
+                    float ax, ay;
+                    if (tiled && vt::atlasAt(*tiles, u, 1 - v, ax, ay)) { o[0] = ax / atlasW - 20; o[1] = ay / atlasH; }
+                    else if (cell) { o[0] = cell[0] + u * (cell[2] - cell[0]) - 20; o[1] = cell[1] + (1 - v) * (cell[3] - cell[1]); }
                     else { o[0] = u - 10; o[1] = v; }
                 };
                 float ua[2], ub[2], uc[2], ud[2]; uv(q[0], q[1], ua); uv(q[2], q[1], ub); uv(q[2], q[3], uc); uv(q[0], q[3], ud);
                 b.tri(a, bb, c, col, ua, ub, uc); b.tri(a, c, d, col, ua, uc, ud);
+                }
             }
         };
         if (bezelAmbi) {  // the screen's own edge colours, opaque core then fading into the room
@@ -2022,7 +2086,9 @@ void main(){
             if (menuHover == i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
             b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f),
                    P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), f);
-            text(b, menu, c.x, c.y, 0.004f, c.px, menuItems[i].label, white);
+            text(b, menu, c.x, c.labelY, 0.004f, c.px, menuItems[i].label, white);
+            if (!c.hint1.empty()) text(b, menu, c.x, c.hint1Y, 0.004f, c.hintPx, c.hint1.c_str(), dim);
+            if (!c.hint2.empty()) text(b, menu, c.x, c.hint2Y, 0.004f, c.hintPx, c.hint2.c_str(), dim);
         }
         if (menuHover >= 0 && handActive[1] && ray[1].valid) {
             V3 lo = untransform(menu.pose, ray[1].o), ld = rot(qinv(menu.pose.orientation), ray[1].d);
@@ -2174,11 +2240,13 @@ void main(){
             glUniform1i(uOcclude, depthValid ? 1 : 0);
             if (!occ.v.empty()) glDrawArrays(GL_TRIANGLES, 0, (GLsizei)occ.v.size());
             glUniform1i(uOcclude, 0);
-            if (models() && modelStarted) {  // after the room, before the UI: screens as depth, then the model
+            if (!over.v.empty()) glDrawArrays(GL_TRIANGLES, (GLint)occ.v.size(), (GLsizei)over.v.size());
+            if (models() && modelStarted) {  // last: screens as depth only (they hide the model behind them), then the model.
+                // After the UI on purpose: those depth quads sit on the screen planes, where the pointer ring, the grab
+                // bars and the wall highlights are drawn; drawn before the UI they hid all of it (2026-11-03 demo).
                 model.drawDepthQuads(vp.m, screenCorners); model.draw(vp.m);
                 glUseProgram(program); glBindVertexArray(vao);
             }
-            if (!over.v.empty()) glDrawArrays(GL_TRIANGLES, (GLint)occ.v.size(), (GLsizei)over.v.size());
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }

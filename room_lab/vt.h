@@ -62,6 +62,26 @@ inline std::vector<Tile> tiles(const std::vector<Cell>& cells, int& cw, int& ch)
     return out;
 }
 
+// Where a point of the screen (u, v in 0..1, v from the top) is in the atlas, in atlas pixels: through the cell
+// whose src rect covers it (v2 tiles), else the single cell stretched (v1). Used for the AMBI border colours, which
+// must follow the screen's own edges when it arrives as several tiles. Returns false with no cells.
+inline bool atlasAt(const std::vector<Cell>& cells, float u, float v, float& ax, float& ay) {
+    if (cells.empty()) return false;
+    u = std::min(1.0f, std::max(0.0f, u)); v = std::min(1.0f, std::max(0.0f, v));
+    if (cells.size() == 1 || cells[0].sw <= 0) { const Cell& c = cells[0]; ax = c.x + u * c.w; ay = c.y + v * c.h; return true; }
+    int sw = 0, sh = 0; for (auto& c : cells) { sw = std::max(sw, c.sx + c.sw); sh = std::max(sh, c.sy + c.sh); }
+    float px = u * sw, py = v * sh;
+    const Cell* best = &cells[0]; float bestD = 1e30f;
+    for (auto& c : cells) {  // the covering cell; on an edge or a gap, the nearest one
+        float dx = std::max({(float)c.sx - px, 0.0f, px - (float)(c.sx + c.sw)}), dy = std::max({(float)c.sy - py, 0.0f, py - (float)(c.sy + c.sh)});
+        float d = dx * dx + dy * dy; if (d < bestD) { bestD = d; best = &c; }
+    }
+    const Cell& c = *best;
+    float fu = c.sw > 0 ? (std::min(std::max(px, (float)c.sx), (float)(c.sx + c.sw)) - c.sx) / c.sw : 0;
+    float fv = c.sh > 0 ? (std::min(std::max(py, (float)c.sy), (float)(c.sy + c.sh)) - c.sy) / c.sh : 0;
+    ax = c.x + fu * c.w; ay = c.y + fv * c.h; return true;
+}
+
 // The coarsest level still at least px wide (pure; Level adds the hysteresis).
 inline int levelFor(int srcWidth, int px, int tail = 4) {
     return std::min(tail, std::max(0, (int)std::floor(std::log2((double)srcWidth / std::max(px, 1)) + 1e-6)));
