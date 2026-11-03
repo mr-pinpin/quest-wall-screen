@@ -43,6 +43,9 @@ struct Options {
     //          covers only the rows that differ (compared row by row; SCK's dirty rects cover everything)
     //   prifps  per-screen frame-rate by demand priority: pri >= 0.8 full rate, >= 0.3 15 fps, else 10 fps; when no
     //          full-rate screen changed, the atlas encodes at most 15 times a second
+    // --synth "S:WxH,..." (or --test "S:synth:WxH"): synthetic screens instead of macOS displays (source type
+    // "synth"); --synth-animate "2,3": the ones that change every tick (default all), the rest hold still pictures
+    var synth: [(Int, Int, Int)] = [], synthAnimate: Set<Int>? = nil  // nil: all animate; "none": none
     var flags = Set<String>(), statSecs = 30.0, vtMaxW = 0  // --vt-max-w: cap every vt screen's width (tests)
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -58,6 +61,12 @@ struct Options {
             case "--test": test = v
             case "--stat-secs": statSecs = Double(v) ?? statSecs
             case "--vt-max-w": vtMaxW = Int(v) ?? 0
+            case "--synth":  // "2:1920x1200,3:1920x1200,..."
+                synth = v.split(separator: ",").compactMap { item in
+                    let p = item.split(separator: ":"); guard p.count == 2, let s = Int(p[0]) else { return nil }
+                    let wh = p[1].split(separator: "x").compactMap { Int($0) }; return wh.count == 2 ? (s, wh[0], wh[1]) : nil
+                }
+            case "--synth-animate": synthAnimate = v == "none" ? [] : Set(v.split(separator: ",").compactMap { Int($0) })
             case "--flags": flags = Set(v.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             default: break
             }
@@ -90,7 +99,7 @@ final class Peer {
 /// long as its display stays put: layout changes only move its cells (`cells`, guarded by atlas.lock) and resize its
 /// output with updateConfiguration, because restarting every stream on each resize froze the atlas for seconds in
 /// the 10-screen stress test.
-final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
+class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var cells: [Cell]; let screen: Int; let origin: CGPoint; weak var atlas: Atlas?; var stream: SCStream?; var dead = false
     var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cells move without resizing
     var fps = 60                 // capture rate (prifps changes it with updateConfiguration)
@@ -120,7 +129,12 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         log("screen \(screen) capture stopped: \(error.localizedDescription)"); dead = true; atlas?.layoutKey = ""
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
+        guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb) else { return }
+        deliver(pb)
+    }
+    // One new frame of this screen, from any source, into its cells (or the stash while hidden).
+    func deliver(_ pb: CVPixelBuffer) {
+        guard let a = atlas else { return }
         // damage: the rows this frame changed, in frame pixels; nil = all of it. ScreenCaptureKit marks virtual
         // displays dirty on every frame (0% clean measured), so compare with the previous frame instead: exact, and
         // about the cost of the copy it saves.
@@ -141,6 +155,55 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             a.stash[screen] = nil; for c in cells { a.blit(pb, c, rows: rows) }
             if a.o.flags.contains("prifps") && fps >= a.o.fps { a.fullRateDirty = true }
         } else { a.stash[screen] = pb }
+    }
+}
+
+/// A synthetic screen (source type "synth"): moving pictures generated in-process at the capture rate, with no
+/// ScreenCaptureKit and no WindowServer, so benchmarks measure our own pipeline (packing, VT, encode, send) rather than
+/// macOS screen recording (which delivered ~8.6 fps per display with 10 virtual displays, 2026-11-03). Frames cycle
+/// through 8 precomputed IOSurface-backed pictures that differ everywhere (like video or a game), so generating them
+/// costs almost nothing.
+final class SynthSource: CellCapture {
+    var ring: [CVPixelBuffer] = [], k = 0, timer: DispatchSourceTimer?, queue: DispatchQueue?
+    static func isSynth(_ d: CGDirectDisplayID) -> Bool { d & 0xF000_0000 == 0xF000_0000 }
+    static func display(_ screen: Int) -> CGDirectDisplayID { 0xF000_0000 | CGDirectDisplayID(screen & 0xFFFF) }
+    var animated = true  // false: one still picture, delivered at start and after each resize (static content)
+    func start(fps: Int, queue: DispatchQueue, animated: Bool) {
+        self.queue = queue; self.fps = fps; self.animated = animated
+        queue.sync { ring = SynthSource.pictures(cells[0].frameW, cells[0].frameH, seed: screen) }
+        schedule()
+    }
+    func schedule() {
+        timer?.cancel(); timer = nil
+        guard animated else { queue?.async { [weak self] in if let s = self, let pb = s.ring.first { s.deliver(pb) } }; return }
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now(), repeating: .nanoseconds(1_000_000_000 / max(1, fps)))
+        t.setEventHandler { [weak self] in guard let self = self, !self.ring.isEmpty else { return }; self.k += 1; self.deliver(self.ring[self.k % self.ring.count]) }
+        t.resume(); timer = t
+    }
+    override func resize(_ w: Int, _ h: Int, fps: Int) async {
+        let rateChanged = fps != self.fps; self.fps = fps
+        queue?.sync { if ring.first.map({ CVPixelBufferGetWidth($0) != w || CVPixelBufferGetHeight($0) != h }) ?? true { ring = SynthSource.pictures(w, h, seed: screen) } }
+        if rateChanged || !animated { schedule() }
+    }
+    override func stop() { atlas = nil; timer?.cancel(); timer = nil }
+    static func pictures(_ w: Int, _ h: Int, seed: Int) -> [CVPixelBuffer] {
+        let attrs: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
+        return (0..<8).compactMap { k in
+            var pb: CVPixelBuffer?
+            guard CVPixelBufferCreate(nil, w, h, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pb) == kCVReturnSuccess, let b = pb else { return nil }
+            CVPixelBufferLockBaseAddress(b, []); defer { CVPixelBufferUnlockBaseAddress(b, []) }
+            guard let base = CVPixelBufferGetBaseAddress(b)?.assumingMemoryBound(to: UInt32.self) else { return nil }
+            let stride = CVPixelBufferGetBytesPerRow(b) / 4, s = UInt32(truncatingIfNeeded: seed * 977 + k * 61)
+            var r = UInt32(truncatingIfNeeded: seed &* 2654435761) &+ UInt32(k)
+            for y in 0..<h {  // a scrolled gradient (shifts every frame) ...
+                let row = base + y * stride, v = UInt32(truncatingIfNeeded: y) &+ s
+                for x in 0..<w { row[x] = 0xFF000000 | ((v &+ UInt32(truncatingIfNeeded: x)) & 0xFF) << 16 | (v & 0xFF) << 8 | ((UInt32(truncatingIfNeeded: x) &* 3 &+ s) & 0xFF) }
+            }
+            let bw = max(1, w / 5), bh = max(1, h / 4), bx = (k * w / 9) % max(1, w - bw), by = (k * h / 11) % max(1, h - bh)
+            for y in by..<by + bh { for x in bx..<bx + bw { r = r &* 1664525 &+ 1013904223; base[y * stride + x] = 0xFF000000 | (r >> 8) } }  // ... and a moving noise block
+            return b
+        }
     }
 }
 
@@ -334,11 +397,12 @@ final class Atlas {
 
     // ---- display list
     func entries() -> [Entry] {
+        if !o.synth.isEmpty { return o.synth.map { Entry(screen: $0.0, display: SynthSource.display($0.0), w: $0.1, h: $0.2) } }
         if !o.test.isEmpty {
             return o.test.split(separator: ",").compactMap { pair in
                 // "screen:display" or "screen:display:WxH" (the size the displays helper reports)
                 let p = pair.split(separator: ":"); guard p.count >= 2, let s = Int(p[0]) else { return nil }
-                let d = p[1] == "main" ? CGMainDisplayID() : CGDirectDisplayID(p[1]) ?? 0
+                let d = p[1] == "main" ? CGMainDisplayID() : p[1] == "synth" ? SynthSource.display(s) : CGDirectDisplayID(p[1]) ?? 0
                 let mode = CGDisplayCopyDisplayMode(d), size = p.count > 2 ? p[2].split(separator: "x").compactMap { Int($0) } : []
                 if size.count == 2 { return Entry(screen: s, display: d, w: size[0], h: size[1]) }
                 return Entry(screen: s, display: d, w: mode?.pixelWidth ?? 1920, h: mode?.pixelHeight ?? 1200)
@@ -586,7 +650,13 @@ final class Atlas {
             layoutJSON = json
             work.sync { if resized || encoder == nil { lastBuffer = nil; makeEncoder() } }
         }
-        let missing = byDisplay.values.compactMap { $0.first }.filter { captures[$0.entry.display] == nil && live.contains($0.entry.display) }
+        var missing = byDisplay.values.compactMap { $0.first }.filter { captures[$0.entry.display] == nil && live.contains($0.entry.display) }
+        for c in missing where SynthSource.isSynth(c.entry.display) {
+            let cap = SynthSource(byDisplay[c.entry.display]!, self)
+            cap.start(fps: o.fps, queue: capQ, animated: o.synthAnimate?.contains(c.entry.screen) ?? true)
+            captures[c.entry.display] = cap; log("screen \(c.entry.screen) synthetic source")
+        }
+        missing.removeAll { SynthSource.isSynth($0.entry.display) }
         if !missing.isEmpty {
             if let content = try? await SCShareableContent.current {
                 for c in missing {
