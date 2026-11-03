@@ -19,6 +19,7 @@ import calendar, json, pathlib, re, subprocess, sys, time
 HERE = pathlib.Path(__file__).resolve().parent
 ACTIVITY, PROX_LOG, STATE = HERE / 'activity.log', pathlib.Path('/tmp/pinpin-prox.log'), pathlib.Path('/tmp/pinpin-watchdog.json')
 QUEUES = ('suite.sh', 'rebaseline.sh', 'gaming_pairs.sh', 'headset_vt_pairs.sh', 'runner.sh', 'synth2.sh', 'synth3.sh', 'synth4.sh')
+NET_AGENTS = ('work-42',)  # network changes (stress.py NET_AGENTS): runs wait while one is open
 # headset_queue.sh is not here: waiting for a headset wake window is its normal state
 LINE = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (\S+) (\S+?)\[([^\]]*)\] (START\+END|START|END|WATCHDOG)\b ?(.*)$')
 
@@ -65,7 +66,13 @@ def check(now, events, lock, procs, prox_lines):
     # a queue of ours stalls when it runs but logs nothing of its own: other agents' slots must not hide that
     # (2026-11-03: a self-matching pgrep wait kept the synth queue idle 17:32-17:50 while work-09's slots ran)
     last = max((e['t'] for e in events if e['kind'] in ('START', 'END', 'START+END') and e['who'] == 'work-c4'), default=0)
-    if queues and not lock and now - last > 600:
+    # stress.py holds new runs while a network change is open and for 2 min after its END (network_change()): that
+    # wait is the queue working as designed, not a stall (2026-11-03 21:24: a false "stalled queue" during the ch36
+    # rollback). Count the stall from the end of that settle instead.
+    net = [e for e in events if e['who'] in NET_AGENTS]
+    net_open = any(e['who'] in NET_AGENTS for e in open_starts(events))
+    last = max([last] + [e['t'] + 120 for e in net if e['kind'] in ('END', 'START+END')])
+    if queues and not lock and not net_open and now - last > 600:
         found.append(('stalled queue', f"queue@{last}", f"queue running ({', '.join(sorted({q for q in QUEUES for c in procs.values() if q in c}))}), lock free, nothing of ours started for {(now - last) // 60} min"))
     for s in opened:
         # a process is in its exit window for a few seconds (lock release, then its END line): only a START older than

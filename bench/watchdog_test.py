@@ -32,6 +32,12 @@ other = ev3 + w.parse([f"{at(12)} work-09 x.sh[manual] START+END Air: a slot"])
 check(kinds(w.check(T + 15 * 60, other, None, procs, [])) == ['stalled queue'], 'another agent''s slot does not hide our stall')
 check(w.check(T + 10 * 60, ev3, {'owner': 'work-09 test', 'age_s': 60}, procs, []) == [], 'queue waiting on another holder: fine')
 # Ghost job: our START, pid gone, no lock.
+# an open network change (work-42 START, no END) holds the queue: not a stall; 2 min settle after its END counts too
+net = ev3 + w.parse([f"{at(5)} work-42 rollback[work-df] START router: rollback"])
+check(kinds(w.check(T + 15 * 60, net, None, procs, [])) == [], 'open network change is not a stall')
+net_end = net + w.parse([f"{at(14)} work-42 rollback[work-df] END router: back"])
+check(kinds(w.check(T + 20 * 60, net_end, None, procs, [])) == [], 'network change settle restarts the stall clock')
+check(kinds(w.check(T + 27 * 60, net_end, None, procs, [])) == ['stalled queue'], 'stall counted again 10 min after the settle')
 ev4 = w.parse([f"{at(0)} work-c4 stress.py[400] START sim run: --secs 60"])
 check('ghost job' in kinds(w.check(T + 3 * 60, ev4, None, {}, [])), 'ghost job')
 check('ghost job' not in kinds(w.check(T + 60, ev4, None, {}, [])), 'a run ending right now is not a ghost (exit window)')
