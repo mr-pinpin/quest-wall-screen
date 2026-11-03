@@ -168,9 +168,49 @@ struct App {
     // Extra screens (summoned): one H.264 atlas of the laptop's virtual displays (sharp/../AtlasSender.swift),
     // cropped per screen into its own compositor layer. files/atlas.json: {"host": "<Mac IP>", "port": 57720}.
     VideoStream atlasVideo;
-    struct AtlasCell { int x, y, w, h; };
-    std::map<int, AtlasCell> atlasCells; int atlasW = 0, atlasH = 0; std::string atlasMeta;
+    // lvl and src (the part of the Mac display the cell covers) are protocol v2 (docs/virtual-texturing.md); a v1
+    // sender leaves lvl -1 and sw 0. A screen may come as several cells (tiles).
+    struct AtlasCell { int x, y, w, h, lvl = -1, sx = 0, sy = 0, sw = 0, sh = 0; };
+    std::map<int, AtlasCell> atlasCells; std::map<int, std::vector<AtlasCell>> atlasTiles; int atlasW = 0, atlasH = 0; std::string atlasMeta;
     std::map<int, PanelLayer> extraLayers; std::set<int> extraLive;
+    // VT flag (virtual texturing, headset side; docs/virtual-texturing.md): hidden screens are not re-copied from
+    // the atlas every frame and keep their last sharp image; a screen whose cell changes size keeps showing its
+    // old image (holdLayers) until the new one has arrived; demand carries the wanted level ("lvl") and the one
+    // shown ("have"). files/vt-on forces it for self-tests.
+    bool vtMenu = false, vtFile = false; bool vt() const { return vtMenu || vtFile; }
+    std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0;
+    struct VtLevel { int lvl = 0; double downSince = -1; };
+    std::map<int, VtLevel> vtLevels;
+    int vtSrcW(int id) {  // the screen's Mac display width in pixels, from v2 src rects; 1920 (the v1 cell cap) otherwise
+        int w = 0; auto it = atlasTiles.find(id);
+        if (it != atlasTiles.end()) for (auto& c : it->second) w = std::max(w, c.sx + c.sw);
+        return w > 0 ? w : 1920;
+    }
+    int vtWant(int id, int px, bool vis) {  // up at once, down after 3 s; hidden screens want the mip tail
+        const int tail = 4; VtLevel& v = vtLevels[id];
+        int want = !vis ? tail : std::min(tail, std::max(0, (int)std::ceil(std::log2((double)vtSrcW(id) / std::max(px, 1)) - 1e-6)));
+        if (want < v.lvl || !vis) { v.lvl = want; v.downSince = -1; }
+        else if (want > v.lvl) { if (v.downSince < 0) v.downSince = now(); else if (now() - v.downSince > 3) { v.lvl = want; v.downSince = -1; } }
+        else v.downSince = -1;
+        return v.lvl;
+    }
+    int vtHave(int id) {  // the level on screen: the cell's lvl (v2), else derived from its width; -1 = nothing yet
+        auto L = extraLayers.find(id), H = holdLayers.find(id);
+        bool shown = (L != extraLayers.end() && L->second.hasImage) || (H != holdLayers.end() && H->second.hasImage);
+        auto c = atlasCells.find(id); if (!shown || c == atlasCells.end()) return -1;
+        if (c->second.lvl >= 0) return c->second.lvl;
+        return std::max(0, (int)std::lround(std::log2((double)vtSrcW(id) / std::max(1, c->second.w))));
+    }
+    // The tiles of one screen in panel-image space, and that image's size.
+    std::vector<PanelLayer::Tile> vtTiles(int id, int& cw, int& ch) {
+        std::vector<PanelLayer::Tile> out; const auto& cells = atlasTiles[id];
+        if (cells.size() == 1 && cells[0].sw <= 0) { const AtlasCell& c = cells[0]; cw = c.w; ch = c.h; out.push_back({c.x, c.y, c.w, c.h, 0, 0, c.w, c.h}); return out; }
+        int sw = 0, sh = 0; for (auto& c : cells) { sw = std::max(sw, c.sx + c.sw); sh = std::max(sh, c.sy + c.sh); }
+        double k = cells.empty() || cells[0].sw <= 0 ? 1.0 : (double)cells[0].w / cells[0].sw;
+        cw = (int)std::lround(sw * k); ch = (int)std::lround(sh * k);
+        for (auto& c : cells) out.push_back({c.x, c.y, c.w, c.h, (int)std::lround(c.sx * k), (int)std::lround(c.sy * k), c.w, c.h});
+        return out;
+    }
     VideoStream video;
     PanelLayer panelLayer;  // QUAD: the panel as a compositor quad layer
     bool bezel = true;   // BEZEL flag (default: it removed the line completely): a frame over the panel edge, drawn in the eye
@@ -354,12 +394,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 17;
+    static constexpr int kMenuItems = 18;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -370,6 +410,7 @@ struct App {
         if (l == "CURVE") return panelLayer.curve;
         if (l == "SPELL") return spellOn;
         if (l == "MACDISP") return macDisplays;
+        if (l == "VT") return vt();
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
         if (l == "BEZEL") return bezel;
@@ -448,6 +489,7 @@ struct App {
         }
         else if (l == "CLOSE" && !editLocked) menuOpen = false;
         else if (l == "QUAD") panelLayer.enabled = !panelLayer.enabled;     // A/B the compositor quad layer
+        else if (l == "VT") vtMenu = !vtMenu;                                 // virtual texturing for the extra screens
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
         else if (l == "BEZEL") bezel = !bezel;                            // dark frame over the layer edge, drawn in the eye buffers
@@ -1243,9 +1285,12 @@ void main(){
         ds.push_back(demandFor(1, placed, placed.active ? wallById(placed.wall) : nullptr));
         if (stressN > 0) for (int k = 0; k < stressN; k++) ds.push_back(stressDemand(k));
         else for (auto& sc : extras) ds.push_back(demandFor(sc.id, sc.p, wallById(sc.p.wall)));
-        std::string j = "{\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
+        bool v2 = vt();
+        std::string j = std::string(v2 ? "{\"v\":2," : "{") + "\"t\":" + std::to_string((long)(now() * 1000)) + ",\"budgetKbps\":" + std::to_string(budgetKbps) + ",\"screens\":[";
         for (size_t i = 0; i < ds.size(); i++) {
-            char b[96]; snprintf(b, sizeof b, "%s{\"id\":%d,\"vis\":%d,\"px\":%d,\"pri\":%.2f}", i ? "," : "", ds[i].id, ds[i].vis ? 1 : 0, ds[i].px, ds[i].pri);
+            char b[160]; int n = snprintf(b, sizeof b, "%s{\"id\":%d,\"vis\":%d,\"px\":%d,\"pri\":%.2f", i ? "," : "", ds[i].id, ds[i].vis ? 1 : 0, ds[i].px, ds[i].pri);
+            if (v2 && ds[i].id != 1) snprintf(b + n, sizeof b - n, ",\"lvl\":%d,\"have\":%d}", vtWant(ds[i].id, ds[i].px, ds[i].vis), vtHave(ds[i].id));
+            else snprintf(b + n, sizeof b - n, "}");
             j += b;
         }
         j += "]}";
@@ -1669,11 +1714,16 @@ void main(){
     void parseAtlas() {
         std::string m; { std::lock_guard<std::mutex> g(atlasVideo.lock); m = atlasVideo.meta; }
         if (m == atlasMeta) return;
-        atlasMeta = m; atlasCells.clear();
+        atlasMeta = m; atlasCells.clear(); atlasTiles.clear();
         size_t a = m.find("\"atlas\":["); if (a != std::string::npos) sscanf(m.c_str() + a + 9, "%d,%d", &atlasW, &atlasH);
         for (size_t p = m.find("{\"screen\":"); p != std::string::npos; p = m.find("{\"screen\":", p + 1)) {
-            int id, x, y, w, h;
-            if (sscanf(m.c_str() + p, "{\"screen\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d", &id, &x, &y, &w, &h) == 5) atlasCells[id] = {x, y, w, h};
+            int id; AtlasCell c{};
+            if (sscanf(m.c_str() + p, "{\"screen\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d", &id, &c.x, &c.y, &c.w, &c.h) != 5) continue;
+            std::string cell = m.substr(p, m.find('}', p) - p);  // v2 fields, in any order
+            size_t l = cell.find("\"lvl\":"); if (l != std::string::npos) c.lvl = atoi(cell.c_str() + l + 6);
+            size_t s = cell.find("\"src\":["); if (s != std::string::npos) sscanf(cell.c_str() + s + 7, "%d,%d,%d,%d", &c.sx, &c.sy, &c.sw, &c.sh);
+            if (!atlasCells.count(id)) atlasCells[id] = c;  // the first tile: bezel colours, v1 paths
+            atlasTiles[id].push_back(c);
         }
         event("atlas layout: " + std::to_string(atlasCells.size()) + " screens");
     }
@@ -1879,13 +1929,28 @@ void main(){
             for (auto& e : extras) {
                 auto it = atlasCells.find(e.id); if (it == atlasCells.end()) continue;
                 PanelLayer& L = extraLayers[e.id]; L.superSample = panelLayer.superSample; L.super = panelLayer.super;
-                L.update(session, atlasVideo.mipFbo, it->second.w, it->second.h, atlasVideo.mipVersion, it->second.x, it->second.y);
-                if (L.hasImage) extraLive.insert(e.id);
+                if (!vt()) {
+                    L.update(session, atlasVideo.mipFbo, it->second.w, it->second.h, atlasVideo.mipVersion, it->second.x, it->second.y);
+                    if (L.hasImage) extraLive.insert(e.id);
+                    continue;
+                }
+                PanelLayer& H = holdLayers[e.id];
+                bool vis = demandFor(e.id, e.p, wallById(e.p.wall)).vis;
+                if (!vis && (L.hasImage || H.hasImage)) { vtSkipped++; extraLive.insert(e.id); continue; }  // keep the sharp copy
+                int cw = 0, ch = 0; std::vector<PanelLayer::Tile> tiles = vtTiles(e.id, cw, ch);
+                if (L.hasImage && (cw != L.contentW || ch != L.contentH)) {  // new size: show the old image until the new one is in
+                    H.destroy(); std::swap(H, L); vtHolds++;
+                }
+                L.superSample = panelLayer.superSample; L.super = panelLayer.super;
+                L.update(session, atlasVideo.mipFbo, cw, ch, atlasVideo.mipVersion, tiles);
+                if (L.hasImage && H.chain) H.destroy();
+                if (L.hasImage || H.hasImage) extraLive.insert(e.id);
             }
         }
         if (quadTick++ % 60 == 0) {
             quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
             mipqFile = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // forces MIPQ for self-tests
+            vtFile = access((gDir + "/vt-on").c_str(), F_OK) == 0;      // forces VT for self-tests
         }
         panelLayer.mipQuality = mipqMenu || mipqFile;
         bool quad = hasVideo && (panelLayer.enabled || quadFile) && placed.active;
@@ -1971,7 +2036,8 @@ void main(){
                 V3 c = xform(w->pose, {e.p.x, e.p.y, 0.02f});
                 if (!seenFrom(eye, c, rot(w->pose.orientation, {0, 0, 1}), e.p.wall)) continue;
                 XrPosef qp; qp.orientation = w->pose.orientation; qp.position = {c.x, c.y, c.z};
-                layers.push_back(extraLayers[e.id].layer(local, qp, qp, e.p.w, e.p.h));
+                PanelLayer& L = extraLayers[e.id]; PanelLayer* show = L.hasImage ? &L : &holdLayers[e.id];  // the held image while the new one loads
+                if (show->hasImage) layers.push_back(show->layer(local, qp, qp, e.p.w, e.p.h));
             }
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&proj));
             frames++; framesSec++;
@@ -2014,7 +2080,7 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << "}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
