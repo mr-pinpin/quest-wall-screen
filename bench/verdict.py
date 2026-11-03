@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical keep/drop verdict for one flag A/B pair (docs/bench-scoreboard.md, "Pass/drop rules").
 
-    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | vt-cinema | vt-wall | gameyield | vt_realtime | codec-h264
+    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | vt-cinema | vt-wall | damage | prifps | gameyield | vt_realtime | codec-h264
     python3 bench/verdict.py --self-test
 
 OFF and ON are bench/results/stress-*.json from the same scenario, run back to back (ON = flag set; for codec-h264,
@@ -18,7 +18,7 @@ def atlas(r):
     a = r.get('atlas') or {}
     return {'mbps': a.get('mbps'), 'gapP99': (a.get('freshGapMs') or {}).get('p99'), 'keyframes': a.get('keyframes'),
             'fps': (a.get('freshFps') or {}).get('p50'), 'silence': a.get('longestSilenceS'),
-            'below': (r.get('vt') or {}).get('belowWantedPct'), 'vtValid': (r.get('checks') or {}).get('vt layouts valid (vt_check.py)')}
+            'below': (r.get('vt') or {}).get('belowWantedPct'), 'cpu': r.get('senderCpuPct'), 'vtValid': (r.get('checks') or {}).get('vt layouts valid (vt_check.py)')}
 
 
 def game(r):
@@ -73,7 +73,15 @@ def rule(name, off, on):
         why = f"mbps {A['mbps']} -> {B['mbps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms, layouts valid {B['vtValid']}"
         ok = B['vtValid'] is not False and le(B['mbps'], A['mbps'], 1.1) and le(B['gapP99'], A['gapP99'], 1.2)
         return ('KEEP' if ok else 'DROP'), why
-    if name in ('gameyield', 'vt_realtime', 'codec-h264'):
+    if name == 'damage':  # still screens cost no copies: less sender CPU, same stream
+        why = f"sender cpu {A['cpu']} -> {B['cpu']}%, mbps {A['mbps']} -> {B['mbps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms"
+        if ge(B['cpu'], A['cpu'], 0.95) or not le(B['gapP99'], A['gapP99'], 1.1) or not le(B['mbps'], A['mbps'], 1.05): return 'DROP', why
+        return ('KEEP' if le(B['cpu'], A['cpu'], 0.85) else 'RERUN'), why
+    if name == 'prifps':  # background screens at 10-15 fps: fewer bits, the focused screen unharmed
+        why = f"mbps {A['mbps']} -> {B['mbps']}, fresh fps {A['fps']} -> {B['fps']}, sender cpu {A['cpu']} -> {B['cpu']}%"
+        if ge(B['mbps'], A['mbps'], 0.95) or (B['fps'] or 0) < (A['fps'] or 0) - 5: return 'DROP', why
+        return ('KEEP' if le(B['mbps'], A['mbps'], 0.85) else 'RERUN'), why
+    if name in ('gameyield', 'encshare', 'vt_realtime', 'codec-h264'):
         return latency_rule(off, on)
     raise SystemExit(f'unknown rule {name}')
 
@@ -86,8 +94,8 @@ def verdict(name, off, on):
 
 
 def self_test():
-    def res(mbps=20, gap=40, keys=10, fps=50, lat=None, host=8, stalls=0, below=None, valid=None, gfps=60):
-        r = {'checks': {}, 'atlas': {'mbps': mbps, 'freshGapMs': {'p99': gap}, 'keyframes': keys, 'freshFps': {'p50': fps}}}
+    def res(mbps=20, gap=40, keys=10, fps=50, lat=None, host=8, stalls=0, below=None, valid=None, gfps=60, cpu=None):
+        r = {'checks': {}, 'senderCpuPct': cpu, 'atlas': {'mbps': mbps, 'freshGapMs': {'p99': gap}, 'keyframes': keys, 'freshFps': {'p50': fps}}}
         if valid is not None: r['checks']['vt layouts valid (vt_check.py)'] = valid
         if below is not None: r['vt'] = {'belowWantedPct': below}
         if lat is not None:  # 100 s of game frames, all in the bucket holding `lat`
@@ -109,6 +117,12 @@ def self_test():
         ('vt_realtime', res(lat=20, host=9), res(lat=20, host=7), 'KEEP'),
         ('codec-h264', res(lat=20, host=9), res(lat=20, host=9, gfps=50), 'DROP'),
         ('codec-h264', res(lat=20, host=9), res(lat=20, host=9), 'DROP'),
+        ('damage', res(cpu=40), res(cpu=20), 'KEEP'),
+        ('damage', res(cpu=40), res(cpu=39), 'DROP'),
+        ('damage', res(cpu=40, gap=40), res(cpu=20, gap=60), 'DROP'),
+        ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=57), 'KEEP'),
+        ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=40), 'DROP'),
+        ('encshare', res(lat=40, host=9), res(lat=25, host=9), 'KEEP'),
     ]
     bad = 0
     for name, off, on, want in cases:

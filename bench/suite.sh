@@ -16,9 +16,13 @@ RUNS=(
   "--scenario cinema --n 10 --cinema-size 2560x1600"
   "--scenario cinema --n 10 --cinema-size 2560x1600 --flags vt"
   "--scenario wall --n 20 --flags vt"
+  "--scenario wall --n 10 --static 7"
+  "--scenario wall --n 10 --static 7 --flags damage"
+  "--scenario cinema --n 10 --flags prifps"
 )
 # Flag A/B pairs: each "--flags X" run pairs with the same scenario without it above (bpcut: cinema-10 --wan 3;
-# vt: cinema-10 with a 2560x1600 cinema screen, so it gets tiles; wall-20). A flag stays only if its pair proves it (bench/results/stress.md).
+# vt: cinema-10 with a 2560x1600 cinema screen, so it gets tiles; wall-20; damage: wall-10 with 7 still screens;
+# prifps: cinema-10). A flag stays only if its pair proves it (bench/results/stress.md).
 SECS=${SECS:-60}
 EXTRA=${EXTRA:-}   # e.g. EXTRA=--force to run while the laptop is in use
 i=0

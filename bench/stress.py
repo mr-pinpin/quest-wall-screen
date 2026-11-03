@@ -179,6 +179,7 @@ def main():
     ap.add_argument('--headset-flag', action='append', default=[], metavar='NAME',
                     help='--headset only: force a room_lab flag for the run via its files/NAME-on file (vt, budget, gputime, '
                          'wifill); removed in teardown. Repeatable.')
+    ap.add_argument('--static', type=int, default=0, help='leave the last K created screens without the moving pattern (still desktops)')
     ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
                     'files/codec-h264, v0.39+); default: as the headset is set')
     ap.add_argument('--sunshine', action='append', default=[], metavar='NAME=VALUE',
@@ -215,7 +216,9 @@ def main():
     ds = {d['screen']: d['display'] for d in displays()}
     missing = [i for i in ids if i not in ds]
     if missing: print('  warning: displays not created:', missing)
-    pattern = [str(ds[i]) for i in created if i in ds]
+    # --static K: the last K created screens keep a still desktop (no pattern), like real idle screens
+    moving = created[:max(0, len(created) - a.static)]
+    pattern = [str(ds[i]) for i in moving if i in ds]
     if pattern:
         # Run the binary directly: through `open` it got no arguments. Windows still reach the GUI session.
         air(f"(nohup {APP.replace(' ', chr(92) + ' ')}/Contents/MacOS/stresspattern {' '.join(pattern)} "
@@ -225,7 +228,7 @@ def main():
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
     log0 = '' if sim else air(f'cat {log_path}')
-    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}
+    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False; overrides = {}; cpu = []
     try:
         # 2. per-run overrides of the live plugins (restored in `finally`), before any game session starts
         if a.sunshine:
@@ -280,9 +283,13 @@ def main():
         if stdin: proc.stdin.write(stdin)
         proc.stdin.close()
         idle_before = laptop_idle_s()
+        sender = 'pinpin-atlas-test' if sim else 'pinpin-atlas'
         while proc.poll() is None:
             time.sleep(10)
             if proc.poll() is not None: break
+            # the sender's CPU (one sample per 10 s; ps %cpu is a decaying average, enough to compare flags)
+            try: cpu.append(float(air(f"ps -Ao %cpu,comm | awk '$2 ~ /{sender}$/ {{print $1; exit}}'", timeout=15).strip()))
+            except ValueError: pass
             idle = laptop_idle_s()
             if not a.force and idle < idle_before: aborted = 'the laptop was touched'
             elif sim and headset_worn(): aborted = 'someone put the headset on'
@@ -318,7 +325,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
@@ -328,6 +335,7 @@ def main():
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
     }
+    r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {
         'internet ping p95 < 50 ms': r['wanPingMs']['p95'] is not None and r['wanPingMs']['p95'] < 50,
         'no screen skipped': not skipped,

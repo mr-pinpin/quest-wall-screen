@@ -24,6 +24,8 @@ pair yet), **kept-verified** (correctness change, verified once, no A/B needed).
 | stuck-exit | exit when a refresh hangs, Host restarts it | correctness | validated before the reboot (4d28e69) | kept-verified |
 | bpcut | bitrate x0.7 under backpressure | cinema-10 --wan 3, off vs on | work-09 single A/B: frames 148 -> 318, keyframes 23 -> 7, gap p99 583 -> 343 ms; suite pair pending | pending |
 | vt | protocol v2: levels, tiles, mip tails | cinema-10 @2560x1600 and wall-20, off vs on | layouts: 0 errors (vt_check, vt_headset_test); suite pairs pending | pending |
+| damage | frames with no dirty rects are not copied (no re-encode); copies cover only changed rows | wall-10 --static 7, off vs on; gaming pair 5 with prifps | pending (laptop test queued) | pending |
+| prifps | per-screen capture rate by priority (>= 0.8 full, >= 0.3 15 fps, else 10); reduced-rate changes coalesce to 15 encodes/s | cinema-10, off vs on; gaming pair 5 with damage | pending (laptop test queued) | pending |
 | gameyield | while the headset plays a game ("game":1), encode the atlas on 1 tick in 2-4 (more when its own encode time shows contention) | --headset --game LAPTOP, off vs on (bench/gaming_pairs.sh) | built; laptop test queued behind the suite | pending |
 
 ## Headset (room_lab, settings flags)
@@ -53,6 +55,9 @@ not hover in the noise. Every rule also drops on any gate check that passes OFF 
 | vt at cinema-10 @2560x1600 (`vt-cinema`) | hidden screens become 240-px mip tails, the focused screen gets tiles at level 0: far fewer bits | atlas Mbit/s <= 0.8x OFF, below-wanted <= 10% | layouts invalid (vt_check), Mbit/s >= OFF, or fresh fps more than 5 below OFF |
 | vt at wall-20 (`vt-wall`) | all screens visible and small: roughly neutral; vt must not cost anything | Mbit/s <= 1.1x OFF and gap p99 <= 1.2x OFF, layouts valid | otherwise |
 | vt overall | | KEEP in both vt rules (then production gets `--flags vt`) | DROP in either |
+| damage (`damage`), wall-10 --static 7 | still screens stop costing copies and re-encodes: lower sender CPU, same stream | sender CPU <= 0.85x OFF (stream unchanged) | CPU >= 0.95x OFF, gap p99 > 1.1x OFF, or Mbit/s > 1.05x OFF |
+| prifps (`prifps`), cinema-10 | background screens at 10-15 fps: fewer bits and encodes, the focused screen keeps full rate | atlas Mbit/s <= 0.85x OFF, fresh fps within 5 of OFF | Mbit/s >= 0.95x OFF or fresh fps more than 5 below OFF |
+| damage,prifps (`encshare`), --headset --game LAPTOP | the atlas's share of the media engine shrinks, so the game encode waits less | same as gameyield | same as gameyield |
 | gameyield (`gameyield`), --headset --game LAPTOP | the atlas encodes 1 tick in 2-4 while a game plays, so the game encode waits less for the media engine: lower hostMs and frame latency; the atlas drops to 15-30 fps by design | game frame latency p99 <= 0.9x OFF, or host ms p50 >= 1 ms lower; game fps >= 55 | latency p99 and host ms both >= OFF, game fps < 55, or 2+ more stalls over 100 ms |
 | vt_realtime=enabled (`vt_realtime`), --headset --game LAPTOP | VideoToolbox real-time mode: no frame queueing in the encoder, lower hostMs; costs some sharpness on still text (covered by sharp-text tiles and QUAD) | same as gameyield | same as gameyield |
 | codec H.264 (`codec-h264`; OFF = HEVC), --headset --game LAPTOP | low-latency rate control (H.264 only): shorter, steadier encodes, fewer packets queued behind big frames | same as gameyield | same as gameyield; equal latency is DROP (HEVC stays, better quality per bit) |

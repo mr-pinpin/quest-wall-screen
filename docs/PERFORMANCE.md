@@ -34,6 +34,21 @@ with no fairness; the LAN streams added Wi-Fi airtime pressure on top.
 - Proposed for the gateway (network owner): per-device fair queuing with a cap just under line rate on
   the Mini (dummynet pipe with per-source queues), so no single device can starve the house again.
 
+## Decided, do not re-propose (2026-11-03)
+
+- **Meta traffic and DNS: no hybrid.** Parked for good: a clean-DNS forwarder on the Mini (DNSFWD) and routing
+  Meta's address ranges through the Tailscale exit node at the Mini gateway (METAEXIT). The headset stays offline
+  on purpose; the computers turn their exit node on and off themselves. Background, so nobody re-measures it: the
+  ZyXEL answers 127.0.0.1 for graph.oculus.com and *.facebook.com, and on the ISP path the ISP injects NXDOMAIN for
+  Meta names asked of 1.1.1.1 and 8.8.8.8 (9.9.9.9 still answered); the Mini's DHCP keeps handing out the ZyXEL
+  first, then 1.1.1.1.
+- **The laptop's exit node stays as it is.** Measured: the Air via the exit node about 12 Mbit/s, the Mini direct
+  about 14 Mbit/s: no meaningful gain from changing it, and the project's own traffic (screens, game stream) is all
+  on the LAN.
+- **Laptop address:** the Mini's DHCP (bootpd, /etc/bootptab) reserves 192.168.0.102 for the Air's private Wi-Fi MAC
+  c6:90:59:1e:20:b2 and its hardware MAC 0c:e4:41:e1:dd:ac. bootpd reads bootptab only at startup. Tools ask the
+  laptop for its address (bench/stress.py) or resolve it by mDNS (headset HOSTRES) instead of assuming it.
+
 ## Design: one application, demand-driven pixels
 
 The goal is video-game behaviour: ten screens should cost about what the user can actually see.
