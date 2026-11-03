@@ -72,8 +72,8 @@ def main():
         except OSError:
             time.sleep(1); continue
         connects += 1
-        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1); s.settimeout(1.0)
-        buf = b''
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1); s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20); s.settimeout(1.0)
+        buf = bytearray(); pos = 0  # parse in place; compact rarely (no per-packet copies)
         try:
             while time.time() - t0 < a.secs:
                 try:
@@ -86,15 +86,15 @@ def main():
                 if first_rx is None: first_rx = last_rx = now
                 longest_silence = max(longest_silence, now - last_rx); last_rx = now
                 buf += chunk
-                while len(buf) >= 4:
-                    n = struct.unpack('>I', buf[:4])[0]
-                    if len(buf) < 4 + n: break
-                    pkt, buf = buf[4:4 + n], buf[4 + n:]
+                while len(buf) - pos >= 4:
+                    n = struct.unpack_from('>I', buf, pos)[0]
+                    if len(buf) - pos < 4 + n: break
+                    pkt = buf[pos + 4:pos + 4 + 13] if n > 13 else buf[pos + 4:pos + 4 + n]; pos += 4 + n  # header only: no payload copy
                     sec = int(now - t0); row = per_sec.setdefault(sec, [0, 0, 0]); row[0] += n + 4
                     if not pkt: continue
                     f = pkt[0]
                     if f & 0x80:
-                        txt = pkt[1:].decode('utf-8', 'replace')
+                        txt = bytes(buf[pos - n + 1:pos]).decode('utf-8', 'replace')
                         if txt != last_layout: layouts += 1; last_layout = txt
                         continue
                     if f & 1: keyframes += 1
@@ -103,7 +103,9 @@ def main():
                         row[1] += 1
                         if last_fresh is not None: fresh_gaps.append(now - last_fresh)
                         last_fresh = now
-                    if len(pkt) >= 13: sizes.add(struct.unpack('>HH', pkt[9:13]))
+                    if n >= 13: sizes.add(struct.unpack_from('>HH', pkt, 9))
+                if pos > (4 << 20) or pos == len(buf):
+                    del buf[:pos]; pos = 0
         finally:
             s.close()
     stop.set()
@@ -112,7 +114,7 @@ def main():
     fresh = sorted(per_sec[s][1] for s in secs)
     gaps = [s for s in range(secs[0], secs[-1] + 1) if s not in per_sec] if secs else []
     print(json.dumps({
-        'connects': connects, 'secondsMeasured': len(secs),
+        'connects': connects, 'secondsMeasured': len(secs), 'receiverCpuPct': round(100 * time.process_time() / max(1, time.time() - t0), 1),
         'mbps': round(sum(mbps) / len(mbps), 1) if mbps else 0, 'mbpsMax': round(max(mbps), 1) if mbps else 0,
         'freshFps': {'p5': fresh[len(fresh) // 20] if fresh else 0, 'p50': fresh[len(fresh) // 2] if fresh else 0},
         'longestSilenceS': round(longest_silence, 2), 'emptySeconds': len(gaps),

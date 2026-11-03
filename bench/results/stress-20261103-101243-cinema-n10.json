@@ -1,0 +1,75 @@
+{
+ "when": "20261103-101243",
+ "n": 10,
+ "secs": 60,
+ "wan": 3,
+ "mode": "sim",
+ "scenario": "cinema",
+ "wanPingMs": {
+  "p50": 17.6,
+  "p95": 21.4,
+  "p99": 24.9,
+  "max": 29.02,
+  "count": 293
+ },
+ "zyxelPingMs": {
+  "p50": 2.7,
+  "p95": 7.0,
+  "p99": 11.6,
+  "count": 293
+ },
+ "lanPingMs": {
+  "p50": 76.8,
+  "p95": 100.5,
+  "p99": 182.4,
+  "count": 20
+ },
+ "houseInternetMbps": {
+  "down": 0.8,
+  "up": 0.7
+ },
+ "laptopWifiMbps": {
+  "tx": 0.0,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [
+   40000
+  ],
+  "layouts": 0,
+  "lastLayout": null,
+  "skipped": [],
+  "crashes": []
+ },
+ "atlas": {
+  "mbps": 0,
+  "mbpsMax": 0,
+  "freshFps": {
+   "p5": 0,
+   "p50": 0
+  },
+  "freshGapMs": {
+   "p50": null,
+   "p99": null,
+   "max": null
+  },
+  "receiverCpuPct": 0.4,
+  "longestSilenceS": 0.0,
+  "emptySeconds": 0,
+  "keyframes": 0,
+  "layouts": 0,
+  "connects": 0,
+  "sizes": []
+ },
+ "series": [],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "atlas within 40 Mbit/s": true,
+  "no atlas freeze over 5 s": true,
+  "stream kept 30+ fresh frames/s (median)": false,
+  "fresh-frame gap p99 < 50 ms": false
+ },
+ "pass": false
+}

@@ -9,7 +9,7 @@ Nobody has to wear anything, and the test never runs while someone is using the 
     or when someone is wearing the headset (app in VISIBLE/FOCUSED). --force skips the laptop check only.
   - The default mode uses a stand-in headset (bench/stress/headset_sim.py on the Mini). It receives the atlas
     stream and sends the same demand as the Quest's stress mode, from a separate test copy of the sender on
-    ports 57730/57731 (bench/stress/start-atlas-test.command). So the live sender and the headset are untouched.
+    ports 57730/57731, run as the PinPin Host plugin "pinpin-atlas-test". So the live sender and the headset are untouched.
   - --headset uses the Quest itself, unworn, for headset-only numbers (fps, decode latency). It simulates wear
     (prox_close; the Quest then renders exactly as when worn), starts the app if needed and puts it in stress mode
     (files/stress.json → room_lab.cpp stressDemand) on the live sender. Afterwards it restores everything and hands
@@ -36,6 +36,9 @@ APP = '~/Applications/PinPin Stress Pattern.app'
 HEADSET_IP = '192.168.0.3'
 LAPTOP_IP = '192.168.0.102'
 IDLE_NEEDED = 600
+HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
+TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731'],
+               'log': '~/.local/share/pinpin-atlas/atlas-sim.log', 'truncateLog': True, 'restartDelay': 1.5}
 
 
 def ssh(host, cmd, timeout=60, check=False, stdin=None):
@@ -52,7 +55,12 @@ def headset(cmd, **k): return mini(f"{ADB} shell {json.dumps(cmd)}", **k)
 
 
 def displays():
-    return json.loads(air('curl -s -m5 localhost:57710/displays', check=True) or '[]')
+    # The helper serves one request at a time and creating a display takes ~9 s, so wait and retry.
+    for _ in range(4):
+        out = air('curl -s -m30 localhost:57710/displays', timeout=45)
+        if out.strip().startswith('['): return json.loads(out)
+        time.sleep(5)
+    sys.exit('stress: the displays helper (:57710) did not answer')
 
 
 def laptop_idle_s():
@@ -142,7 +150,7 @@ def main():
     have = {d['screen'] for d in displays()}
     created = [i for i in ids if i not in have]
     for i in created:
-        air(f"curl -s -m10 -X POST 'localhost:57710/displays?id={i}&w=1920&h=1200&scale=1'")
+        air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w=1920&h=1200&scale=1'", timeout=60)
     time.sleep(3)
     ds = {d['screen']: d['display'] for d in displays()}
     missing = [i for i in ids if i not in ds]
@@ -157,14 +165,16 @@ def main():
     log_path = '~/.local/share/pinpin-atlas/' + ('atlas-sim.log' if sim else 'atlas.log')
     crash_glob = 'pinpin-atlas-test-*.ips' if sim else 'pinpin-atlas-2*.ips'
     log0 = '' if sim else air(f'cat {log_path}')
-    aborted = ''; st0 = time.time(); proc = None; app_was_running = True
+    aborted = ''; st0 = time.time(); proc = None; app_was_running = True; live_paused = False
     try:
         # 2. demand source
         if sim:
-            air('mkdir -p ~/.local/share/pinpin-stress && cat > ~/.local/share/pinpin-stress/start-atlas-test.command && '
-                'chmod +x ~/.local/share/pinpin-stress/start-atlas-test.command && '
-                'open -g -a Terminal ~/.local/share/pinpin-stress/start-atlas-test.command',
-                stdin=(HERE / 'start-atlas-test.command').read_text())
+            # Pause the live sender so only the test copy captures (agreed with work-09); restarted in `finally`.
+            air("curl -s -m5 -X POST '127.0.0.1:57790/stop?name=pinpin-atlas'"); live_paused = True
+            # The test copy runs as a PinPin Host plugin, so it inherits the Host's Screen Recording grant
+            # (no Terminal, no AppleScript). Its own binary name keeps the live sender's pkill away from it.
+            air('cp -f ~/.local/share/pinpin-atlas/pinpin-atlas ~/.local/share/pinpin-atlas/pinpin-atlas-test && '
+                f'printf %s {json.dumps(json.dumps(TEST_PLUGIN))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
         else:
             # Nobody is wearing it (checked above): simulate wear, start the app if needed, put it in stress mode.
             app_was_running = bool(headset(f'pidof {PKG}').strip())
@@ -177,12 +187,14 @@ def main():
                 headset(f"run-as {PKG} sh -c 'echo {a.game} > files/launch'"); time.sleep(12)  # session setup
         time.sleep(6)  # sender start, demand and resize settle
         if a.wan:
-            air(f"for i in $(seq {a.wan}); do (curl -s -o /dev/null -m {a.secs + 5} "
-                f"'https://speed.cloudflare.com/__down?bytes=2000000000' &) ; done")
+            # nohup: plain background jobs died with the ssh session, so the earlier --wan runs loaded nothing
+            air(f"for i in $(seq {a.wan}); do nohup curl -s -o /dev/null -m {a.secs + 5} "
+                f"'https://speed.cloudflare.com/__down?bytes=2000000000' > /dev/null 2>&1 & done")
 
         # 3. measure (in the background, while watching that nobody starts using the gear)
         rx0, tx0 = link_bytes(air, 'en0'); w0 = link_bytes(mini, 'en1'); st0 = time.time()
         probe = (f"(ping -b en1 -i 0.2 -t {a.secs} 1.1.1.1 > /tmp/stress-wan.txt 2>&1 &);"
+                 f"(ping -i 0.2 -t {a.secs} 192.168.1.1 > /tmp/stress-zyxel.txt 2>&1 &);"
                  f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);")
         if sim:
             probe += f"python3 - {LAPTOP_IP} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
@@ -208,10 +220,12 @@ def main():
         out = proc.stdout.read() if not aborted else ''
         rx1, tx1 = link_bytes(air, 'en0'); w1 = link_bytes(mini, 'en1'); dt = time.time() - st0
         wan, lan = pings(mini('cat /tmp/stress-wan.txt')), pings(mini('cat /tmp/stress-lan.txt'))
+        zyxel = pings(mini('cat /tmp/stress-zyxel.txt'))  # the Mini's 2.4 GHz hop alone: link jitter vs the internet
     finally:
         # 4. teardown
         if proc and proc.poll() is None: proc.kill()
-        if sim: air('pkill -x pinpin-atlas-test || true')
+        if sim: air(f'printf %s {json.dumps(json.dumps(dict(TEST_PLUGIN, enabled=False)))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
+        if live_paused: air("curl -s -m5 -X POST '127.0.0.1:57790/start?name=pinpin-atlas'")
         else:
             headset(f'run-as {PKG} rm -f files/stress.json')
             if not app_was_running: headset(f'am force-stop {PKG}')
@@ -219,7 +233,7 @@ def main():
         if a.wan: air("pkill -f 'speed.cloudflare.com/__down' || true")
         if pattern: air('pkill -f stresspattern || true')
         if not a.keep:
-            for i in created: air(f"curl -s -m10 -X POST 'localhost:57710/remove?id={i}'")
+            for i in created: air(f"curl -s -m40 -X POST 'localhost:57710/remove?id={i}'", timeout=60)
     if aborted:
         sys.exit(f'stress: aborted after {int(time.time() - st0)} s, {aborted}; everything was cleaned up')
 
@@ -232,6 +246,7 @@ def main():
     r = {
         'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario if sim else 'ring',
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
+        'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
         'houseInternetMbps': {'down': round((w1[0] - w0[0]) * 8 / 1e6 / dt, 1), 'up': round((w1[1] - w0[1]) * 8 / 1e6 / dt, 1)},
         'laptopWifiMbps': {'tx': round((tx1 - tx0) * 8 / 1e6 / dt, 1), 'rx': round((rx1 - rx0) * 8 / 1e6 / dt, 1)},
@@ -245,7 +260,7 @@ def main():
     }
     if sim:
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
-        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
+        r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes')}
         r['series'] = s.get('perSecondMbps', [])
         checks['atlas within 40 Mbit/s'] = s.get('mbps') is not None and s['mbps'] <= 40
         checks['no atlas freeze over 5 s'] = s.get('longestSilenceS') is not None and s['longestSilenceS'] <= 5
