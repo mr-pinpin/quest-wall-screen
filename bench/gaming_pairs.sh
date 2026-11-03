@@ -19,9 +19,11 @@ PAIRS=(
   ""                                        # 1. baseline: Sunshine as configured (vt_realtime disabled, HEVC)
   "--sunshine vt_realtime=enabled"          #    Sunshine real-time encoding
   ""                                        # 2. baseline again (pairs stay back to back)
-  "--flags gameyield"                       #    atlas yields encoder slots while "game":1 (needs room_lab to send it)
+  "--flags gameyield"                       #    atlas yields encoder slots while "game":1 (headset v0.39+)
+  "--codec HEVC"                            # 3. HEVC (OFF half of codec-h264)
+  "--codec H264"                            #    H.264, low-latency rate control (headset v0.39+ CODEC flag)
 )
-# 3. HEVC vs H264 for the LAPTOP host: add once the headset has a codec switch (work-c4), e.g. "--headset-codec H264".
+# Verdicts: python3 bench/verdict.py vt_realtime|gameyield|codec-h264 OFF.json ON.json (docs/bench-scoreboard.md)
 THEN=()
 for p in "${PAIRS[@]}"; do THEN+=(--then "bash bench/gaming_pairs.sh run $p"); done
 exec python3 bench/headset_hold.py --minutes $(( ${#PAIRS[@]} * (SECS + 90) / 60 + 5 )) "${THEN[@]}"

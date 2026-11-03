@@ -170,6 +170,8 @@ def main():
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
     ap.add_argument('--flags', default='', help='sender flags, e.g. bpcut (AtlasSender --flags): on the test copy in stand-in mode, '
                     'on the live sender (restarted, restored after) with --headset')
+    ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
+                    'files/codec-h264, v0.39+); default: as the headset is set')
     ap.add_argument('--sunshine', action='append', default=[], metavar='NAME=VALUE',
                     help='Sunshine config override for this run, e.g. vt_realtime=enabled (appended to the sunshine plugin args, '
                          'restored after); repeatable')
@@ -234,6 +236,8 @@ def main():
             simulate_wear(True)
             if not app_was_running:
                 headset(f'input keyevent KEYCODE_WAKEUP; am start -n {PKG}/.MainActivity --ez capture false >/dev/null'); time.sleep(8)
+            if a.codec:  # before the launch below, which reads it; removed in teardown
+                headset(f"run-as {PKG} sh -c '{'touch' if a.codec == 'H264' else 'rm -f'} files/codec-h264'")
             spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep}).encode()).decode()
             headset(f"run-as {PKG} sh -c 'echo {spec} | base64 -d > files/stress.json'")
             if a.game:
@@ -282,7 +286,7 @@ def main():
         if sim: air(f'printf %s {json.dumps(json.dumps(dict(TEST_PLUGIN, enabled=False)))} > {HOST_PLUGINS}/pinpin-atlas-test.json')
         if live_paused: air("curl -s -m5 -X POST '127.0.0.1:57790/start?name=pinpin-atlas'")
         else:
-            headset(f'run-as {PKG} rm -f files/stress.json')
+            headset(f'run-as {PKG} rm -f files/stress.json' + (' files/codec-h264' if a.codec else ''))
             if not app_was_running: headset(f'am force-stop {PKG}')
             simulate_wear(False)  # back to the real sensor: an unworn headset goes to sleep as usual
         if a.wan: air("pkill -f 'speed.cloudflare.com/__down' || true")
@@ -299,7 +303,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else ''),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
