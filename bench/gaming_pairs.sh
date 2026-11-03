@@ -9,7 +9,10 @@ cd "$(dirname "$0")/.."
 SECS=${SECS:-120}
 if [ "$1" = run ]; then
   shift
-  out=$(python3 bench/stress.py --headset --game LAPTOP --n 10 --secs $SECS "$@" 2>&1)
+  for attempt in $(seq 1 80); do  # another agent may hold the bench lock: wait for it (up to 20 min)
+    out=$(python3 bench/stress.py --headset --game LAPTOP --n 10 --secs $SECS "$@" 2>&1)
+    case "$out" in *"lock is held"*) sleep 15;; *) break;; esac
+  done
   echo "=== $*"; echo "$out" | grep -E '"pass"|latency|warning|not running|aborted' | head -8
   res=$(echo "$out" | sed -n 's/^stress: result //p' | tail -1)
   [ -n "$res" ] && { python3 bench/gate.py "$res" || echo "gate: FAIL ($res)"; }
