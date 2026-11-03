@@ -34,7 +34,8 @@ PKG = 'com.pinpin.wallscreen.roomlab'
 ADB = '~/.local/share/pinpin-quest/platform-tools/adb -s 127.0.0.1:26351'
 APP = '~/Applications/PinPin Stress Pattern.app'
 HEADSET_IP = '192.168.0.3'
-LAPTOP_IP = '192.168.0.102'
+LAPTOP_IP = '192.168.0.102'  # fallback only: the laptop's DHCP address changes (it was .104 after the 2026-11-03 reboot),
+                             # and a stale one left the stand-in with no stream at all; laptop_ip() asks the laptop
 IDLE_NEEDED = 600
 # Shared bench lock on the laptop (agreed by work-c4 and work-09): a directory made with mkdir (atomic), holding an
 # owner note. Every test that creates displays or runs a test sender takes it; afterwards it is moved aside.
@@ -137,6 +138,11 @@ def lock_release():
     air(f"L={BENCH_LOCK}; [ -d $L ] && mv $L $L.done-$(date +%s); ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf")
 
 
+def laptop_ip():
+    ip = air('ipconfig getifaddr en0', timeout=20).strip()
+    return ip if ip.count('.') == 3 else LAPTOP_IP
+
+
 def plugin_override(name, extra_args):
     """Append args to a PinPin Host plugin for one run and restart it; returns the original spec for plugin_restore."""
     path = f'{HOST_PLUGINS}/{name}.json'
@@ -189,6 +195,7 @@ def main():
     holder = lock_take(f'stress.py {" ".join(sys.argv[1:])} since {time.strftime("%H:%M:%S")}')
     if holder: sys.exit(f'stress: not running, the bench lock is held ({holder})')
     atexit.register(lock_release)
+    lap_ip = laptop_ip()
     ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
@@ -252,9 +259,10 @@ def main():
         rx0, tx0 = link_bytes(air, 'en0'); w0 = link_bytes(mini, 'en1'); st0 = time.time()
         probe = (f"(ping -b en1 -i 0.2 -t {a.secs} 1.1.1.1 > /tmp/stress-wan.txt 2>&1 &);"
                  f"(ping -i 0.2 -t {a.secs} 192.168.1.1 > /tmp/stress-zyxel.txt 2>&1 &);"
-                 f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);")
+                 f"(ping -i 0.2 -t {a.secs} {HEADSET_IP} > /tmp/stress-lan.txt 2>&1 &);"
+                 f"(ping -i 0.2 -t {a.secs} {lap_ip} > /tmp/stress-laptop.txt 2>&1 &);")
         if sim:
-            probe += f"python3 - {LAPTOP_IP} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
+            probe += f"python3 - {lap_ip} --port 57730 --demand-port 57731 --n {a.n} --secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}"
             if 'vt' in a.flags.split(','): probe += ' --v2'  # the vt flag only acts on v2 demand
             stdin = (HERE / 'headset_sim.py').read_text()
         else:
@@ -278,6 +286,7 @@ def main():
         out = proc.stdout.read() if not aborted else ''
         rx1, tx1 = link_bytes(air, 'en0'); w1 = link_bytes(mini, 'en1'); dt = time.time() - st0
         wan, lan = pings(mini('cat /tmp/stress-wan.txt')), pings(mini('cat /tmp/stress-lan.txt'))
+        lap = pings(mini('cat /tmp/stress-laptop.txt'))  # the stand-in's own link (the headset may be asleep: lanPingMs)
         zyxel = pings(mini('cat /tmp/stress-zyxel.txt'))  # the Mini's 2.4 GHz hop alone: link jitter vs the internet
     finally:
         # 4. teardown
@@ -306,7 +315,8 @@ def main():
         'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else ''),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
-        'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
+        'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
+        'laptopPingMs': {'p50': pct(lap, 50), 'p95': pct(lap, 95), 'p99': pct(lap, 99), 'count': len(lap), 'ip': lap_ip},  # Mini -> laptop
         'houseInternetMbps': {'down': round((w1[0] - w0[0]) * 8 / 1e6 / dt, 1), 'up': round((w1[1] - w0[1]) * 8 / 1e6 / dt, 1)},
         'laptopWifiMbps': {'tx': round((tx1 - tx0) * 8 / 1e6 / dt, 1), 'rx': round((rx1 - rx0) * 8 / 1e6 / dt, 1)},
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
@@ -329,6 +339,7 @@ def main():
             vt_file.write_text(''.join(json.dumps(x) + '\n' for x in s['v2Layouts']))
             r['vt'] = {'v2Layouts': len(s['v2Layouts']), 'belowWantedPct': s.get('belowWantedPct'), 'layoutsFile': vt_file.name}
             checks['vt layouts valid (vt_check.py)'] = vt_check.recorded(str(vt_file))
+        checks['stand-in reached the sender'] = (s.get('connects') or 0) > 0  # else every other figure is void
         checks['atlas within 40 Mbit/s'] = s.get('mbps') is not None and s['mbps'] <= 40
         checks['no atlas freeze over 5 s'] = s.get('longestSilenceS') is not None and s['longestSilenceS'] <= 5
         if a.scenario == 'vr':
