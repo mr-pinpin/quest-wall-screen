@@ -12,7 +12,7 @@ if [ "$1" = run ]; then
   # A yield for another agent's slot: while /tmp/pinpin-yield-until holds a future epoch, wait (the hold keeps going).
   while [ -f /tmp/pinpin-yield-until ] && [ "$(date +%s)" -lt "$(cat /tmp/pinpin-yield-until)" ]; do sleep 10; done
   for attempt in $(seq 1 80); do  # another agent may hold the bench lock: wait for it (up to 20 min)
-    out=$(python3 bench/stress.py --headset --game LAPTOP --n 10 --secs $SECS "$@" 2>&1)
+    out=$(python3 bench/stress.py --headset --game LAPTOP --n 3 --scenario cinema --secs $SECS "$@" 2>&1)  # the game stream is the question: 3 displays, pattern only on the visible ones
     case "$out" in *"lock is held"*) sleep 15;; *) break;; esac
   done
   f=/tmp/gaming-run-$(date -u +%H%M%S).log; echo "$out" > $f   # full output, whatever happened
