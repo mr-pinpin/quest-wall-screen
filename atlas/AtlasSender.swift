@@ -124,6 +124,7 @@ final class Atlas {
         do {
             let l = try NWListener(using: .udp, on: NWEndpoint.Port(rawValue: o.demandPort)!)
             l.newConnectionHandler = { [weak self] c in guard let self = self else { return }; c.start(queue: self.net); self.receive(c) }
+            l.stateUpdateHandler = { if case .failed(let e) = $0 { log("demand listen failed: \(e)"); exit(1) } }
             l.start(queue: net); log("demand on udp \(o.demandPort)")
         } catch { log("demand listen failed: \(error)") }
     }
@@ -371,6 +372,8 @@ final class Atlas {
         do {
             let l = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: o.port)!)
             l.newConnectionHandler = { [weak self] c in self?.accept(c) }
+            // A busy port only shows up here, asynchronously: exit so a supervisor never keeps a deaf second copy.
+            l.stateUpdateHandler = { if case .failed(let e) = $0 { log("listen failed: \(e)"); exit(1) } }
             l.start(queue: net); log("listening on \(o.port)")
         } catch { log("listen failed: \(error)"); exit(1) }
     }
