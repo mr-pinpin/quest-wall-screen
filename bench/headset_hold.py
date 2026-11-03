@@ -37,10 +37,17 @@ def reachable():
 FIRST_WORN = [None]  # time of an unconfirmed MOUNTED reading
 
 
+def owned_by_user():
+    return stress.headset_owner() == 'user'
+
+
 def worn_now():
     # The real sensor (drops the override for ~2 s). A person counts only when two probes at least 60 s apart both read
     # MOUNTED (user rule 2026-11-03: a single false reading stopped the session at 16:55); a single reading is logged,
     # the hold continues, and the probe repeats after 60 s. The result goes to stress.HOLD_STATUS for other scripts.
+    if stress.headset_owner() == 'agents':  # the agreement decides, not the sensor: a reading is only a note
+        if stress.headset_worn(): stress.activity('headset: sensor read MOUNTED (owner=agents: noted, not stopping)')
+        hold_on(); return False
     worn = stress.headset_worn()
     if worn and FIRST_WORN[0] is None:
         FIRST_WORN[0] = time.time(); log('real sensor read MOUNTED once: confirming in 60 s (hold continues)')
@@ -97,7 +104,9 @@ def main():
         if time.time() > deadline: log('headset never reachable'); sys.exit(2)
         time.sleep(30)
     log(f'reachable: {st}')
-    if stress.headset_worn():  # the strict check (drops any override first), confirmed after 60 s like worn_now()
+    if owned_by_user():
+        log('the user owns the headset (bench/headset_owner): not touching it'); sys.exit(5)
+    if stress.headset_owner() != 'agents' and stress.headset_worn():  # the strict check, confirmed after 60 s like worn_now()
         log('real sensor read MOUNTED: confirming in 60 s'); time.sleep(62)
         if stress.headset_worn(): log('someone is wearing it (two readings 60 s apart): not touching it'); sys.exit(3)
         log('second reading: not worn, a false reading; going on')
@@ -108,6 +117,9 @@ def main():
     keep = threading.Event()
     def keeper():  # re-apply the hold and refresh the status every 20 s, also while a queued run waits or runs
         while not keep.wait(20):
+            if owned_by_user():  # owner=user: release now, whatever is running
+                with stress.prox_lock(): stress.prox('automation_disable', 'headset_hold owner=user')
+                log('the user took the headset: released'); keep.set(); return
             try: hold_on()
             except Exception: pass
     threading.Thread(target=keeper, daemon=True).start()
@@ -125,6 +137,7 @@ def main():
             hold_on()
             log(f'installed version now {installed_version()}')
         for cmd in a.then:
+            if owned_by_user(): log('the user took the headset: releasing'); return
             if worn_now(): log('worn: letting go'); return
             if on_charger() is False: log('taken off the charger: letting go (user policy)'); return
             log(f'run: {cmd}')

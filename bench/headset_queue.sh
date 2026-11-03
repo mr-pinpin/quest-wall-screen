@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 Q=bench/headset-queue.txt; SECS=${SECS:-120}
 if [ "$1" = run ]; then
   args="$2"
+  [ "$(awk '{print tolower($1); exit}' bench/headset_owner 2>/dev/null)" = user ] && { echo "=== $args -> skipped: the user owns the headset"; exit 0; }
   while [ -f /tmp/pinpin-yield-until ] && [ "$(date +%s)" -lt "$(cat /tmp/pinpin-yield-until)" ]; do sleep 10; done
   for attempt in $(seq 1 80); do
     out=$(python3 bench/stress.py --headset --secs $SECS $args 2>&1)
@@ -31,7 +32,9 @@ PY
   fi
   exit 0
 fi
+owner() { awk '{print tolower($1); exit}' bench/headset_owner 2>/dev/null; }
 while [ -s $Q ]; do
+  if [ "$(owner)" = user ]; then sleep 60; continue; fi  # the user owns the headset: wait, never touch it
   THEN=(); while IFS= read -r l; do [ -n "$l" ] && THEN+=(--then "bash bench/headset_queue.sh run \"$l\""); done < $Q
   echo "$(date -u +%H:%M:%SZ) hold for ${#THEN[@]} queued runs"
   python3 bench/headset_hold.py ${APK:+--install "$APK"} --minutes 600 "${THEN[@]}"; rc=$?

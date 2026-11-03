@@ -186,7 +186,17 @@ def plugin_restore(name, orig):
     air(f"printf %s {shlex.quote(orig)} > {HOST_PLUGINS}/{name}.json; curl -s -m10 -X POST '127.0.0.1:57790/restart?name={name}'")
 
 
-HOLD_STATUS = '/tmp/pinpin-headset-hold.json'  # written by bench/headset_hold.py while it holds the headset awake
+HOLD_STATUS = '/tmp/pinpin-headset-hold.json'
+OWNER_FILE = pathlib.Path(__file__).resolve().parent / 'headset_owner'
+
+
+def headset_owner():
+    # The explicit agreement (user, 2026-11-03: "I'm not using the headset. Please develop. When I want to try
+    # something, I'll say so"): bench/headset_owner says "agents" or "user" (first word), written only by work-df on
+    # the user's word. agents: run freely, worn readings are notes, not stops. user: hands off the headset entirely.
+    # Missing file: the older sensor-based rules.
+    try: return OWNER_FILE.read_text().split()[0].lower()
+    except (OSError, IndexError): return ''  # written by bench/headset_hold.py while it holds the headset awake
 
 
 def hold_says_unworn():
@@ -205,7 +215,9 @@ def busy(force, sim=False):
     The laptop has no idle gate (user decision 2026-11-03: agents use the Air freely; HID idle was false anyway,
     since our own Sunshine's input tickle resets it). Agents coordinate through the bench lock and bench/activity.log.
     The headset still never runs while a person really wears it."""
-    if not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
+    own = headset_owner()
+    if own == 'user' and not sim: return 'the user owns the headset (bench/headset_owner)'
+    if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
     return ''
@@ -438,7 +450,8 @@ def main():
             try: cpu.append(float(air(f"ps -Ao %cpu,comm | awk '$2 ~ /{sender}$/ {{print $1; exit}}'", timeout=15).strip()))
             except ValueError: pass
             idle = laptop_idle_s()
-            if sim and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
+            if not sim and headset_owner() == 'user': aborted = 'the user took the headset (bench/headset_owner)'
+            elif sim and headset_owner() == '' and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break
