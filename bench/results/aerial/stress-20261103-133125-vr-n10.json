@@ -1,0 +1,140 @@
+{
+ "when": "20261103-133125",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "vr",
+ "wanPingMs": {
+  "p50": 17.7,
+  "p95": 24.0,
+  "p99": 40.3,
+  "max": 71.104,
+  "count": 293
+ },
+ "zyxelPingMs": {
+  "p50": 2.7,
+  "p95": 8.6,
+  "p99": 23.8,
+  "count": 293
+ },
+ "lanPingMs": {
+  "p50": 48.2,
+  "p95": 160.6,
+  "p99": 168.3,
+  "count": 61
+ },
+ "laptopPingMs": {
+  "p50": 4.3,
+  "p95": 69.8,
+  "p99": 329.4,
+  "count": 293,
+  "ip": "192.168.0.102"
+ },
+ "houseInternetMbps": {
+  "down": 3.6,
+  "up": 0.8
+ },
+ "laptopWifiMbps": {
+  "tx": 0.1,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [
+   4000
+  ],
+  "layouts": 1,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "senderCpuPct": 0.5,
+ "atlas": {
+  "mbps": 0.1,
+  "mbpsMax": 0.8,
+  "freshFps": {
+   "p5": 0,
+   "p50": 0
+  },
+  "freshGapMs": {
+   "p50": null,
+   "p99": null,
+   "max": null
+  },
+  "receiverCpuPct": 0.3,
+  "longestSilenceS": 3.89,
+  "emptySeconds": 7,
+  "keyframes": 1,
+  "layouts": 1,
+  "connects": 1,
+  "sizes": [
+   [
+    3680,
+    1728
+   ]
+  ]
+ },
+ "series": [
+  0.5,
+  0.0,
+  0.1,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.4,
+  0.0,
+  0.0,
+  0.0,
+  0.1,
+  0.0,
+  0.3,
+  0.0,
+  0.0,
+  0.0,
+  0.1,
+  0.0,
+  0.3,
+  0.0,
+  0.0,
+  0.0,
+  0.2,
+  0.0,
+  0.0,
+  0.1,
+  0.3,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.1,
+  0.0,
+  0.5,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.2,
+  0.0,
+  0.0,
+  0.0,
+  0.8,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "stand-in reached the sender": true,
+  "atlas within 40 Mbit/s": true,
+  "VR: atlas under 1 Mbit/s": true
+ },
+ "pass": true
+}

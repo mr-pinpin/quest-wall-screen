@@ -1,0 +1,165 @@
+{
+ "when": "20261103-140337",
+ "n": 10,
+ "secs": 60,
+ "wan": 0,
+ "mode": "sim",
+ "scenario": "cinema+vt,longgop",
+ "wanPingMs": {
+  "p50": 17.9,
+  "p95": 23.8,
+  "p99": 31.8,
+  "max": 37.249,
+  "count": 294
+ },
+ "zyxelPingMs": {
+  "p50": 2.9,
+  "p95": 9.1,
+  "p99": 12.2,
+  "count": 294
+ },
+ "lanPingMs": {
+  "p50": 62.0,
+  "p95": 67.3,
+  "p99": 69.7,
+  "count": 21
+ },
+ "laptopPingMs": {
+  "p50": 4.4,
+  "p95": 68.1,
+  "p99": 257.8,
+  "count": 294,
+  "ip": "192.168.0.102"
+ },
+ "houseInternetMbps": {
+  "down": 3.4,
+  "up": 0.8
+ },
+ "laptopWifiMbps": {
+  "tx": 14.0,
+  "rx": 0.6
+ },
+ "sender": {
+  "bitrateKbps": [
+   40000,
+   40000,
+   40000
+  ],
+  "layouts": 4,
+  "lastLayout": "{\"atlas\":[3680,1728],\"cells\":[{\"screen\":2,\"x\":0,\"y\":0,\"w\":918,\"h\":572},{\"screen\":3,\"x\":918,\"y\":0,\"w\":918,\"h\":572},{\"screen\":4,\"x\":1836,\"y\":0,\"w\":918,\"h\":572},{\"screen\":5,\"x\":2754,\"y\":0,\"w\":918,\"h\":572},{\"screen\":6,\"x\":0,\"y\":572,\"w\":918,\"h\":572},{\"screen\":7,\"x\":918,\"y\":572,\"w\":918,\"h\":572},{\"screen\":8,\"x\":1836,\"y\":572,\"w\":918,\"h\":572},{\"screen\":9,\"x\":2754,\"y\":572,\"w\":918,\"h\":572},{\"screen\":10,\"x\":0,\"y\":1144,\"w\":918,\"h\":572},{\"screen\":11,\"x\":918,\"y\":1144,\"w\":918,\"h\":572}]}",
+  "skipped": [],
+  "crashes": []
+ },
+ "senderCpuPct": 14.6,
+ "atlas": {
+  "mbps": 18.1,
+  "mbpsMax": 26.8,
+  "freshFps": {
+   "p5": 16,
+   "p50": 19
+  },
+  "freshGapMs": {
+   "p50": 47.9,
+   "p99": 160.3,
+   "max": 448.0
+  },
+  "receiverCpuPct": 1.1,
+  "longestSilenceS": 0.42,
+  "emptySeconds": 0,
+  "keyframes": 8,
+  "layouts": 3,
+  "connects": 1,
+  "sizes": [
+   [
+    3680,
+    1728
+   ],
+   [
+    3760,
+    2288
+   ],
+   [
+    3840,
+    1360
+   ]
+  ]
+ },
+ "series": [
+  15.9,
+  17.6,
+  22.4,
+  17.8,
+  16.2,
+  17.2,
+  16.6,
+  17.8,
+  18.1,
+  15.9,
+  17.8,
+  17.8,
+  16.1,
+  22.7,
+  17.1,
+  18.1,
+  15.6,
+  17.3,
+  17.5,
+  15.8,
+  13.0,
+  17.4,
+  16.2,
+  17.7,
+  17.5,
+  23.1,
+  17.7,
+  15.9,
+  15.9,
+  17.2,
+  15.8,
+  17.1,
+  15.9,
+  18.3,
+  17.6,
+  22.7,
+  20.4,
+  18.3,
+  17.2,
+  19.0,
+  17.1,
+  19.4,
+  18.0,
+  19.1,
+  18.6,
+  18.1,
+  25.7,
+  17.2,
+  18.8,
+  17.3,
+  19.3,
+  18.8,
+  16.9,
+  18.7,
+  18.7,
+  17.8,
+  19.4,
+  26.8,
+  17.9
+ ],
+ "vt": {
+  "v2Layouts": 2,
+  "belowWantedPct": 0.0,
+  "layoutsFile": "stress-20261103-140337-cinema+vt,longgop-n10-layouts.jsonl"
+ },
+ "checks": {
+  "internet ping p95 < 50 ms": true,
+  "no screen skipped": true,
+  "sender never crashed": true,
+  "vt layouts valid (vt_check.py)": true,
+  "stand-in reached the sender": true,
+  "atlas within 40 Mbit/s": true,
+  "no atlas freeze over 5 s": true,
+  "stream kept 30+ fresh frames/s (median)": false,
+  "fresh-frame gap p99 < 50 ms": false
+ },
+ "pass": false
+}

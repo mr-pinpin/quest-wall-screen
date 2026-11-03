@@ -7,6 +7,10 @@ pair proves it, and only what is proven stays. Each row cites its evidence: the 
 Verdicts: **kept** (default on or recommended), **dropped** (removed or left off for good), **pending** (no
 pair yet), **kept-verified** (correctness change, verified once, no A/B needed).
 
+> **2026-11-03 14:22 UTC: rebaseline.** Every screen run before this time ran with macOS aerial (video) wallpapers on the
+> test displays, so idle and hidden screens were never still and cost a full capture + encode. Those runs are
+> superseded (moved to bench/results/aerial/, marked in stress.md) and are not used for any verdict below.
+
 ## The bar
 
 | Goal | Criterion | Status |

@@ -1,0 +1,31 @@
+[cache_key.is_power_save_mode]: [-3472824418723615154]
+[init.svc.vendor.power.stats-hal-1-0]: [running]
+[init.svc_debug_pid.vendor.power.stats-hal-1-0]: [603]
+[persist.vendor.wifi.powerjump.detect.enable]: [true]
+[persist.vendor.wifi.powerjump.detect.rssi.threshold]: [-55]
+[persist.vendor.wifi.txpower.dbm.lower]: [13]
+[persist.vendor.wifi.txpower.dbm.middle]: [13]
+[persist.vendor.wifi.txpower.dbm.p2p]: [12]
+[persist.vendor.wifi.txpower.dbm.upper]: [20]
+[persist.vendor.wifi.txpower.enable.p2p]: [true]
+[persist.vendor.wifi.txpower.enable.sta]: [true]
+[persist.vendor.wifi.txpower.rssi.lower]: [-70]
+[persist.vendor.wifi.txpower.rssi.middle.lower]: [-65]
+[persist.vendor.wifi.txpower.rssi.middle.upper]: [-60]
+[persist.vendor.wifi.txpower.rssi.upper]: [-55]
+[persist.vendor.wifi.txpower.unit.half.dbm]: [false]
+[ro.boottime.vendor.power.stats-hal-1-0]: [3999255049]
+[suspend.base_sleep_time_millis]: [4000]
+[sys.boot.reason.power-off]: [Reset Trigger: PS_HOLD, Reset Type: HARD_RESET]
+[sys.boot.reason.power-on]: [PON Trigger: HARD_RESET]
+  AC powered: true
+  USB powered: false
+  Wireless powered: false
+  status: 5
+  level: 100
+  mWakefulness=Asleep
+  mStayOn=false
+  mHoldingWakeLockSuspendBlocker=true
+  mStayOnWhilePluggedInSetting=0
+Display Power: com.android.server.power.PowerManagerService$1@6fd81e4
+State: STANDBY

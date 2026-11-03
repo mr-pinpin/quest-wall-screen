@@ -1,0 +1,71 @@
+{"t": "2026-11-03T12:57:48", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T12:58:58", "adb": true, "powered": true, "level": 100, "wake": "Awake", "display": null, "vr": "HEADSET_MOUNTED"}
+{"t": "2026-11-03T13:00:11", "adb": true, "powered": true, "level": 100, "wake": "Awake", "display": null, "vr": "HEADSET_MOUNTED"}
+{"t": "2026-11-03T13:01:21", "adb": true, "powered": true, "level": 100, "wake": "Awake", "display": null, "vr": "HEADSET_MOUNTED"}
+{"t": "2026-11-03T13:02:32", "adb": true, "powered": true, "level": 100, "wake": "Awake", "display": null, "vr": "HEADSET_MOUNTED"}
+{"t": "2026-11-03T13:03:43", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:04:53", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:06:03", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:07:13", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:08:23", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:09:33", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:10:43", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:11:53", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:13:00", "adb": false}
+{"t": "2026-11-03T13:14:07", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:15:14", "adb": false}
+{"t": "2026-11-03T13:16:17", "adb": false}
+{"t": "2026-11-03T13:17:20", "adb": false}
+{"t": "2026-11-03T13:18:24", "adb": false}
+{"t": "2026-11-03T13:19:31", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:20:41", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:21:48", "adb": false}
+{"t": "2026-11-03T13:22:51", "adb": false}
+{"t": "2026-11-03T13:23:58", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY"}
+{"t": "2026-11-03T13:25:17", "adb": false}
+{"t": "2026-11-03T13:26:39", "adb": false}
+{"t": "2026-11-03T13:28:02", "adb": false}
+{"t": "2026-11-03T13:29:06", "adb": false}
+{"t": "2026-11-03T13:30:09", "adb": false}
+{"t": "2026-11-03T13:31:12", "adb": false}
+{"t": "2026-11-03T13:32:16", "adb": false}
+{"t": "2026-11-03T13:33:19", "adb": false}
+{"t": "2026-11-03T13:34:23", "adb": false}
+{"t": "2026-11-03T13:35:26", "adb": false}
+{"t": "2026-11-03T13:36:29", "adb": false}
+{"t": "2026-11-03T13:37:32", "adb": false}
+{"t": "2026-11-03T13:41:19", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T13:42:34", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T13:43:57", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:45:00", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:46:03", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:47:07", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:48:10", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:49:17", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T13:50:31", "mode": "unmounted_wake", "adb": true, "powered": false, "level": null, "wake": null, "display": null, "vr": null, "unmountedWake": ""}
+{"t": "2026-11-03T13:52:07", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:53:11", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:54:14", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:55:17", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:56:21", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:57:24", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:58:27", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T13:59:30", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:00:37", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": ""}
+{"t": "2026-11-03T14:02:12", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:03:16", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:04:19", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:05:23", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:06:26", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:07:29", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:08:33", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:09:56", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:11:03", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T14:12:17", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T14:13:32", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": "UnmountedWakeLock count: 0"}
+{"t": "2026-11-03T14:14:43", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:15:49", "mode": "unmounted_wake", "adb": true, "powered": false, "level": null, "wake": null, "display": null, "vr": null, "unmountedWake": ""}
+{"t": "2026-11-03T14:17:30", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:18:33", "mode": "unmounted_wake", "adb": false}
+{"t": "2026-11-03T14:19:40", "mode": "unmounted_wake", "adb": true, "powered": true, "level": 100, "wake": "Asleep", "display": null, "vr": "STANDBY", "unmountedWake": ""}
+{"t": "2026-11-03T14:20:53", "mode": "unmounted_wake", "adb": false}
