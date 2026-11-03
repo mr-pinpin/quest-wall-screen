@@ -62,7 +62,7 @@ hidden (vis 0): lvl = tailLevel                               // sender may shri
 ## Layout (laptop -> headset, text packet 0x80 before every keyframe), v2
 
 ```json
-{"atlas":[3840,2400],"gen":17,
+{"atlas":[3840,2304],"gen":17,
  "cells":[{"screen":2,"x":0,"y":0,"w":1920,"h":1200,"lvl":0,"src":[0,0,1920,1200]},
           {"screen":2,"x":1920,"y":0,"w":1920,"h":1200,"lvl":0,"src":[1920,0,1920,1200]},
           {"screen":3,"x":0,"y":1200,"w":240,"h":150,"lvl":4,"src":[0,0,3840,2400]}]}
@@ -72,8 +72,12 @@ hidden (vis 0): lvl = tailLevel                               // sender may shri
 - Per cell: `lvl` and `src` (the part of the display, in display pixels, this cell covers; default the whole
   display). One screen may have several cells at the same level (tiles); together their `src` rects cover
   the display. v1 headsets read the first cell per screen only, so the sender sends tiles only to `v:2` demand.
-- Tile size: at most 1920x1200 per cell; the atlas stays within H.264 level 5.1 (36,864 macroblocks, e.g.
-  3840x2400) so the Quest's hardware decoder takes it.
+- Tile size: at most 1920x1200 per cell; the atlas stays within 3840x2304: H.264 level 5.1 (36,864 macroblocks)
+  for the Quest's decoder, and the Mac's hardware encoder tops out at 4096x2304 (at 3840x2400 it produced no
+  frames at all, 2026-11-03).
+- `src` edges: tile edges map to display pixels per axis (rounded), and a frame's far edges map to the display's
+  edges, so one screen's `src` rects tile its display exactly. The cell itself may be up to 2 px off the display's
+  aspect (frames are rounded to even sizes). `bench/vt_check.py` checks all of this offline.
 - Cinema rule (sender): when one screen has `pri` 1 and `lvl` 0 and the rest are hidden, that screen may take
   the whole atlas as tiles while the others are mip-tail cells.
 

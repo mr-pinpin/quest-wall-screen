@@ -4,6 +4,8 @@
 // MacScreenSender's packet format: u32 length (big endian), then [flags][pts u64][w u16][h u16][3 codec
 // bytes][Annex B]. Packets starting with 0x80 carry text; the layout goes out that way before every
 // keyframe: {"atlas":[W,H],"cells":[{"screen":id,"x":..,"y":..,"w":..,"h":..}]} (pixels, origin top left).
+// Flag vt (docs/virtual-texturing.md, protocol v2): with fresh v2 demand, cells also carry "lvl" and "src", a screen
+// may span several tiles, hidden screens shrink to mip-tail thumbnails and the layout carries "gen".
 // Displays come from the virtual-display helper (GET /displays) or, for testing, --test "2:main,3:main".
 // Started through Terminal (start-atlas.command) so it inherits Terminal's Screen Recording grant.
 import CoreMedia
@@ -20,6 +22,7 @@ struct Options {
     var url = "http://127.0.0.1:57710/displays", test = ""
     // Feature flags (--flags "bpcut,..."; off by default, each kept only if the bench proves it):
     //   bpcut  lower the encoder bitrate while the network backs up, recover it gradually
+    //   vt     virtual texturing (protocol v2): levels, tiles past the 1920 cell cap, mip-tail thumbnails
     var flags = Set<String>()
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -41,22 +44,30 @@ struct Options {
 }
 
 struct Entry: Equatable { let screen: Int; let display: CGDirectDisplayID; let w: Int; let h: Int }
-struct Cell { let entry: Entry; let x: Int, y: Int, w: Int, h: Int }
+// A cell shows the part of its screen's capture frame (fw x fh, 0 = the cell's own size) starting at sx, sy.
+struct Cell {
+    let entry: Entry; let x: Int, y: Int, w: Int, h: Int; var sx = 0, sy = 0, fw = 0, fh = 0
+    var frameW: Int { fw > 0 ? fw : w }
+    var frameH: Int { fh > 0 ? fh : h }
+}
 
+nonisolated(unsafe) var encodeErrors = 0
 private let compressionOutput: VTCompressionOutputCallback = { context, refcon, status, _, sample in
+    if status != noErr { encodeErrors += 1; if encodeErrors & (encodeErrors - 1) == 0 { log("encode failed: \(status) (\(encodeErrors) so far)") } }
     guard status == noErr, let context = context, let sample = sample else { return }
     Unmanaged<Atlas>.fromOpaque(context).takeUnretainedValue().encoded(sample, repeated: refcon != nil)
 }
 
 final class Peer { let c: NWConnection; var pending = 0; var needsKey = true; init(_ c: NWConnection) { self.c = c } }
 
-/// Captures one display into its cell of the atlas buffer. A capture lives as long as its display stays put: layout
-/// changes only move its cell (`cell`, guarded by atlas.lock) and resize its output with updateConfiguration, because
-/// restarting every stream on each resize froze the atlas for seconds in the 10-screen stress test.
+/// Captures one display into its cells of the atlas buffer (one cell, or several tiles under vt). A capture lives as
+/// long as its display stays put: layout changes only move its cells (`cells`, guarded by atlas.lock) and resize its
+/// output with updateConfiguration, because restarting every stream on each resize froze the atlas for seconds in
+/// the 10-screen stress test.
 final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
-    var cell: Cell; let origin: CGPoint; weak var atlas: Atlas?; var stream: SCStream?; var dead = false
-    var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cell moves without resizing
-    init(_ cell: Cell, _ atlas: Atlas) { self.cell = cell; self.atlas = atlas; origin = CGDisplayBounds(cell.entry.display).origin }
+    var cells: [Cell]; let screen: Int; let origin: CGPoint; weak var atlas: Atlas?; var stream: SCStream?; var dead = false
+    var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cells move without resizing
+    init(_ cells: [Cell], _ atlas: Atlas) { self.cells = cells; screen = cells[0].entry.screen; self.atlas = atlas; origin = CGDisplayBounds(cells[0].entry.display).origin }
     func config(_ w: Int, _ h: Int, fps: Int) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
         c.width = w; c.height = h; c.pixelFormat = kCVPixelFormatType_32BGRA; c.showsCursor = true
@@ -64,23 +75,22 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         return c
     }
     func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
-        let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config(cell.w, cell.h, fps: fps), delegate: self)
+        let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config(cells[0].frameW, cells[0].frameH, fps: fps), delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture(); stream = s
     }
     func resize(_ w: Int, _ h: Int, fps: Int) async {
-        do { try await stream?.updateConfiguration(config(w, h, fps: fps)) } catch { log("resize screen \(cell.entry.screen): \(error.localizedDescription)"); dead = true }
+        do { try await stream?.updateConfiguration(config(w, h, fps: fps)) } catch { log("resize screen \(screen): \(error.localizedDescription)"); dead = true }
     }
     func stop() { atlas = nil; if let s = stream { stream = nil; Task { try? await s.stopCapture() } } }  // late frames go nowhere
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        log("screen \(cell.entry.screen) capture stopped: \(error.localizedDescription)"); dead = true; atlas?.layoutKey = ""
+        log("screen \(screen) capture stopped: \(error.localizedDescription)"); dead = true; atlas?.layoutKey = ""
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let pb = CMSampleBufferGetImageBuffer(sb), let a = atlas else { return }
         a.lock.lock(); defer { a.lock.unlock() }
-        let screen = cell.entry.screen
         latest = pb
-        if a.visible(screen) { a.stash[screen] = nil; a.blit(pb, cell) } else { a.stash[screen] = pb }
+        if a.visible(screen) { a.stash[screen] = nil; for c in cells { a.blit(pb, c) } } else { a.stash[screen] = pb }
     }
 }
 
@@ -101,7 +111,7 @@ final class Atlas {
     // Unseen screens cost nothing (their frames wait in `stash`), the bitrate is the extras' share of the budget
     // by priority, and each cell shrinks to the smallest width tier covering its px. Stale demand (> 2 s, e.g. no
     // headset) means: everything visible, full size, full bitrate.
-    struct Want { var vis = true, px = 1920, pri = 1.0 }
+    struct Want { var vis = true, px = 1920, pri = 1.0, lvl: Int? = nil, have = -1 }
     let dlock = NSLock()
     var busy = false, busyTicks = 0, heldTicks = 0
     // Capture only what is seen: a screen hidden for 2 s loses its SCStream (its cell keeps the last frame) and gets
@@ -111,19 +121,45 @@ final class Atlas {
     // bpcut flag (work queue): bitrate scale under backpressure. x0.7 at most every 250 ms while held back,
     // x1.2 per calm second back to 1.
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
+    // vt: the last demand was protocol v2; each screen's display width (levels are octaves of it).
+    var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
+    var resident: [CGDirectDisplayID: CVPixelBuffer] = [:]  // vt, under lock: last frame of a paused capture, for its mip tail
     var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
     static let tiers = [480, 640, 960, 1280, 1920]
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
     init(_ o: Options) { self.o = o }
 
-    // Copies one captured frame into its cell; caller holds `lock`.
+    // Copies one captured frame (its sx, sy part) into a cell; caller holds `lock`.
     func blit(_ pb: CVPixelBuffer, _ cell: Cell) {
         CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self), pixels.count == W * H * 4 else { return }
-        let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, CVPixelBufferGetWidth(pb)), h = min(cell.h, CVPixelBufferGetHeight(pb))
-        guard cell.x >= 0, cell.y >= 0, cell.x + w <= W, cell.y + h <= H else { return }  // a stale cell from before a relayout
+        let pw = CVPixelBufferGetWidth(pb), ph = CVPixelBufferGetHeight(pb)
+        if cell.fw > 0 && (pw != cell.fw || ph != cell.fh) { return }  // a tile needs its exact frame size (mid-resize)
+        let stride = CVPixelBufferGetBytesPerRow(pb), w = min(cell.w, pw - cell.sx), h = min(cell.h, ph - cell.sy)
+        guard w > 0, h > 0, cell.x >= 0, cell.y >= 0, cell.x + w <= W, cell.y + h <= H else { return }  // a stale cell from before a relayout
         pixels.withUnsafeMutableBufferPointer { dst in
-            for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + y * stride, w * 4) }
+            for y in 0..<h { memcpy(dst.baseAddress! + ((cell.y + y) * W + cell.x) * 4, base + (cell.sy + y) * stride + cell.sx * 4, w * 4) }
+        }
+        dirty = true
+    }
+    // vt: a whole frame scaled down into a mip-tail cell (box filter over each cell pixel's footprint); holds `lock`.
+    func blitScaled(_ pb: CVPixelBuffer, _ cell: Cell) {
+        CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self), pixels.count == W * H * 4,
+              cell.x >= 0, cell.y >= 0, cell.x + cell.w <= W, cell.y + cell.h <= H else { return }
+        let pw = CVPixelBufferGetWidth(pb), ph = CVPixelBufferGetHeight(pb), stride = CVPixelBufferGetBytesPerRow(pb)
+        let fx = max(1, pw / cell.w), fy = max(1, ph / cell.h)
+        pixels.withUnsafeMutableBufferPointer { dst in
+            for y in 0..<cell.h {
+                let y0 = y * ph / cell.h
+                for x in 0..<cell.w {
+                    let x0 = x * pw / cell.w; var acc = (0, 0, 0, 0)
+                    for yy in 0..<fy { let row = base + min(ph - 1, y0 + yy) * stride
+                        for xx in 0..<fx { let q = row + min(pw - 1, x0 + xx) * 4; acc.0 += Int(q[0]); acc.1 += Int(q[1]); acc.2 += Int(q[2]); acc.3 += Int(q[3]) } }
+                    let n = fx * fy, d = dst.baseAddress! + ((cell.y + y) * W + cell.x + x) * 4
+                    d[0] = UInt8(acc.0 / n); d[1] = UInt8(acc.1 / n); d[2] = UInt8(acc.2 / n); d[3] = UInt8(acc.3 / n)
+                }
+            }
         }
         dirty = true
     }
@@ -151,9 +187,11 @@ final class Atlas {
         var next: [Int: Want] = [:]
         for e in list {
             guard let id = num(e["id"]) else { continue }
-            next[Int(id)] = Want(vis: (num(e["vis"]) ?? 1) != 0, px: Int(num(e["px"]) ?? 1920), pri: num(e["pri"]) ?? 1)
+            next[Int(id)] = Want(vis: (num(e["vis"]) ?? 1) != 0, px: Int(num(e["px"]) ?? 1920), pri: num(e["pri"]) ?? 1,
+                                 lvl: num(e["lvl"]).map { max(0, Int($0)) }, have: Int(num(e["have"]) ?? -1))
         }
         let now = Date(); var reveal: [Int] = []
+        let vt = o.flags.contains("vt") && num(j["v"]) == 2
         dlock.withLock {
             if now.timeIntervalSince(wantAt) > 10 { log("demand from headset") }
             let stale = now.timeIntervalSince(wantAt) > 2
@@ -161,15 +199,22 @@ final class Atlas {
                 if w.vis && !stale && !(want[id]?.vis ?? true) { reveal.append(id) }
                 if w.vis { hiddenAt[id] = nil } else if hiddenAt[id] == nil { hiddenAt[id] = now }
                 guard w.vis else { continue }  // unseen screens keep their size
-                let t = Atlas.tiers.first(where: { $0 >= w.px }) ?? o.cellW, cur = tier[id] ?? o.cellW
-                if min(t, o.cellW) == cur { tierWant[id] = nil } else if tierWant[id]?.w != min(t, o.cellW) { tierWant[id] = (min(t, o.cellW), now) }
+                // v1: the smallest width tier covering px. vt: the wanted level of the display's width (or, without
+                // lvl, the smallest octave covering px), no 1920 cap: wide screens become several tiles.
+                var t = min(Atlas.tiers.first(where: { $0 >= w.px }) ?? o.cellW, o.cellW)
+                if vt {
+                    let full = srcW[id] ?? o.cellW
+                    if let l = w.lvl { t = max(16, full >> min(l, 8)) } else { var l = 0; while l < 6 && (full >> (l + 1)) >= w.px { l += 1 }; t = full >> l }
+                }
+                let cur = tier[id] ?? o.cellW
+                if t == cur { tierWant[id] = nil } else if tierWant[id]?.w != t { tierWant[id] = (t, now) }
             }
-            want = next; wantAt = now; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
+            want = next; wantAt = now; wantV2 = vt; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
         }
         if !reveal.isEmpty {
             dlock.withLock { wake = true }  // start its capture now, not at the next 2 s pass
             lock.withLock {
-                for id in reveal { if let pb = stash.removeValue(forKey: id), let c = cells.first(where: { $0.entry.screen == id }) { blit(pb, c) } }
+                for id in reveal { if let pb = stash.removeValue(forKey: id) { for c in cells where c.entry.screen == id { blit(pb, c) } } }
             }
         }
         work.async { self.applyBudget() }
@@ -197,9 +242,11 @@ final class Atlas {
     func entries() -> [Entry] {
         if !o.test.isEmpty {
             return o.test.split(separator: ",").compactMap { pair in
-                let p = pair.split(separator: ":"); guard p.count == 2, let s = Int(p[0]) else { return nil }
+                // "screen:display" or "screen:display:WxH" (the size the displays helper reports)
+                let p = pair.split(separator: ":"); guard p.count >= 2, let s = Int(p[0]) else { return nil }
                 let d = p[1] == "main" ? CGMainDisplayID() : CGDirectDisplayID(p[1]) ?? 0
-                let mode = CGDisplayCopyDisplayMode(d)
+                let mode = CGDisplayCopyDisplayMode(d), size = p.count > 2 ? p[2].split(separator: "x").compactMap { Int($0) } : []
+                if size.count == 2 { return Entry(screen: s, display: d, w: size[0], h: size[1]) }
                 return Entry(screen: s, display: d, w: mode?.pixelWidth ?? 1920, h: mode?.pixelHeight ?? 1200)
             }
         }
@@ -219,7 +266,7 @@ final class Atlas {
         while true {
             var cells: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0, fits = true
             for e in list {
-                let cw = Double(tiers[e.screen] ?? o.cellW) * f, ch = cw * Double(o.cellH) / Double(o.cellW)
+                let cw = Double(min(tiers[e.screen] ?? o.cellW, o.cellW)) * f, ch = cw * Double(o.cellH) / Double(o.cellW)
                 let s = min(cw / Double(e.w), ch / Double(e.h), 1.0)
                 let w = max(16, Int(Double(e.w) * s) / 2 * 2), h = max(16, Int(Double(e.h) * s) / 2 * 2)
                 if x + w > o.maxW { x = 0; y += rowH; rowH = 0 }
@@ -234,17 +281,66 @@ final class Atlas {
         }
     }
 
+    // vt layout: each screen at its level's width (no 1920 cap), cut into tiles of at most cellW x cellH, packed in
+    // shelves (tallest first) into at most 3840x2304: H.264 level 5.1, which the Quest decodes, capped by the Mac's
+    // hardware encoder (4096x2304; at 3840x2400 it produced no frames at all, 2026-11-03). Paused screens are
+    // mip tails (<= 240 px wide). Too big: the screen with the most area per unit of priority shrinks 10%, repeat;
+    // a single cinema screen at level 0 keeps the whole atlas while the rest are tails.
+    func layoutVT(_ list: [Entry], _ tiers: [Int: Int], _ live: Set<CGDirectDisplayID>, _ pri: [Int: Double]) -> (Int, Int, [Cell]) {
+        let maxW = 3840, maxH = 2304
+        func tail(_ e: Entry) -> Int { var w = e.w; while w > 240 { w /= 2 }; return max(16, w / 2 * 2) }
+        func height(_ e: Entry, _ w: Int) -> Int { max(16, w * e.h / max(1, e.w) / 2 * 2) }
+        var width: [Int: Int] = [:]
+        for e in list { width[e.screen] = live.contains(e.display) ? max(tail(e), min(e.w, tiers[e.screen] ?? min(e.w, o.cellW)) / 2 * 2) : tail(e) }
+        func pack() -> (Int, Int, [Cell])? {
+            var tiles: [Cell] = []
+            for e in list {
+                let fw = width[e.screen]!, fh = height(e, fw)
+                for ty in stride(from: 0, to: fh, by: o.cellH) {
+                    for tx in stride(from: 0, to: fw, by: o.cellW) {
+                        tiles.append(Cell(entry: e, x: 0, y: 0, w: min(o.cellW, fw - tx), h: min(o.cellH, fh - ty), sx: tx, sy: ty, fw: fw, fh: fh))
+                    }
+                }
+            }
+            tiles = tiles.enumerated().sorted { ($0.element.h, -$0.offset) > ($1.element.h, -$1.offset) }.map { $0.element }
+            var out: [Cell] = [], x = 0, y = 0, rowH = 0, W = 0
+            for t in tiles {
+                if x + t.w > maxW { x = 0; y += rowH; rowH = 0 }
+                if y + t.h > maxH { return nil }
+                out.append(Cell(entry: t.entry, x: x, y: y, w: t.w, h: t.h, sx: t.sx, sy: t.sy, fw: t.fw, fh: t.fh))
+                x += t.w; rowH = max(rowH, t.h); W = max(W, x)
+            }
+            return (max(16, min(maxW, (W + 15) / 16 * 16)), max(16, min(maxH, (y + rowH + 15) / 16 * 16)), out)
+        }
+        while true {
+            if let p = pack() { return p }
+            func cost(_ e: Entry) -> Double { let w = width[e.screen]!; return Double(w * height(e, w)) / (pri[e.screen] ?? 1) }
+            guard let e = list.filter({ width[$0.screen]! > tail($0) }).max(by: { cost($0) < cost($1) }) else {
+                log("atlas: \(list.count) mip tails do not fit, using the v1 layout"); return layout(list, [:])
+            }
+            width[e.screen] = max(tail(e), Int(Double(width[e.screen]!) * 0.9) / 2 * 2)
+        }
+    }
+
     func refresh() async {
         let list = entries()
         // Size tiers settle before they apply (growing after 2 s, shrinking after 5 s): each change costs a keyframe.
         let now = Date()
-        let tiers: [Int: Int] = dlock.withLock {
+        let (tiers, vt, pri): ([Int: Int], Bool, [Int: Double]) = dlock.withLock {
+            for e in list { srcW[e.screen] = e.w }
             if now.timeIntervalSince(wantAt) > 2 { tier = [:]; tierWant = [:] }  // no headset: back to full size
-            // At most one size refit per 5 s (each is a keyframe); between refits only the bitrate follows gaze.
-            if now.timeIntervalSince(lastRefit) >= 5 {
-                for (id, t) in tierWant where now.timeIntervalSince(t.since) > (t.w > (tier[id] ?? o.cellW) ? 2 : 5) { tier[id] = t.w; tierWant[id] = nil; lastRefit = now }
+            let vt = o.flags.contains("vt") && wantV2 && now.timeIntervalSince(wantAt) <= 2
+            // At most one size refit per 5 s (each is a keyframe); between refits only the bitrate follows gaze. Under vt
+            // the headset already waits 3 s before asking for less, and more detail applies within a second.
+            let canRefit = now.timeIntervalSince(lastRefit) >= 5, canGrow = now.timeIntervalSince(lastRefit) >= 1
+            var refit = false
+            for (id, t) in tierWant {
+                let grow = t.w > (tier[id] ?? o.cellW)
+                let due = vt ? (grow ? canGrow : canRefit) : canRefit && now.timeIntervalSince(t.since) > (grow ? 2 : 5)
+                if due { tier[id] = t.w; tierWant[id] = nil; refit = true }
             }
-            return tier
+            if refit { lastRefit = now }
+            return (tier, vt, want.mapValues { $0.vis ? max(0.05, $0.pri) : 0.05 })
         }
         // Screens worth a capture stream: all of them without fresh demand, else the visible ones plus those
         // hidden for under 2 s.
@@ -254,41 +350,62 @@ final class Atlas {
         }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
         // (screen 3 at x=1440 pushed screen 2 to x=3360), and captures started mid-move showed only the wallpaper.
-        let key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
+        var key = list.map { e -> String in let r = CGDisplayBounds(e.display); return "\(e.screen):\(e.display):\(e.w)x\(e.h)@\(Int(r.minX)),\(Int(r.minY))/\(tiers[e.screen] ?? o.cellW)" }.joined(separator: ",")
+        // vt: paused screens shrink to mip tails and priorities share the atlas, so both are part of the layout.
+        if vt { key += "|vt|" + list.map { e in "\(e.screen)\(live.contains(e.display) ? "" : "t")@\(Int((pri[e.screen] ?? 1) * 20))" }.joined(separator: ",") }
         if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
-        let (w, h, cells) = layout(list, tiers)
+        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri) : layout(list, tiers)
         let resized = w != W || h != H
-        let cj = cells.map { "{\"screen\":\($0.entry.screen),\"x\":\($0.x),\"y\":\($0.y),\"w\":\($0.w),\"h\":\($0.h)}" }.joined(separator: ",")
-        let json = "{\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]}"
+        let cj = cells.map { c -> String in
+            var j = "{\"screen\":\(c.entry.screen),\"x\":\(c.x),\"y\":\(c.y),\"w\":\(c.w),\"h\":\(c.h)"
+            if vt {  // level and the part of the display this cell covers, in display pixels: tile edges map per axis
+                // and the frame's far edges map to the display's, so a screen's src rects tile it without seams
+                func edge(_ v: Int, _ frame: Int, _ disp: Int) -> Int { v >= frame ? disp : Int((Double(v) * Double(disp) / Double(frame)).rounded()) }
+                let x0 = edge(c.sx, c.frameW, c.entry.w), x1 = edge(c.sx + c.w, c.frameW, c.entry.w)
+                let y0 = edge(c.sy, c.frameH, c.entry.h), y1 = edge(c.sy + c.h, c.frameH, c.entry.h)
+                let lvl = max(0, Int(log2(Double(c.entry.w) / Double(c.frameW)).rounded()))
+                j += ",\"lvl\":\(lvl),\"src\":[\(x0),\(y0),\(x1 - x0),\(y1 - y0)]"
+            }
+            return j + "}"
+        }.joined(separator: ",")
+        let core = "\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]"
+        if vt && core != layoutCore { gen += 1 }
+        let json = vt ? "{\"atlas\":[\(w),\(h)],\"gen\":\(gen),\"cells\":[\(cj)]}" : "{\(core)}"
+        layoutCore = core
+        var byDisplay: [CGDirectDisplayID: [Cell]] = [:]
+        for c in cells { byDisplay[c.entry.display, default: []].append(c) }
         // Stop captures whose display is gone, died, or moved (a capture started mid-move shows only the wallpaper).
         for (d, c) in captures where c.dead || !live.contains(d) || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
-            if !live.contains(d) && !c.dead { log("screen \(c.cell.entry.screen) out of view: capture paused") }
+            if !live.contains(d) && !c.dead { log("screen \(c.screen) out of view: capture paused") }
+            lock.withLock { if let pb = c.latest { resident[d] = pb } }
             c.stop(); captures[d] = nil
         }
         var resizes: [(CellCapture, Cell)] = []
         lock.withLock {
             stash = [:]; self.cells = cells; dirty = true
             if resized { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4) }
-            for c in cells {
-                guard let cap = captures[c.entry.display] else { continue }
-                let old = cap.cell; cap.cell = c
-                if old.w != c.w || old.h != c.h { resizes.append((cap, c)) }
-                else if let pb = cap.latest { blit(pb, c) }  // same size, new place: copy the last frame now
+            for d in resident.keys where byDisplay[d] == nil || live.contains(d) { resident[d] = nil }
+            for (d, cs) in byDisplay {
+                if vt, !live.contains(d), let pb = resident[d] { for c in cs { blitScaled(pb, c) } }  // mip tail
+                guard let cap = captures[d] else { continue }
+                let old = cap.cells[0]; cap.cells = cs
+                if old.frameW != cs[0].frameW || old.frameH != cs[0].frameH { resizes.append((cap, cs[0])) }
+                else if let pb = cap.latest { for c in cs { blit(pb, c) } }  // same size, new place: copy the last frame now
             }
         }
-        for (cap, c) in resizes { await cap.resize(c.w, c.h, fps: o.fps) }
+        for (cap, c) in resizes { await cap.resize(c.frameW, c.frameH, fps: o.fps) }
         let changed = json != layoutJSON || resized
         if changed {
             layoutJSON = json
             work.sync { if resized || encoder == nil { lastBuffer = nil; makeEncoder() } }
         }
-        let missing = cells.filter { captures[$0.entry.display] == nil && live.contains($0.entry.display) }
+        let missing = byDisplay.values.compactMap { $0.first }.filter { captures[$0.entry.display] == nil && live.contains($0.entry.display) }
         if !missing.isEmpty {
             if let content = try? await SCShareableContent.current {
                 for c in missing {
                     // A display created moments ago may not be capturable yet; it is retried on the next pass.
                     guard let d = content.displays.first(where: { $0.displayID == c.entry.display }) else { log("display \(c.entry.display) not found yet"); continue }
-                    let cap = CellCapture(c, self)
+                    let cap = CellCapture(byDisplay[c.entry.display]!, self)
                     do { try await cap.start(d, fps: o.fps, queue: capQ); captures[c.entry.display] = cap; log("screen \(c.entry.screen) capturing") } catch { log("capture \(c.entry.screen): \(error.localizedDescription)") }
                 }
             } else { log("no shareable content") }
