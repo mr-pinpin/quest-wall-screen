@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Catch the headset's wake window and keep it awake while nobody wears it, for installs and headset benchmarks.
+"""User policy (2026-11-03, approved via work-df): simulated wear only while the headset is on the charger (AC, USB
+or wireless power), only for the duration of queued runs (released right after the last one), never while a person
+really wears it, every hold logged in bench/activity.log.
+
+Catch the headset's wake window and keep it awake while nobody wears it, for installs and headset benchmarks.
 
     python3 bench/headset_hold.py [--install APK] [--minutes 45] [--wait-hours 6] [--then 'CMD' ...]
 
@@ -45,6 +49,11 @@ def hold_on():
         stress.headset('input keyevent KEYCODE_WAKEUP', timeout=30)
 
 
+def on_charger():
+    out = stress.headset("dumpsys battery | grep -E 'AC powered|USB powered|Wireless powered'", timeout=30)
+    return 'true' in out
+
+
 def installed_version():
     m = re.search(r'versionCode:(\d+)', stress.headset(f'pm list packages --show-versioncode {stress.PKG}', timeout=30))
     return int(m.group(1)) if m else None
@@ -71,6 +80,8 @@ def main():
     log(f'reachable: {st}')
     if stress.headset_worn():  # the strict check: drops any override first
         log('someone is wearing it: not touching it'); sys.exit(3)
+    if not on_charger():  # user policy: simulated wear only on the charger
+        log('not on the charger: no simulated wear (user policy)'); sys.exit(4)
     hold_on(); log('holding awake (simulated wear)')
     stress.activity(f'START headset hold (simulated wear, real-sensor probe each minute) for up to {a.minutes} min')
     t0 = time.time()
@@ -87,12 +98,16 @@ def main():
             log(f'installed version now {installed_version()}')
         for cmd in a.then:
             if worn_now(): log('worn: letting go'); return
+            if not on_charger(): log('taken off the charger: letting go (user policy)'); return
             log(f'run: {cmd}')
             r = subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True, timeout=1800)
             log(f'exit {r.returncode}: {(r.stdout + r.stderr).strip()[-1500:]}')
             hold_on()  # stress.py --headset restores the sensor at its end
-        while time.time() - t0 < a.minutes * 60:
+        if a.then:  # user policy: hold only for the queued runs, release right after the last one
+            log('queued runs done: releasing'); return
+        while time.time() - t0 < a.minutes * 60:  # a bare hold (no runs) keeps the old timed behaviour
             if worn_now(): log('worn: letting go'); return
+            if not on_charger(): log('taken off the charger: letting go (user policy)'); return
             for _ in range(3): hold_on(); time.sleep(20)
         log('hold time over')
     finally:
