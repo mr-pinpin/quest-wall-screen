@@ -1219,6 +1219,12 @@ void main(){
                  float sw = atof(SharpLayer::field(j, "sweep").c_str()); if (sw > 0.2f) stressSweep = sw; }
         n = std::max(0, std::min(n, 16));
         if (n != stressN) { stressN = n; event("stress: " + std::to_string(n) + " synthetic screens"); }
+        // files/launch ("LAPTOP" or "MINI"): start that stream as if its menu button was pressed (bench/stress.py --game)
+        std::ifstream lf(gDir + "/launch");
+        if (lf) {
+            std::string h; lf >> h; lf.close(); unlink((gDir + "/launch").c_str());
+            if (h == "MINI" || h == "LAPTOP") { launcher.launch(hostFor(h == "MINI" ? 0 : 1)); event("launch " + h + " (file)"); }
+        }
     }
     Demand stressDemand(int k) {
         const float tau = 6.2831853f;

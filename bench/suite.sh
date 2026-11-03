@@ -16,10 +16,11 @@ RUNS=(
   "--scenario cinema --n 10 --wan 3"
 )
 SECS=${SECS:-60}
+EXTRA=${EXTRA:-}   # e.g. EXTRA=--force to run while the laptop is in use
 i=0
 for attempt in $(seq 1 60); do
   while [ $i -lt ${#RUNS[@]} ]; do
-    out=$(timeout 600 python3 bench/stress.py ${RUNS[$i]} --secs $SECS 2>&1)
+    out=$(timeout 600 python3 bench/stress.py ${RUNS[$i]} --secs $SECS $EXTRA 2>&1)
     case "$out" in
       *"not running"*|*"aborted"*) echo "$(date +%T) waiting: $(echo "$out" | tail -1)"; break;;
       *) echo "=== ${RUNS[$i]}"; echo "$out" | grep -E '"(pass|mbps|p95|p99|longestSilenceS)"|warning' | head -12; i=$((i+1));;

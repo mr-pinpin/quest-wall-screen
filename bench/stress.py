@@ -127,6 +127,7 @@ def main():
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
     ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'], help='stand-in demand pattern (see headset_sim.py)')
+    ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
     a = ap.parse_args()
@@ -172,6 +173,8 @@ def main():
                 headset(f'input keyevent KEYCODE_WAKEUP; am start -n {PKG}/.MainActivity --ez capture false >/dev/null'); time.sleep(8)
             spec = base64.b64encode(json.dumps({'n': a.n, 'sweep': a.sweep}).encode()).decode()
             headset(f"run-as {PKG} sh -c 'echo {spec} | base64 -d > files/stress.json'")
+            if a.game:
+                headset(f"run-as {PKG} sh -c 'echo {a.game} > files/launch'"); time.sleep(12)  # session setup
         time.sleep(6)  # sender start, demand and resize settle
         if a.wan:
             air(f"for i in $(seq {a.wan}); do (curl -s -o /dev/null -m {a.secs + 5} "
@@ -263,13 +266,25 @@ def main():
         fps = [x['fps'] for x in samples]
         series = [{'t': round(x['uptime'], 1), 'fps': x['fps'], 'stressN': x['spell'].get('stressN'),
                    'bytes': x['atlas']['video']['bytes'], 'packets': x['atlas']['video']['packets'],
-                   'size': x['atlas']['video']['size'], 'lat': x['atlas']['video']['latencyMs']} for x in samples]
+                   'size': x['atlas']['video']['size'], 'lat': x['atlas']['video']['latencyMs'],
+                   'game': {'stage': x['moonlight']['stage'], 'lat': x['video']['latencyMs'], 'rtt': x['video']['rttMs'],
+                            'displayed': x['video']['displayed'], 'dropped': x['video']['dropped']}} for x in samples]
         lat = [x['lat'] for x in series if x['lat'] > 0]
         mbps = round((series[-1]['bytes'] - series[0]['bytes']) * 8 / 1e6 / max(1, series[-1]['t'] - series[0]['t']), 1) if len(series) > 1 else None
         gap = longest_gap(series)
         r['headsetFps'] = {'min': min(fps, default=None), 'mean': round(statistics.mean(fps), 1) if fps else None}
         r['atlas'] = {'mbps': mbps, 'latencyP50': pct(lat, 50), 'latencyP99': pct(lat, 99), 'longestGapS': gap}
         r['series'] = series
+        if a.game:
+            g = [x['game'] for x in series]; up = [x for x in g if x['lat'] > 0]
+            span = max(1, series[-1]['t'] - series[0]['t'])
+            r['game'] = {'host': a.game, 'stages': sorted({x['stage'] for x in g}),
+                         'latencyP50': pct([x['lat'] for x in up], 50), 'latencyP99': pct([x['lat'] for x in up], 99),
+                         'rttP50': pct([x['rtt'] for x in up], 50), 'fps': round((g[-1]['displayed'] - g[0]['displayed']) / span, 1),
+                         'dropped': g[-1]['dropped'] - g[0]['dropped']}
+            checks['game stream ran'] = bool(up)
+            checks['game latency p99 < 60 ms'] = (r['game']['latencyP99'] or 1e9) < 60
+            checks['game fps >= 55'] = r['game']['fps'] >= 55
         checks['headset >= 70 fps'] = r['headsetFps']['min'] is not None and r['headsetFps']['min'] >= 70
         checks['headset stress mode engaged'] = any(x['stressN'] == a.n for x in series)
         checks['atlas within 40 Mbit/s'] = mbps is not None and mbps <= 40
