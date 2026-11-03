@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key><string>io.mr-pinpin.host</string>
+	<key>CFBundleExecutable</key><string>PinPinHost</string>
+	<key>CFBundleName</key><string>PinPin Host</string>
+	<key>CFBundleDisplayName</key><string>PinPin Host</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
+	<key>CFBundleVersion</key><string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key><string>14.2</string>
+	<key>LSUIElement</key><true/>
+	<key>NSScreenCaptureUsageDescription</key><string>PinPin streams your screens to your headset and TV.</string>
+	<key>NSAudioCaptureUsageDescription</key><string>PinPin streams your Mac's sound to your headset and TV.</string>
+	<key>NSMicrophoneUsageDescription</key><string>PinPin tools can use the microphone, for example for voice input.</string>
+	<key>NSCameraUsageDescription</key><string>PinPin tools can use the camera, for example for video calls on the headset.</string>
+	<key>NSLocalNetworkUsageDescription</key><string>PinPin talks to your headset, TV and home Mac on the local network.</string>
+	<key>NSBonjourServices</key><array><string>_pinpin._tcp</string></array>
+	<key>NSAppleEventsUsageDescription</key><string>PinPin tools can arrange app windows on your screens.</string>
+</dict>
+</plist>

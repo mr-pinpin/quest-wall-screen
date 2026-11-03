@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>io.mr-pinpin.host</string>
+	<key>ProgramArguments</key>
+	<array><string>/bin/sh</string><string>-c</string><string>exec "$HOME/Applications/PinPin Host.app/Contents/MacOS/PinPinHost"</string></array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ThrottleInterval</key><integer>5</integer>
+	<key>LimitLoadToSessionType</key><string>Aqua</string>
+	<key>ProcessType</key><string>Interactive</string>
+	<key>StandardErrorPath</key><string>/tmp/pinpin-host.log</string>
+	<key>StandardOutPath</key><string>/tmp/pinpin-host.log</string>
+</dict>
+</plist>
