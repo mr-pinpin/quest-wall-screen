@@ -62,12 +62,17 @@ inline std::vector<Tile> tiles(const std::vector<Cell>& cells, int& cw, int& ch)
     return out;
 }
 
+// The coarsest level still at least px wide (pure; Level adds the hysteresis).
+inline int levelFor(int srcWidth, int px, int tail = 4) {
+    return std::min(tail, std::max(0, (int)std::floor(std::log2((double)srcWidth / std::max(px, 1)) + 1e-6)));
+}
+
 // Level choice per screen: detail goes up at once, down after 3 s (each change costs the sender a keyframe);
 // a hidden screen wants the mip tail (the headset keeps its sharp copy anyway).
 struct Level {
     int lvl = 0; double downSince = -1;
     int want(int srcWidth, int px, bool vis, double now, int tail = 4) {
-        int w = !vis ? tail : std::min(tail, std::max(0, (int)std::floor(std::log2((double)srcWidth / std::max(px, 1)) + 1e-6)));
+        int w = !vis ? tail : levelFor(srcWidth, px, tail);
         if (w < lvl || !vis) { lvl = w; downSince = -1; }
         else if (w > lvl) { if (downSince < 0) downSince = now; else if (now - downSince > 3) { lvl = w; downSince = -1; } }
         else downSince = -1;
@@ -99,6 +104,33 @@ struct Resident {
     }
     void copied(int lvl) { shownLvl = lvl; }
 };
+
+// LOD by viewer pose (docs/sources.md roadmap 1): how many source pixels across a screen are worth sending, from
+// its projection into the view. A screen (centre c, unit axes right/up, size w x h metres) seen from `eye`: the
+// angles it spans horizontally and vertically (edge-on screens span little, so obliquity counts), times the
+// headset's pixels per radian, give the texels it covers; the level rule needs that as a source width, so the
+// vertical span is converted through the source aspect. Plain vector maths, tested along pose paths offline.
+struct Vec3 { float x, y, z; };
+inline Vec3 vsub(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline Vec3 vadd(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+inline Vec3 vmul(Vec3 a, float k) { return {a.x * k, a.y * k, a.z * k}; }
+inline float vdot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline float vlen(Vec3 a) { return std::sqrt(vdot(a, a)); }
+inline float angleBetween(Vec3 a, Vec3 b) {
+    float c = vdot(a, b) / std::max(1e-6f, vlen(a) * vlen(b));
+    return std::acos(std::fmin(1.0f, std::fmax(-1.0f, c)));
+}
+inline int projectedPx(Vec3 eye, Vec3 c, Vec3 right, Vec3 up, float w, float h, int srcW, int srcH, float pxPerRad = 1260.0f) {
+    Vec3 l = vsub(vsub(c, vmul(right, w / 2)), eye), r = vsub(vadd(c, vmul(right, w / 2)), eye);
+    Vec3 b = vsub(vsub(c, vmul(up, h / 2)), eye), t = vsub(vadd(c, vmul(up, h / 2)), eye);
+    float acrossW = angleBetween(l, r) * pxPerRad, acrossH = angleBetween(b, t) * pxPerRad;
+    float scale = std::max(acrossW / std::max(1, srcW), acrossH / std::max(1, srcH));  // source texels per source pixel
+    return (int)std::lround(std::min(1.0f, scale) * srcW);
+}
+// Note: one uniform level must satisfy both axes, so turning around a screen horizontally does not lower its level
+// (its height still spans the same angle); only distance, or obliquity in both axes, does. Per-axis (anisotropic)
+// levels would need non-uniform tiles: a possible later step, not done.
+
 
 // Hold rule: a screen that shows an image and gets a new panel size keeps the old image until the new one exists.
 inline bool needsHold(bool hasImage, int cw, int ch, int contentW, int contentH) { return hasImage && (cw != contentW || ch != contentH); }

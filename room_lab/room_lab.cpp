@@ -193,6 +193,9 @@ struct App {
     // MODELS flag (docs/3d-content.md, model_view.h): a headset-rendered glTF model from files/model.json, streamed
     // at the BUDGET arbiter's asset share (20 Mbit/s without BUDGET), coarse texture first. files/models-on forces it.
     ModelView model; bool modelsMenu = false, modelsFile = false, modelStarted = false; bool models() const { return modelsMenu || modelsFile; }
+    // LODPOSE flag (docs/sources.md roadmap 1): a screen's wanted detail from its projection in both axes (distance,
+    // viewing angle, its height as well as its width), not width-at-distance only. files/lodpose-on forces it.
+    bool lodPoseMenu = false, lodPoseFile = false; bool lodPose() const { return lodPoseMenu || lodPoseFile; }
     bool codecMenu = false, codecFile = false;  // CODEC flag: game streams in H.264 instead of HEVC (applies at the next launch)
     GpuTimer gpuTimer; bool gpuTimeMenu = false, gpuTimeFile = false; bool gpuTime() const { return gpuTimeMenu || gpuTimeFile; }
     double frameMsForBudget() const { return gpuTime() && gpuTimer.valid() ? gpuTimer.ms : frameWorkMs; }
@@ -413,12 +416,12 @@ struct App {
     // each section starts a new row under its heading, and the panel grows to fit. To add a flag: one line here,
     // its action in choose() and, for a toggle, its state in itemOn().
     struct MenuItem { const char* label; const char* section; };
-    static constexpr int kMenuItems = 24;
+    static constexpr int kMenuItems = 25;
     const MenuItem menuItems[kMenuItems] = {{"MINI", "SOURCE"}, {"LAPTOP", "SOURCE"}, {"H264", "SOURCE"}, {"HOSTRES", "SOURCE"},
                                             {"SMALL", "SIZE"}, {"MEDIUM", "SIZE"}, {"LARGE", "SIZE"},
                                             {"LOCK", "PANEL"}, {"QUAD", "PANEL"}, {"CLOSE", "PANEL"},
                                             {"CURVE", "DISPLAY"}, {"MARGIN", "BORDER"}, {"SUPER", "BORDER"}, {"BEZEL", "BORDER"},
-                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}};
+                                            {"FADE", "BEZEL"}, {"GLASS", "BEZEL"}, {"AMBI", "BEZEL"}, {"SPELL", "GESTURES"}, {"MACDISP", "SCREENS"}, {"VT", "SCREENS"}, {"BUDGET", "SCREENS"}, {"GPUTIME", "SCREENS"}, {"WIFILL", "SCREENS"}, {"MODELS", "SCREENS"}, {"LODPOSE", "SCREENS"}};
     UiGrid menuGrid; std::vector<int> menuShown;  // grid cell k shows menuItems[menuShown[k]]
     bool itemVisible(const std::string& l) const { return !(l == "CLOSE" && editLocked); }  // pinned: nothing to close
     // Highlight state: the active source, or a toggle that is on. -1 means not a toggle.
@@ -435,6 +438,7 @@ struct App {
         if (l == "WIFILL") return wifiLl();
         if (l == "HOSTRES") return hostResMenu;
         if (l == "MODELS") return models();
+        if (l == "LODPOSE") return lodPose();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -520,6 +524,7 @@ struct App {
         else if (l == "H264") codecMenu = !codecMenu;                         // CODEC: next game stream in H.264
         else if (l == "WIFILL") wifiLlMenu = !wifiLlMenu;                     // Wi-Fi low-latency lock while streaming
         else if (l == "MODELS") modelsMenu = !modelsMenu;                     // headset-rendered 3D model (files/model.json)
+        else if (l == "LODPOSE") lodPoseMenu = !lodPoseMenu;                  // detail from the screen's projection, both axes
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1318,6 +1323,11 @@ void main(){
         float off = std::acos(std::fmin(std::fmax(dot(norm(c - eye), rot(head.orientation, {0, 0, -1})), -1.0f), 1.0f));
         d.vis = seenFrom(eye, c, n, p.wall) && off - half < 0.95f;  // ~55 degrees: inside the headset's view
         d.px = (int)std::fmin(3840.0f, 2 * half * kPxPerRad);
+        if (lodPose()) {  // LODPOSE: both axes of the screen's projection from the head pose (room_lab/vt.h projectedPx)
+            V3 rx = rot(w->pose.orientation, {1, 0, 0}), uy = rot(w->pose.orientation, {0, 1, 0});
+            int sw = vtSrcW(id), sh = (int)std::lround(sw * p.h / std::fmax(0.01f, p.w));
+            d.px = vt::projectedPx({eye.x, eye.y, eye.z}, {c.x, c.y, c.z}, {rx.x, rx.y, rx.z}, {uy.x, uy.y, uy.z}, p.w, p.h, sw, sh, kPxPerRad);
+        }
         d.pri = !d.vis ? 0.0f : off < 0.21f ? 1.0f : std::fmax(0.1f, 1.0f - (off - 0.21f) / 0.75f);
         return d;
     }
@@ -2050,6 +2060,7 @@ void main(){
             codecFile = access((gDir + "/codec-h264").c_str(), F_OK) == 0;    // forces CODEC (H.264) for bench pairs
             wifiLlFile = access((gDir + "/wifill-on").c_str(), F_OK) == 0;    // forces WIFILL for bench pairs
             modelsFile = access((gDir + "/models-on").c_str(), F_OK) == 0;    // forces MODELS for self-tests
+            lodPoseFile = access((gDir + "/lodpose-on").c_str(), F_OK) == 0;  // forces LODPOSE for self-tests
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
                 if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
