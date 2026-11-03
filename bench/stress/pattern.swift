@@ -2,6 +2,9 @@
 // encodes like real use: sliding bars (motion), scrolling text (detail) and a noise block (video-like entropy).
 // Everything is Core Animation, so the GPU draws it and the stress test measures the sender, not this app.
 // Started by bench/stress.py over ssh (its windows still reach the GUI session); stopped with pkill.
+// `--cover ID,ID,...`: those displays get one full-screen window that never changes (a dark desktop with static
+// text), hiding macOS's animated aerial wallpaper so idle screens really are idle (no redraws, nothing to capture).
+// This avoids setDesktopImageURL, which stopped the pattern from reaching ScreenCaptureKit on that display.
 import AppKit
 import QuartzCore
 
@@ -52,7 +55,11 @@ func patternLayer(size: CGSize, label: String) -> (CALayer, CALayer, CATextLayer
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-let ids = CommandLine.arguments.dropFirst().compactMap { UInt32($0) }
+var argv = Array(CommandLine.arguments.dropFirst()), covered: [UInt32] = []
+if let i = argv.firstIndex(of: "--cover"), i + 1 < argv.count {
+    covered = argv[i + 1].split(separator: ",").compactMap { UInt32($0) }; argv.removeSubrange(i...(i + 1))
+}
+let ids = argv.compactMap { UInt32($0) }
 var windows: [NSWindow] = []
 var animated: [(CALayer, CATextLayer, String)] = []
 for s in NSScreen.screens {
@@ -65,7 +72,18 @@ for s in NSScreen.screens {
     view.layer = root; win.contentView = view
     win.orderFrontRegardless(); windows.append(win); animated.append((noise, counter, label))
 }
-FileHandle.standardError.write("stresspattern: \(windows.count) of \(ids.count) displays\n".data(using: .utf8)!)
+var coveredCount = 0
+for s in NSScreen.screens {
+    guard let n = s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber, covered.contains(n.uint32Value) else { continue }
+    let win = NSWindow(contentRect: s.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    win.setFrame(s.frame, display: true); win.backgroundColor = NSColor(calibratedRed: 0.13, green: 0.13, blue: 0.15, alpha: 1)
+    let label = NSTextField(labelWithString: "PinPin screen \(n.uint32Value)\n(idle desktop, static)")
+    label.font = NSFont.systemFont(ofSize: 40); label.textColor = NSColor(white: 0.75, alpha: 1)
+    label.frame = NSRect(x: 80, y: s.frame.height / 2, width: s.frame.width - 160, height: 120)
+    let view = NSView(frame: NSRect(origin: .zero, size: s.frame.size)); view.addSubview(label); win.contentView = view
+    win.orderFrontRegardless(); windows.append(win); coveredCount += 1
+}
+FileHandle.standardError.write("stresspattern: \(windows.count - coveredCount) of \(ids.count) displays, \(coveredCount) of \(covered.count) covered\n".data(using: .utf8)!)
 var frameNo = 0
 Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { _ in
     frameNo += 1

@@ -234,6 +234,7 @@ def main():
     ap.add_argument('--sim-on', choices=['mini', 'air'], default='mini',
                     help='where the stand-in headset runs: mini (over the house Wi-Fi, default) or air (on the laptop itself, '
                          'receiving from 127.0.0.1: no Wi-Fi in the path; the control that separates sender from network)')
+    ap.add_argument('--cover-idle', action='store_true', help='cover the non-animated test screens with a static window (hides the aerial wallpaper)')
     ap.add_argument('--static', type=int, default=0, help='leave the last K created screens without the moving pattern (still desktops)')
     ap.add_argument('--codec', choices=['H264', 'HEVC'], help='--headset only: the game stream codec (room_lab CODEC flag, '
                     'files/codec-h264, v0.39+); default: as the headset is set')
@@ -287,9 +288,11 @@ def main():
     moving = [i for i in ids if i in shown]
     moving = moving[:max(0, len(moving) - a.static)]
     pattern = [str(ds[i]) for i in moving if i in ds]
-    if pattern:
+    # --cover-idle: every other test screen gets a static full-screen window, hiding the animated aerial wallpaper.
+    cover = [str(ds[i]) for i in ids if i in ds and i not in moving] if a.cover_idle else []
+    if pattern or cover:
         # Run the binary directly: through `open` it got no arguments. Windows still reach the GUI session.
-        air(f"(nohup {APP.replace(' ', chr(92) + ' ')}/Contents/MacOS/stresspattern {' '.join(pattern)} "
+        air(f"(nohup {APP.replace(' ', chr(92) + ' ')}/Contents/MacOS/stresspattern {' '.join(pattern)} {('--cover ' + ','.join(cover)) if cover else ''} "
             f"> ~/.local/share/pinpin-stress/pattern.log 2>&1 &); sleep 2; cat ~/.local/share/pinpin-stress/pattern.log")
     print(f'  displays: {sorted(ds)} (created {created}, pattern on {len(pattern)})')
 
@@ -398,7 +401,7 @@ def main():
             if not app_was_running: headset(f'am force-stop {PKG}')
             simulate_wear(False)  # back to the real sensor: an unworn headset goes to sleep as usual
         if a.wan: air("pkill -f 'speed.cloudflare.com/__down' || true")
-        if pattern: air('pkill -f stresspattern || true')
+        if pattern or cover: air('pkill -f stresspattern || true')
         if not a.keep:
             for i in created: air(f"curl -s -m40 -X POST 'localhost:57710/remove?id={i}'", timeout=60)
     if aborted:
@@ -418,7 +421,7 @@ def main():
         if m and float(m.group(2)) > 0: cap.setdefault(m.group(1), []).append(float(m.group(2)))
     capture_fps = {s: round(statistics.median(v), 1) for s, v in cap.items()}
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': a.scenario + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'~static{a.static}' if a.static else '') + ('~covered' if a.cover_idle else '') + ('~simair' if sim and a.sim_on == 'air' else '') + (f'+{a.flags}' if a.flags else '') + ''.join(f'+sunshine:{o}' for o in a.sunshine) + (f'+codec:{a.codec}' if a.codec else '') + ''.join(f'+headset:{fl}' for fl in a.headset_flag),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},  # Mini -> headset
