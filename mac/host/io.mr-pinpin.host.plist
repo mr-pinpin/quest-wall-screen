@@ -7,6 +7,8 @@
 	<array><string>/bin/sh</string><string>-c</string><string>exec "$HOME/Applications/PinPin Host.app/Contents/MacOS/PinPinHost"</string></array>
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><true/>
+	<!-- The host exits on its own (kickstart -k, rebuilds) without its plugins: the next host adopts them. -->
+	<key>AbandonProcessGroup</key><true/>
 	<key>ThrottleInterval</key><integer>5</integer>
 	<key>LimitLoadToSessionType</key><string>Aqua</string>
 	<key>ProcessType</key><string>Interactive</string>

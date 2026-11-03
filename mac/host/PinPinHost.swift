@@ -14,9 +14,15 @@
 // "replace the file, pkill the process" is an upgrade), and re-reads the folder every 3 s (new, changed and
 // removed files take effect on their own).
 //
+// Host restarts leave plugins running: a new host adopts the copy the last one started (same pid file, same
+// binary, same spec) instead of restarting it, so rebuilding the host never interrupts a stream, a benchmark or
+// the extra displays. launchd's SIGTERM (kickstart -k, bootout) therefore stops only the host; SIGINT or
+// POST /stopall stops the plugins too. A changed spec still restarts that plugin.
+//
 // Control (localhost only, for ssh): http://127.0.0.1:57790
 //   GET /status          permissions and plugins as JSON
 //   POST /start|/stop|/restart?name=<plugin>   (stop holds until /start or a host restart; use "enabled": false to keep it off)
+//   POST /stopall        stop every plugin (held until a host restart)
 //   POST /request?perm=<screen|audio|accessibility|input|mic|camera|localnet>   show that permission's prompt
 import AppKit
 import AVFoundation
@@ -160,12 +166,20 @@ struct PluginSpec: Codable, Equatable {
     var truncateLog: Bool?
     var enabled: Bool?
     var restartDelay: Double?
+    // Identifies the spec a running copy was started with (stored in its pid file), so only a matching copy is adopted.
+    var key: String {
+        let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]
+        return (try? e.encode(self)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
 }
 
 final class Plugin {
     let name: String
     var spec: PluginSpec
     var process: Process?
+    var adopted: Int32?, exitWatch: DispatchSourceProcess?  // a copy started by an earlier host instance
+    var running: Bool { process != nil || adopted != nil }
+    var pid: Int32 { process?.processIdentifier ?? adopted ?? 0 }
     var restarts = 0, quickFails = 0, held = false, stopping = false
     var startedAt: Date?, lastExit: String = ""
     init(name: String, spec: PluginSpec) { self.name = name; self.spec = spec }
@@ -173,7 +187,8 @@ final class Plugin {
     var pidFile: String { runDir + "/\(name).pid" }
 
     func start() {
-        guard process == nil, spec.enabled ?? true, !held else { return }
+        guard !running, spec.enabled ?? true, !held else { return }
+        if adopt() { return }
         killStale()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: expand(spec.exec))
@@ -194,7 +209,7 @@ final class Plugin {
         do {
             try p.run()
             process = p; startedAt = Date()
-            try? "\(p.processIdentifier)".write(toFile: pidFile, atomically: true, encoding: .utf8)
+            try? "\(p.processIdentifier)\n\(spec.key)".write(toFile: pidFile, atomically: true, encoding: .utf8)
             hostLog("\(name): started pid \(p.processIdentifier)")
         } catch {
             lastExit = "launch failed: \(error.localizedDescription)"; hostLog("\(name): \(lastExit)")
@@ -202,15 +217,44 @@ final class Plugin {
         }
     }
 
-    // A previous host instance (crash, upgrade) may have left this plugin running; replace it, so there is one copy.
-    func killStale() {
-        guard let s = try? String(contentsOfFile: pidFile, encoding: .utf8), let pid = Int32(s.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1 else { return }
+    // The copy a previous host instance left running, if its pid file names a live process of this binary.
+    func previous() -> (pid: Int32, key: String)? {
+        guard let s = try? String(contentsOfFile: pidFile, encoding: .utf8) else { return nil }
+        let lines = s.split(separator: "\n", maxSplits: 1).map(String.init)
+        guard let pid = Int32(lines.first?.trimmingCharacters(in: .whitespaces) ?? ""), pid > 1, kill(pid, 0) == 0 else { return nil }
         var buf = [CChar](repeating: 0, count: 4096)
-        let n = proc_pidpath(pid, &buf, UInt32(buf.count))
-        if n > 0, String(cString: buf) == expand(spec.exec) {
-            kill(pid, SIGTERM); usleep(500_000); if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
-            hostLog("\(name): replaced stale pid \(pid)")
-        }
+        guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0, String(cString: buf) == expand(spec.exec) else { return nil }
+        return (pid, lines.count > 1 ? lines[1] : "")
+    }
+
+    // Keep that copy if it was started with the current spec: watch it for exit instead of restarting it.
+    func adopt() -> Bool {
+        guard let prev = previous(), prev.key == spec.key else { return false }
+        let src = DispatchSource.makeProcessSource(identifier: prev.pid, eventMask: .exit, queue: work)
+        src.setEventHandler { [weak self] in self?.adoptedExited(prev.pid) }
+        src.resume()
+        adopted = prev.pid; exitWatch = src; startedAt = Date()
+        hostLog("\(name): adopted running pid \(prev.pid)")
+        if kill(prev.pid, 0) != 0 { adoptedExited(prev.pid) }  // died between the check and the watch
+        return true
+    }
+
+    func adoptedExited(_ pid: Int32) {
+        guard adopted == pid else { return }
+        exitWatch?.cancel(); exitWatch = nil; adopted = nil
+        lastExit = "adopted pid \(pid) exited at \(ISO8601DateFormatter().string(from: Date()))"
+        hostLog("\(name): \(lastExit)")
+        quickFails = 0
+        try? FileManager.default.removeItem(atPath: pidFile)
+        if stopping { stopping = false; return }
+        scheduleRestart()
+    }
+
+    // A copy started with another spec (or by an older host) is replaced, so there is one copy, matching the spec.
+    func killStale() {
+        guard let pid = previous()?.pid else { return }
+        kill(pid, SIGTERM); usleep(500_000); if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+        hostLog("\(name): replaced stale pid \(pid)")
     }
 
     func exited(_ p: Process) {
@@ -233,14 +277,15 @@ final class Plugin {
 
     func stop(hold: Bool) {
         held = hold
-        guard let p = process else { return }
-        stopping = true; p.terminate()
-        let pid = p.processIdentifier
+        guard running else { return }
+        let pid = self.pid
+        stopping = true
+        if let p = process { p.terminate() } else { kill(pid, SIGTERM) }
         work.asyncAfter(deadline: .now() + 3) { if kill(pid, 0) == 0 { kill(pid, SIGKILL) } }
     }
 
     var json: [String: Any] {
-        ["name": name, "running": process != nil, "pid": process?.processIdentifier ?? 0, "restarts": restarts,
+        ["name": name, "running": running, "pid": pid, "adopted": adopted != nil, "restarts": restarts,
          "held": held, "enabled": spec.enabled ?? true, "exec": spec.exec, "lastExit": lastExit,
          "startedAt": startedAt.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
     }
@@ -313,12 +358,15 @@ final class Control {
             else if path == "/start" { p.held = false; p.start() }
             else { p.held = false; p.stop(hold: false); work.asyncAfter(deadline: .now() + 1) { p.start() } }
             return ("200 OK", js(p.json))
+        case ("POST", "/stopall"):
+            sup.stopAll()
+            return ("200 OK", js(["stopped": sup.plugins.keys.sorted()]))
         case ("POST", "/request"):
             guard let perm = Perm(rawValue: q["perm"] ?? "") else { return ("400 Bad Request", js(["error": "unknown perm"])) }
             DispatchQueue.main.async { self.perms.request(perm) }  // prompts are UI: main thread
             return ("200 OK", js(["requested": perm.rawValue]))
         default:
-            return ("404 Not Found", js(["error": "GET /status, POST /start|/stop|/restart?name=, POST /request?perm="]))
+            return ("404 Not Found", js(["error": "GET /status, POST /start|/stop|/restart?name=, POST /stopall, POST /request?perm="]))
         }
     }
 }
@@ -341,10 +389,14 @@ final class Core {
             let t = DispatchSource.makeTimerSource(queue: work)
             t.schedule(deadline: .now() + 3, repeating: 3); t.setEventHandler { [weak self] in self?.sup.scan() }; t.resume(); scanTimer = t
         }
-        for sig in [SIGTERM, SIGINT] {  // launchd stops us with SIGTERM: take the plugins down with us
+        // launchd's SIGTERM (kickstart -k, bootout) stops only the host: the next one adopts the running plugins.
+        // SIGINT takes the plugins down too.
+        for sig in [SIGTERM, SIGINT] {
             signal(sig, SIG_IGN)
             let s = DispatchSource.makeSignalSource(signal: sig, queue: work)
-            s.setEventHandler { [weak self] in self?.sup.stopAll(); work.asyncAfter(deadline: .now() + 1.5) { exit(0) } }
+            s.setEventHandler { [weak self] in
+                if sig == SIGINT { self?.sup.stopAll(); work.asyncAfter(deadline: .now() + 1.5) { exit(0) } } else { exit(0) }
+            }
             s.resume(); signalSources.append(s)
         }
     }
@@ -367,8 +419,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
         if Perm.allCases.contains(where: { perms.granted($0) != true }) { showChecklist() }
     }
-
-    func applicationWillTerminate(_ n: Notification) { work.sync { sup.stopAll() } }
 
     func showChecklist() {
         if let w = window { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
@@ -417,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Plugins", action: nil, keyEquivalent: "")
         let lines: [String] = work.sync {
             sup.plugins.values.sorted(by: { $0.name < $1.name }).map { p in
-                let state = p.process != nil ? "● running (pid \(p.process!.processIdentifier))" : p.held ? "○ stopped" : "○ waiting"
+                let state = p.running ? "● running (pid \(p.pid))" : p.held ? "○ stopped" : "○ waiting"
                 return "\(p.name)  \(state)  restarts \(p.restarts)"
             }
         }

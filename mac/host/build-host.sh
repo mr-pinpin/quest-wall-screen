@@ -18,13 +18,17 @@ codesign --force --sign "$ID" --keychain "$KC" --identifier io.mr-pinpin.host "$
 codesign -d -r- "$B" 2>&1 | grep designated
 # Swap the bundle in place, then let launchd restart the host (it replaces any plugin copies left behind).
 mkdir -p ~/Applications
-rm -rf "$APP.old"; [ -d "$APP" ] && mv "$APP" "$APP.old"
-mv "$B" "$APP"; rm -rf "$APP.old"
+OLD="$APP.old.$(date +%s)"   # moved aside, not deleted (no rm prompts on this Mac)
+[ -d "$APP" ] && mv "$APP" "$OLD"
+mv "$B" "$APP"
+# Plugins keep running across this restart: the new host adopts them (see "Host restarts" in PinPinHost.swift).
 PL=~/Library/LaunchAgents/io.mr-pinpin.host.plist
-cp io.mr-pinpin.host.plist "$PL"
-if launchctl print gui/$(id -u)/io.mr-pinpin.host >/dev/null 2>&1; then
-  launchctl kickstart -k gui/$(id -u)/io.mr-pinpin.host
-else
-  launchctl bootstrap gui/$(id -u) "$PL"
+J=gui/$(id -u)/io.mr-pinpin.host
+if ! launchctl print $J >/dev/null 2>&1; then
+  cp io.mr-pinpin.host.plist "$PL"; launchctl bootstrap gui/$(id -u) "$PL"
+elif cmp -s io.mr-pinpin.host.plist "$PL"; then
+  launchctl kickstart -k $J
+else  # launchd reads the plist only at bootstrap
+  launchctl bootout $J; sleep 1; cp io.mr-pinpin.host.plist "$PL"; launchctl bootstrap gui/$(id -u) "$PL"
 fi
-sleep 2; curl -s -m3 127.0.0.1:57790/status; echo
+sleep 3; curl -s -m3 127.0.0.1:57790/status; echo
