@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Headset asset server on the Mini (docs/3d-content.md): serves ~/pinpin-assets on :8099 for room_lab's MODELS
+     flag. Install: assets/install-asset-server.sh (copies this to ~/Library/LaunchAgents and bootstraps it). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>io.mr-pinpin.assets</string>
+	<key>ProgramArguments</key>
+	<array><string>/bin/sh</string><string>-c</string><string>exec /opt/homebrew/bin/python3 -m http.server 8099 --directory "$HOME/pinpin-assets"</string></array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ThrottleInterval</key><integer>5</integer>
+	<key>StandardOutPath</key><string>/tmp/pinpin-assets.log</string>
+	<key>StandardErrorPath</key><string>/tmp/pinpin-assets.log</string>
+</dict>
+</plist>
