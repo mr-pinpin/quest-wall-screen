@@ -123,7 +123,9 @@ final class Atlas {
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
     // vt: the last demand was protocol v2; each screen's display width (levels are octaves of it).
     var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
-    var resident: [CGDirectDisplayID: CVPixelBuffer] = [:]  // vt, under lock: last frame of a paused capture, for its mip tail
+    // vt, under lock: last frame of a paused capture, for its mip tail and, scaled up, as the placeholder in its new
+    // cells after a reveal until the restarted capture's first frame lands (no black or foreign pixels meanwhile).
+    var resident: [CGDirectDisplayID: CVPixelBuffer] = [:]
     var tier: [Int: Int] = [:], tierWant: [Int: (w: Int, since: Date)] = [:]
     static let tiers = [480, 640, 960, 1280, 1920]
     let net = DispatchQueue(label: "atlas.net"), capQ = DispatchQueue(label: "atlas.capture"), work = DispatchQueue(label: "atlas.work")
@@ -195,6 +197,7 @@ final class Atlas {
         dlock.withLock {
             if now.timeIntervalSince(wantAt) > 10 { log("demand from headset") }
             let stale = now.timeIntervalSince(wantAt) > 2
+            if vt != wantV2 { tier = [:]; tierWant = [:] }  // v1 <-> v2 (VT toggled on the headset): sizes start over
             for (id, w) in next where id != 1 {
                 if w.vis && !stale && !(want[id]?.vis ?? true) { reveal.append(id) }
                 if w.vis { hiddenAt[id] = nil } else if hiddenAt[id] == nil { hiddenAt[id] = now }
@@ -377,16 +380,17 @@ final class Atlas {
         // Stop captures whose display is gone, died, or moved (a capture started mid-move shows only the wallpaper).
         for (d, c) in captures where c.dead || !live.contains(d) || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
             if !live.contains(d) && !c.dead { log("screen \(c.screen) out of view: capture paused") }
-            lock.withLock { if let pb = c.latest { resident[d] = pb } }
+            if vt { lock.withLock { if let pb = c.latest { resident[d] = pb } } }
             c.stop(); captures[d] = nil
         }
         var resizes: [(CellCapture, Cell)] = []
         lock.withLock {
             stash = [:]; self.cells = cells; dirty = true
             if resized { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4) }
-            for d in resident.keys where byDisplay[d] == nil || live.contains(d) { resident[d] = nil }
+            for d in resident.keys where !vt || byDisplay[d] == nil || captures[d]?.latest != nil { resident[d] = nil }
             for (d, cs) in byDisplay {
-                if vt, !live.contains(d), let pb = resident[d] { for c in cs { blitScaled(pb, c) } }  // mip tail
+                // mip tail, or the placeholder of a screen whose capture has not delivered yet
+                if vt, captures[d]?.latest == nil, let pb = resident[d] { for c in cs { blitScaled(pb, c) } }
                 guard let cap = captures[d] else { continue }
                 let old = cap.cells[0]; cap.cells = cs
                 if old.frameW != cs[0].frameW || old.frameH != cs[0].frameH { resizes.append((cap, cs[0])) }
