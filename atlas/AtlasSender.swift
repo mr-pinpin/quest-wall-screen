@@ -28,6 +28,7 @@ struct Options {
     //          PreventUserIdleDisplaySleep assertion, and declares user activity on connect to wake a sleeping display.
     //          With the Air's display asleep, WindowServer stops driving the virtual displays and they drop out of
     //          ScreenCaptureKit ("display not found", 0 fps; work-c4, 2026-11-03 14:37).
+    //   capfast  capture interval half a refresh (1/120 s at 60 fps) so frames landing a hair early aren't skipped
     //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
@@ -37,7 +38,7 @@ struct Options {
     //          covers only the rows that differ (compared row by row; SCK's dirty rects cover everything)
     //   prifps  per-screen frame-rate by demand priority: pri >= 0.8 full rate, >= 0.3 15 fps, else 10 fps; when no
     //          full-rate screen changed, the atlas encodes at most 15 times a second
-    var flags = Set<String>(), statSecs = 30.0
+    var flags = Set<String>(), statSecs = 30.0, vtMaxW = 0  // --vt-max-w: cap every vt screen's width (tests)
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let a = it.next() {
@@ -51,6 +52,7 @@ struct Options {
             case "--url": url = v
             case "--test": test = v
             case "--stat-secs": statSecs = Double(v) ?? statSecs
+            case "--vt-max-w": vtMaxW = Int(v) ?? 0
             case "--flags": flags = Set(v.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             default: break
             }
@@ -85,10 +87,13 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var fps = 60                 // capture rate (prifps changes it with updateConfiguration)
     var frames = 0, clean = 0    // under atlas.lock: frames delivered, and those with no dirty rects (damage)
     init(_ cells: [Cell], _ atlas: Atlas) { self.cells = cells; screen = cells[0].entry.screen; self.atlas = atlas; origin = CGDisplayBounds(cells[0].entry.display).origin }
+    static var rateFactor = 1  // 2 with --flags capfast
     func config(_ w: Int, _ h: Int, fps: Int) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
         c.width = w; c.height = h; c.pixelFormat = kCVPixelFormatType_32BGRA; c.showsCursor = true
-        c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps)); c.queueDepth = 5
+        // capfast: ask for twice the rate. At exactly one refresh (1/60 s) a frame arriving a hair early is skipped,
+        // which may be why every display delivered ~29.4 fps "@60" (2026-11-03).
+        c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps * CellCapture.rateFactor)); c.queueDepth = 5
         return c
     }
     func start(_ display: SCDisplay, fps: Int, queue: DispatchQueue) async throws {
@@ -118,7 +123,10 @@ final class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             case .none: break  // size changed: copy all
             }
         }
+        let w0 = DispatchTime.now().uptimeNanoseconds
         a.lock.lock(); defer { a.lock.unlock() }
+        let b0 = DispatchTime.now().uptimeNanoseconds
+        defer { a.prof.blits += 1; a.prof.blitWaitNs += b0 - w0; a.prof.blitNs += DispatchTime.now().uptimeNanoseconds - b0 }
         latest = pb; frames += 1
         if a.visible(screen) {
             a.stash[screen] = nil; for c in cells { a.blit(pb, c, rows: rows) }
@@ -156,6 +164,11 @@ final class Atlas {
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
     var statAt = Date()  // refresh: last capture statistics line
     var lastVT = false   // refresh: the previous layout was vt
+    // Profile, logged with the capture statistics: how ticks end (work queue), and the time spent copying under `lock`
+    // by the tick (whole atlas -> encoder buffer) and by capture callbacks (frame -> atlas), plus time waiting for it.
+    struct Prof { var ticks = 0, held = 0, priHeld = 0, yielded = 0, idle = 0, fresh = 0, repeats = 0
+                  var copyNs: UInt64 = 0, copyMax: UInt64 = 0, tickWaitNs: UInt64 = 0, blits = 0, blitNs: UInt64 = 0, blitWaitNs: UInt64 = 0 }
+    var prof = Prof()  // tick fields on the work queue; blit fields under lock; read and reset under lock
     var fullRateDirty = false, lastEncodeAt = Date.distantPast  // prifps: a full-rate screen changed (under lock); work queue
     var gameOn = false, ticks = 0, yieldN = 2, yieldAt = Date()  // gameyield: demand "game" (dlock); tick state (work queue)
     var encEwma = 0.0  // under elock: smoothed encode ms, the contention signal for gameyield
@@ -370,7 +383,7 @@ final class Atlas {
         for e in list {
             if !live.contains(e.display) { width[e.screen] = tail(e) }
             else if hidden.contains(e.screen) { width[e.screen] = current[e.screen] ?? tail(e) }
-            else { width[e.screen] = max(tail(e), min(e.w, tiers[e.screen] ?? min(e.w, o.cellW)) / 2 * 2) }
+            else { width[e.screen] = max(tail(e), min(e.w, o.vtMaxW > 0 ? o.vtMaxW : e.w, tiers[e.screen] ?? min(e.w, o.cellW)) / 2 * 2) }
         }
         func pack() -> (Int, Int, [Cell])? {
             var tiles: [Cell] = []
@@ -491,6 +504,16 @@ final class Atlas {
                 }
             }
             if !parts.isEmpty { log("capture: " + parts.joined(separator: ", ")) }
+            let p: Prof = lock.withLock { defer { prof = Prof() }; return prof }
+            if p.ticks > 0 {
+                func ms(_ ns: UInt64, _ n: Int) -> Double { n > 0 ? Double(ns) / 1e6 / Double(n) : 0 }
+                let enc = p.fresh + p.repeats
+                log(String(format: "ticks %.0f/s: fresh %.1f/s, repeats %.1f/s, held (backpressure) %d, prifps %d, gameyield %d, nothing new %d; " +
+                           "atlas copy %.1f ms avg / %.1f max, tick waits %.2f ms; frame copies %.1f/s at %.2f ms, waiting %.2f ms",
+                           Double(p.ticks) / dt, Double(p.fresh) / dt, Double(p.repeats) / dt, p.held, p.priHeld, p.yielded,
+                           p.ticks - p.held - p.priHeld - p.yielded - enc, ms(p.copyNs, p.fresh), Double(p.copyMax) / 1e6, ms(p.tickWaitNs, p.fresh),
+                           Double(p.blits) / dt, ms(p.blitNs, p.blits), ms(p.blitWaitNs, p.blits)))
+            }
             statAt = now
         }
         // Display positions are part of the key: adding a virtual display can make macOS slide the others along
@@ -603,6 +626,7 @@ final class Atlas {
     // stream the laptop's encoder fell to ~40 fps and latency rose to ~125 ms.
     func tick() {
         guard let e = encoder, !peers.isEmpty, let pool = VTCompressionSessionGetPixelBufferPool(e) else { return }
+        lock.withLock { prof.ticks += 1 }
         // Pacing: while the network is still sending earlier frames, encode nothing (the pending change stays dirty
         // and goes out as soon as the socket drains). Dropping P-frames instead broke the reference chain, and the
         // keyframe that repaired it was bigger still: 118 keyframes a minute at ~39 Mbit/s in the stress suite.
@@ -618,6 +642,7 @@ final class Atlas {
                 net.async { for p in self.peers.values where p.pending >= 2 { p.needsKey = true }; self.forceKey = true; self.updateBusy() }
                 log("peer stuck for 0.5 s: skipping it to a keyframe")
             }
+            lock.withLock { prof.held += 1 }
             return
         }
         heldTicks = 0
@@ -626,7 +651,7 @@ final class Atlas {
         }
         // prifps: a change only from reduced-rate screens waits until 1/15 s after the last encode
         if o.flags.contains("prifps"), !forceKey, Date().timeIntervalSince(lastEncodeAt) < 1.0 / 15,
-           lock.withLock({ dirty && !fullRateDirty }) { return }
+           lock.withLock({ dirty && !fullRateDirty }) { lock.withLock { prof.priHeld += 1 }; return }
         lock.lock(); let changed = dirty; dirty = false; fullRateDirty = false; lock.unlock()
         if changed { lastEncodeAt = Date() }
         let key = forceKey; forceKey = false
@@ -643,12 +668,12 @@ final class Atlas {
                 yieldN = n; yieldAt = Date()
             }
             if !key, ticks % yieldN != 0 {
-                if changed { lock.withLock { dirty = true } }  // goes out on the next encoding tick
+                lock.withLock { if changed { dirty = true }; prof.yielded += 1 }  // goes out on the next encoding tick
                 return
             }
         }
         let flushMax = yielding ? 1 : 3
-        if changed { flushes = 0 } else if !key && lastBuffer != nil { flushes += 1; if flushes > flushMax && flushes % o.fps != 0 { return } }
+        if changed { flushes = 0 } else if !key && lastBuffer != nil { flushes += 1; if flushes > flushMax && flushes % o.fps != 0 { lock.withLock { prof.idle += 1 }; return } }
         var pb = lastBuffer
         if changed || pb == nil {
             var out: CVPixelBuffer?
@@ -656,12 +681,16 @@ final class Atlas {
             CVPixelBufferLockBaseAddress(fresh, [])
             if let base = CVPixelBufferGetBaseAddress(fresh)?.assumingMemoryBound(to: UInt8.self) {
                 let stride = CVPixelBufferGetBytesPerRow(fresh), bw = CVPixelBufferGetWidth(fresh), bh = CVPixelBufferGetHeight(fresh)
+                let w0 = DispatchTime.now().uptimeNanoseconds
                 lock.lock()
+                let c0 = DispatchTime.now().uptimeNanoseconds
                 // The atlas can change size (refresh) before the encoder and its pool are rebuilt; copying the new
                 // size into the old pool's buffer overran it (stress test crashes). Skip that frame instead.
                 let fits = bw == W && bh == H && pixels.count == W * H * 4
                 if fits { pixels.withUnsafeBufferPointer { src in for y in 0..<H { memcpy(base + y * stride, src.baseAddress! + y * W * 4, W * 4) } } }
                 else { dirty = true }  // retry on the next tick, with the new encoder
+                let c1 = DispatchTime.now().uptimeNanoseconds
+                prof.tickWaitNs += c0 - w0; prof.copyNs += c1 - c0; prof.copyMax = max(prof.copyMax, c1 - c0)
                 lock.unlock()
                 if !fits { CVPixelBufferUnlockBaseAddress(fresh, []); return }
             }
@@ -669,6 +698,7 @@ final class Atlas {
             pb = fresh; lastBuffer = fresh
         }
         frame += 1
+        lock.withLock { if changed || key { prof.fresh += 1 } else { prof.repeats += 1 } }
         elock.withLock { submitAt[frame] = DispatchTime.now().uptimeNanoseconds; if submitAt.count > 600 { submitAt.removeAll() } }
         let repeatTag: UnsafeMutableRawPointer? = (changed || key) ? nil : UnsafeMutableRawPointer(bitPattern: 1)
         let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
@@ -785,6 +815,7 @@ let atlas = Atlas(Options())
 atlas.listen()
 atlas.listenDemand()
 if !atlas.o.flags.isEmpty { log("flags: " + atlas.o.flags.sorted().joined(separator: ",")) }
+if atlas.o.flags.contains("capfast") { CellCapture.rateFactor = 2 }
 // One refresh loop (refresh is not reentrant): every 2 s, or at once when demand reveals a screen.
 // When replayd (ScreenCaptureKit's daemon) crashes, an await on it can hang forever and the sender silently stops
 // (seen 2026-11-03 13:11 under 30 screens). A refresh pass stuck for 20 s exits; the supervisor restarts us clean.
