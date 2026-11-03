@@ -157,7 +157,10 @@ def main():
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
     ap.add_argument('--flags', default='', help='sender flags for the test copy, e.g. bpcut (stand-in mode; see AtlasSender --flags)')
     ap.add_argument('--allow-over-20', action='store_true', help='allow more than 20 screens (30 crashed replayd and wedged WindowServer)')
+    ap.add_argument('--cinema-size', default='', help='WxH for screen 2 (the cinema screen), e.g. 2560x1600: wider than one '
+                    '1920 cell, so vt tiles it (3840x2160 was not capturable on the Air). Pair runs with the same size')
     a = ap.parse_args()
+    cinema = tuple(int(v) for v in a.cinema_size.split('x')) if a.cinema_size else None
     if a.n > 20 and not a.allow_over_20:
         sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
     sim = not a.headset
@@ -172,10 +175,13 @@ def main():
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
 
     # 1. displays and pattern
-    have = {d['screen'] for d in displays()}
+    have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
+    if cinema and 2 in have and have[2] != cinema:  # a leftover screen 2 of another size: recreate it
+        air("curl -s -m40 -X POST 'localhost:57710/remove?id=2'", timeout=60); del have[2]
     created = [i for i in ids if i not in have]
     for i in created:
-        air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w=1920&h=1200&scale=1'", timeout=60)
+        w, h = cinema if i == 2 and cinema else (1920, 1200)
+        air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w={w}&h={h}&scale=1'", timeout=60)
     time.sleep(3)
     ds = {d['screen']: d['display'] for d in displays()}
     missing = [i for i in ids if i not in ds]
@@ -270,7 +276,7 @@ def main():
     bitrates = [int(l.split('bitrate ')[1].split()[0]) for l in log if 'bitrate ' in l]
     layouts = [l for l in log if 'layout ' in l]
     r = {
-        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'+{a.flags}' if a.flags else ''),
+        'when': t0, 'n': a.n, 'secs': a.secs, 'wan': a.wan, 'mode': 'sim' if sim else 'headset', 'scenario': (a.scenario if sim else 'ring') + (f'@{a.cinema_size}' if a.cinema_size else '') + (f'+{a.flags}' if a.flags else ''),
         'wanPingMs': {'p50': pct(wan, 50), 'p95': pct(wan, 95), 'p99': pct(wan, 99), 'max': max(wan, default=None), 'count': len(wan)},
         'zyxelPingMs': {'p50': pct(zyxel, 50), 'p95': pct(zyxel, 95), 'p99': pct(zyxel, 99), 'count': len(zyxel)},
         'lanPingMs': {'p50': pct(lan, 50), 'p95': pct(lan, 95), 'p99': pct(lan, 99), 'count': len(lan)},
