@@ -226,6 +226,18 @@ def busy(force, sim=False):
 NET_AGENTS = ('work-42',)  # router/network sessions: a channel change drops Wi-Fi for ~30 s
 
 
+def network_epoch():
+    # Which network a result belongs to (work-df, 2026-11-03): the 5 GHz channel changes from 36 to 157 at
+    # work-42's END line; every network change starts a new epoch, so pairs and baselines never mix networks.
+    ends = []
+    try:
+        for l in ACTIVITY_LOG.read_text().splitlines():
+            p = l.split()
+            if len(p) > 3 and p[1] in NET_AGENTS and 'END' in p[3]: ends.append(p[0])
+    except OSError: pass
+    return {'epoch': len(ends), 'since': ends[-1] if ends else None, 'label': 'ch36' if not ends else f'after work-42 change {len(ends)} ({ends[-1]})'}
+
+
 def network_change(now=None):
     # A run must not straddle a router change: refuse while a network agent has an open START in activity.log, and
     # for 2 minutes after its END (work-df, 2026-11-03).
@@ -509,6 +521,7 @@ def main():
         'sender': {'bitrateKbps': bitrates[-8:], 'layouts': len(layouts), 'lastLayout': layouts[-1].split('layout ')[1] if layouts else None,
                    'skipped': skipped, 'crashes': crashes},
         'captureFps': capture_fps,
+        'network': network_epoch(),
         'host': dict(host, standIn=('pinpin-air' if a.sim_on == 'air' else 'pinpin-mini') if sim else 'quest'),
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,

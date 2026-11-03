@@ -94,6 +94,9 @@ def host_key(r):
 def verdict(name, off, on):
     # Never across hosts (benchmarks are pinned to the M1 Air): a pair from different hosts, or with an unknown host
     # on one side only, is not comparable.
+    eo, en = (off.get('network') or {}).get('epoch'), (on.get('network') or {}).get('epoch')
+    if eo != en:  # a router/channel change between the two halves: not comparable
+        return 'RERUN', f'not comparable: network epochs differ ({eo} vs {en}); rerun the baseline after the change'
     if host_key(off) != host_key(on):
         return 'RERUN', f'not comparable: hosts differ ({host_key(off)} vs {host_key(on)}); benchmarks are pinned to the M1 Air'
     v, why = rule(name, off, on)
@@ -105,6 +108,8 @@ def verdict(name, off, on):
 def self_test():
     a, b = {'host': {'chip': 'Apple M1', 'model': 'MacBookAir10,1'}}, {'host': {'chip': 'Apple M4', 'model': 'Mac16,10'}}
     if verdict('bpcut', a, b)[0] != 'RERUN': print('FAIL: cross-host pair must not be compared'); return False
+    c, d = {'network': {'epoch': 0}}, {'network': {'epoch': 1}}
+    if verdict('bpcut', c, d)[0] != 'RERUN': print('FAIL: cross-network pair must not be compared'); return False
     def res(mbps=20, gap=40, keys=10, fps=50, lat=None, host=8, stalls=0, below=None, valid=None, gfps=60, cpu=None):
         r = {'checks': {}, 'senderCpuPct': cpu, 'atlas': {'mbps': mbps, 'freshGapMs': {'p99': gap}, 'keyframes': keys, 'freshFps': {'p50': fps}}}
         if valid is not None: r['checks']['vt layouts valid (vt_check.py)'] = valid

@@ -17,7 +17,8 @@ for f in sorted(glob.glob(str(pathlib.Path(__file__).resolve().parent / "results
     try:
         fps = float(val("fps").split()[0]); p99 = float(val("frame latency p99").split()[0]); st = int(val("no stall").split()[0])
     except (ValueError, IndexError): continue
-    arms.setdefault(r.get("scenario"), []).append((fps, p99, st, stamp))
+    net = (r.get("network") or {}).get("label", "ch36 (no epoch recorded)")
+    arms.setdefault(f"{net} | {r.get('scenario')}", []).append((fps, p99, st, stamp))
 for arm, xs in arms.items():
     med = lambda i: statistics.median(x[i] for x in xs)
     print(f"{arm:50s} n={len(xs)}  fps {med(0):5.1f}  p99 {med(1):5.0f} ms  stalls>100 {med(2):5.0f} (range {min(x[2] for x in xs)}-{max(x[2] for x in xs)})  runs {[x[3] for x in xs]}")
