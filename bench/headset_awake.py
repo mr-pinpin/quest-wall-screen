@@ -6,6 +6,14 @@ A persistent, reversible headset setting (headset flags rule): `apply` records t
     python3 bench/headset_awake.py apply   [--watch-min 35]   # wait for adb, probe, record, apply, then watch
     python3 bench/headset_awake.py restore                    # wait for adb, put the recorded values back
     python3 bench/headset_awake.py probe                      # wait for adb, print every sleep-related setting
+    python3 bench/headset_awake.py unmounted [--watch-min 40] # Quest-level: hold the power manager's unmounted wake lock
+    python3 bench/headset_awake.py release                    # drop that wake lock again
+
+Android's stay_on (apply) does NOT hold on the Quest: its own power manager (oculus-system-services.jar,
+service vrpowermanager) sleeps 15 s after unmount (AutoSleepTime). Its controls, read from the jar 2026-11-03:
+broadcasts com.oculus.vrpowermanager.unmounted_wake / release_unmounted_wake (UnmountedWakeLock count in
+dumpsys), the autosleep_time setting (mAutosleepTimeObserver, AUTOSLEEP_OFF_VALUE) and a disable_autosleep extra.
+`unmounted` uses the wake lock: awake off-head with the display off (the display follows the mount state).
 
 What `apply` sets (only "awake while charging"; nothing that lights the display unworn or off the charger):
   settings global stay_on_while_plugged_in = 7   Android: stay awake on AC/USB/wireless power
@@ -77,6 +85,26 @@ def main():
     log('reachable')
     if mode == 'probe':
         print(probe()); return
+    if mode == 'release':
+        sh('am broadcast -a com.oculus.vrpowermanager.release_unmounted_wake >/dev/null')
+        log('released: ' + sh("dumpsys vrpowermanager | grep -E 'UnmountedWakeLock|^State:'").strip().replace('\n', ' | ')); return
+    if mode == 'unmounted':
+        RES.mkdir(exist_ok=True)
+        info = sh("for ns in global secure system; do echo \"$ns autosleep_time=$(settings get $ns autosleep_time)\"; done; "
+                  "/debug_ramdisk/su -c 'oculuspreferences --getc autosleep_time' 2>&1 | head -3; dumpsys vrpowermanager | head -6", 60)
+        log('before: ' + info.strip().replace('\n', ' | '))
+        sh('am broadcast -a com.oculus.vrpowermanager.unmounted_wake >/dev/null'); time.sleep(3)
+        log('after unmounted_wake: ' + sh("dumpsys vrpowermanager | head -6").strip().replace('\n', ' | '))
+        out = RES / f'headset-awake-{datetime.date.today()}.jsonl'
+        t0, up, down = time.time(), 0, 0
+        while time.time() - t0 < watch * 60:
+            ok = reachable()
+            r = {'t': datetime.datetime.now().isoformat(timespec='seconds'), 'mode': 'unmounted_wake', 'adb': ok, **(state() if ok else {})}
+            if ok: r['unmountedWake'] = sh("dumpsys vrpowermanager | grep -m1 UnmountedWakeLock").strip()
+            up += ok; down += not ok
+            with out.open('a') as f: f.write(json.dumps(r) + '\n')
+            log(json.dumps(r)); time.sleep(60)
+        log(f'watch over (unmounted_wake): reachable {up} of {up + down} minutes'); return
     if mode == 'restore':
         orig = json.loads(ORIG.read_text())
         for ns, key, _ in SETTINGS:
