@@ -29,6 +29,10 @@ import Network
 let home = FileManager.default.homeDirectoryForCurrentUser.path
 let support = home + "/Library/Application Support/PinPin Host"
 let pluginDir = support + "/plugins", runDir = support + "/run", logDir = support + "/logs"
+// Supervision and the control server run on this queue, never on the main thread: AppKit can block the main
+// thread on WindowServer (seen 2026-11-03: a display-timing query hung for minutes after a replayd crash), and
+// that must never stop plugins from being restarted.
+let work = DispatchQueue(label: "io.mr-pinpin.host.supervisor")
 func expand(_ p: String) -> String { p.hasPrefix("~") ? home + p.dropFirst() : p }
 func hostLog(_ s: String) {
     let line = "\(ISO8601DateFormatter().string(from: Date())) \(s)\n"
@@ -109,8 +113,8 @@ final class Permissions {
         c.stateUpdateHandler = { [weak self] st in
             if case .ready = st { self?.localNetDenied = false; c.cancel() }
         }
-        c.start(queue: .main); probe = c
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { c.cancel() }
+        c.start(queue: work); probe = c
+        work.asyncAfter(deadline: .now() + 5) { c.cancel() }
     }
 
     var json: [String: Any] {
@@ -186,7 +190,7 @@ final class Plugin {
         }
         if let h = FileHandle(forWritingAtPath: logPath) { h.seekToEndOfFile(); p.standardOutput = h; p.standardError = h }
         p.standardInput = FileHandle.nullDevice
-        p.terminationHandler = { [weak self] proc in DispatchQueue.main.async { self?.exited(proc) } }
+        p.terminationHandler = { [weak self] proc in work.async { self?.exited(proc) } }
         do {
             try p.run()
             process = p; startedAt = Date()
@@ -224,7 +228,7 @@ final class Plugin {
         guard spec.enabled ?? true, !held else { return }
         restarts += 1
         let delay = min(60, (spec.restartDelay ?? 1.5) * pow(2, Double(max(0, quickFails - 1))))
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
+        work.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
     }
 
     func stop(hold: Bool) {
@@ -232,7 +236,7 @@ final class Plugin {
         guard let p = process else { return }
         stopping = true; p.terminate()
         let pid = p.processIdentifier
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if kill(pid, 0) == 0 { kill(pid, SIGKILL) } }
+        work.asyncAfter(deadline: .now() + 3) { if kill(pid, 0) == 0 { kill(pid, SIGKILL) } }
     }
 
     var json: [String: Any] {
@@ -255,7 +259,7 @@ final class Supervisor {
             if let p = plugins[name] {
                 if p.spec != spec {
                     hostLog("\(name): spec changed"); p.stop(hold: false); p.spec = spec
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { p.start() }
+                    work.asyncAfter(deadline: .now() + 1) { p.start() }
                 }
             } else {
                 let p = Plugin(name: name, spec: spec); plugins[name] = p; p.start()
@@ -279,11 +283,11 @@ final class Control {
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: 57790)
         guard let l = try? NWListener(using: params) else { hostLog("control: listen failed"); return }
         l.newConnectionHandler = { [weak self] c in self?.serve(c) }
-        l.start(queue: .main); listener = l
+        l.start(queue: work); listener = l
     }
 
     func serve(_ c: NWConnection) {
-        c.start(queue: .main)
+        c.start(queue: work)
         c.receive(minimumIncompleteLength: 1, maximumLength: 16384) { [weak self] data, _, _, _ in
             guard let self = self, let data = data, let req = String(data: data, encoding: .utf8) else { c.cancel(); return }
             let first = req.split(separator: "\r\n").first?.split(separator: " ") ?? []
@@ -307,11 +311,12 @@ final class Control {
             guard let p = sup.plugins[q["name"] ?? ""] else { return ("404 Not Found", js(["error": "no such plugin"])) }
             if path == "/stop" { p.stop(hold: true) }
             else if path == "/start" { p.held = false; p.start() }
-            else { p.held = false; p.stop(hold: false); DispatchQueue.main.asyncAfter(deadline: .now() + 1) { p.start() } }
+            else { p.held = false; p.stop(hold: false); work.asyncAfter(deadline: .now() + 1) { p.start() } }
             return ("200 OK", js(p.json))
         case ("POST", "/request"):
             guard let perm = Perm(rawValue: q["perm"] ?? "") else { return ("400 Bad Request", js(["error": "unknown perm"])) }
-            perms.request(perm); return ("200 OK", js(["requested": perm.rawValue]))
+            DispatchQueue.main.async { self.perms.request(perm) }  // prompts are UI: main thread
+            return ("200 OK", js(["requested": perm.rawValue]))
         default:
             return ("404 Not Found", js(["error": "GET /status, POST /start|/stop|/restart?name=, POST /request?perm="]))
         }
@@ -320,35 +325,50 @@ final class Control {
 
 // MARK: - UI: a menu-bar item, and a one-page checklist while anything is missing
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+// The core keeps plugins alive. It starts before AppKit and never needs the main thread: on 2026-11-03 the very
+// first AppKit call to WindowServer hung for minutes, and plugins must keep running (and restarting) through that.
+final class Core {
     let perms = Permissions(), sup = Supervisor()
     lazy var control = Control(sup: sup, perms: perms)
+    var signalSources: [DispatchSourceSignal] = []
+    var scanTimer: DispatchSourceTimer?
+    func start() {
+        for d in [pluginDir, runDir, logDir] { try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true) }
+        hostLog("PinPin Host \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "") starting")
+        work.async { [self] in
+            perms.probeLocalNetwork()  // no UI needed; re-run by the menu when it is up
+            control.start(); sup.scan()
+            let t = DispatchSource.makeTimerSource(queue: work)
+            t.schedule(deadline: .now() + 3, repeating: 3); t.setEventHandler { [weak self] in self?.sup.scan() }; t.resume(); scanTimer = t
+        }
+        for sig in [SIGTERM, SIGINT] {  // launchd stops us with SIGTERM: take the plugins down with us
+            signal(sig, SIG_IGN)
+            let s = DispatchSource.makeSignalSource(signal: sig, queue: work)
+            s.setEventHandler { [weak self] in self?.sup.stopAll(); work.asyncAfter(deadline: .now() + 1.5) { exit(0) } }
+            s.resume(); signalSources.append(s)
+        }
+    }
+}
+let core = Core()
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    var perms: Permissions { core.perms }
+    var sup: Supervisor { core.sup }
     var item: NSStatusItem!
     var window: NSWindow?
     var rows: [Perm: (NSTextField, NSButton)] = [:]
-    var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        for d in [pluginDir, runDir, logDir] { try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true) }
-        hostLog("PinPin Host \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "") starting")
+        hostLog("menu bar UI up")
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "PinPin"
         let menu = NSMenu(); menu.delegate = self; item.menu = menu
         perms.probeLocalNetwork()
-        control.start()
-        sup.scan()
-        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.sup.scan() }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
-        for sig in [SIGTERM, SIGINT] {  // launchd stops us with SIGTERM: take the plugins down with us
-            signal(sig, SIG_IGN)
-            let s = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            s.setEventHandler { [weak self] in self?.sup.stopAll(); DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) } }
-            s.resume(); signalSources.append(s)
-        }
         if Perm.allCases.contains(where: { perms.granted($0) != true }) { showChecklist() }
     }
 
-    func applicationWillTerminate(_ n: Notification) { sup.stopAll() }
+    func applicationWillTerminate(_ n: Notification) { work.sync { sup.stopAll() } }
 
     func showChecklist() {
         if let w = window { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
@@ -395,11 +415,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Show permission checklist…", action: #selector(openChecklist), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Plugins", action: nil, keyEquivalent: "")
-        for p in sup.plugins.values.sorted(by: { $0.name < $1.name }) {
-            let state = p.process != nil ? "● running (pid \(p.process!.processIdentifier))" : p.held ? "○ stopped" : "○ waiting"
-            menu.addItem(withTitle: "\(p.name)  \(state)  restarts \(p.restarts)", action: nil, keyEquivalent: "")
+        let lines: [String] = work.sync {
+            sup.plugins.values.sorted(by: { $0.name < $1.name }).map { p in
+                let state = p.process != nil ? "● running (pid \(p.process!.processIdentifier))" : p.held ? "○ stopped" : "○ waiting"
+                return "\(p.name)  \(state)  restarts \(p.restarts)"
+            }
         }
-        if sup.plugins.isEmpty { menu.addItem(withTitle: "(none)", action: nil, keyEquivalent: "") }
+        for l in lines { menu.addItem(withTitle: l, action: nil, keyEquivalent: "") }
+        if lines.isEmpty { menu.addItem(withTitle: "(none)", action: nil, keyEquivalent: "") }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open plugins folder", action: #selector(openPlugins), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Quit (restarts by itself)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -410,6 +433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openPlugins() { NSWorkspace.shared.open(URL(fileURLWithPath: pluginDir)) }
 }
 
+core.start()  // plugins first; the UI below may block on WindowServer without affecting them
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
