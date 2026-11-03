@@ -34,6 +34,8 @@ struct Options {
     //          sending), so the next frame always carries the newest content and stale frames never queue
     //   pace   send each frame in 16 KB chunks spread at 1.5x the stream's bitrate, instead of one burst, through one
     //          ordered queue per peer (bursts on a contended Wi-Fi channel cost retries and head-of-line delay)
+    //   hero   v3 hero streams: screens the headset marks "hero" (with "heroOk") leave the atlas and get their own HEVC
+    //          (or H.264) stream at their level's size, packets 0x81 + screen id (docs/virtual-texturing.md)
     //   longgop  periodic keyframes every 10 s instead of 2 s (forced ones unchanged)
     //   gamecap  while a game stream plays ("game":1), the atlas is laid out within 1920x1200 (screens shrink)
     //   gameyield  while the headset's demand says a game stream is playing ("game":1), the atlas gives the laptop's
@@ -45,7 +47,7 @@ struct Options {
     //          full-rate screen changed, the atlas encodes at most 15 times a second
     // --synth "S:WxH,..." (or --test "S:synth:WxH"): synthetic screens instead of macOS displays (source type
     // "synth"); --synth-animate "2,3": the ones that change every tick (default all), the rest hold still pictures
-    var synth: [(Int, Int, Int)] = [], synthAnimate: Set<Int>? = nil  // nil: all animate; "none": none
+    var synth: [(Int, Int, Int)] = [], synthAnimate: Set<Int>? = nil, surface: [(Int, Int, Int)] = []  // nil: all animate; "none": none
     var flags = Set<String>(), statSecs = 30.0, vtMaxW = 0  // --vt-max-w: cap every vt screen's width (tests)
     init() {
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -63,6 +65,11 @@ struct Options {
             case "--vt-max-w": vtMaxW = Int(v) ?? 0
             case "--synth":  // "2:1920x1200,3:1920x1200,..."
                 synth = v.split(separator: ",").compactMap { item in
+                    let p = item.split(separator: ":"); guard p.count == 2, let s = Int(p[0]) else { return nil }
+                    let wh = p[1].split(separator: "x").compactMap { Int($0) }; return wh.count == 2 ? (s, wh[0], wh[1]) : nil
+                }
+            case "--surface":  // "2:1920x1200,..." screens rendered by our WebGPU renderer (source "surface")
+                surface = v.split(separator: ",").compactMap { item in
                     let p = item.split(separator: ":"); guard p.count == 2, let s = Int(p[0]) else { return nil }
                     let wh = p[1].split(separator: "x").compactMap { Int($0) }; return wh.count == 2 ? (s, wh[0], wh[1]) : nil
                 }
@@ -104,6 +111,7 @@ class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var latest: CVPixelBuffer?  // under atlas.lock: the last frame, re-copied when the cells move without resizing
     var fps = 60                 // capture rate (prifps changes it with updateConfiguration)
     var frames = 0, clean = 0    // under atlas.lock: frames delivered, and those with no dirty rects (damage)
+    var hero: HeroEncoder?       // under atlas.lock: set while this screen is a hero stream (its frames skip the atlas)
     init(_ cells: [Cell], _ atlas: Atlas) { self.cells = cells; screen = cells[0].entry.screen; self.atlas = atlas; origin = CGDisplayBounds(cells[0].entry.display).origin }
     static var rateFactor = 1  // 2 with --flags capfast
     func config(_ w: Int, _ h: Int, fps: Int) -> SCStreamConfiguration {
@@ -135,6 +143,7 @@ class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     // One new frame of this screen, from any source, into its cells (or the stash while hidden).
     func deliver(_ pb: CVPixelBuffer) {
         guard let a = atlas else { return }
+        if let enc = a.lock.withLock({ () -> HeroEncoder? in if hero != nil { latest = pb; frames += 1 }; return hero }) { enc.encode(pb); return }
         // damage: the rows this frame changed, in frame pixels; nil = all of it. ScreenCaptureKit marks virtual
         // displays dirty on every frame (0% clean measured), so compare with the previous frame instead: exact, and
         // about the cost of the copy it saves.
@@ -155,6 +164,79 @@ class CellCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             a.stash[screen] = nil; for c in cells { a.blit(pb, c, rows: rows) }
             if a.o.flags.contains("prifps") && fps >= a.o.fps { a.fullRateDirty = true }
         } else { a.stash[screen] = pb }
+    }
+}
+
+private let heroOutput: VTCompressionOutputCallback = { _, frameRefcon, status, _, sample in  // the encoder rides on each frame
+    guard status == noErr, let me = frameRefcon, let sample = sample else { return }
+    Unmanaged<HeroEncoder>.fromOpaque(me).takeUnretainedValue().encoded(sample)
+}
+
+/// A hero stream (docs/virtual-texturing.md, "v3: hero streams"; --flags hero): one screen encoded on its own,
+/// outside the atlas, at its level's size, so its rung switches cost an IDR on this stream only. Frames from any
+/// source go straight in (the capture's buffer is the encoder's input, no atlas copy). Packets: 0x81, u16 screen
+/// (big-endian), then the v1 header (flags: bit 0 keyframe, bit 2 HEVC; pts; w; h; 3 codec bytes) and Annex B with
+/// the parameter sets in-band before every keyframe.
+final class HeroEncoder {
+    let screen: Int, w: Int, h: Int, hevc: Bool; weak var atlas: Atlas?
+    var session: VTCompressionSession?, frame: Int64 = 0, forceKey = true, codecBytes: [UInt8] = [0, 0, 0], keyGen = -1
+    init?(screen: Int, w: Int, h: Int, hevc: Bool, kbps: Int, fps: Int, atlas: Atlas) {
+        self.screen = screen; self.w = w; self.h = h; self.hevc = hevc; self.atlas = atlas
+        var spec: [CFString: Any] = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true]
+        if !hevc { spec[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = true }
+        var s: VTCompressionSession?
+        let r = VTCompressionSessionCreate(allocator: nil, width: Int32(w), height: Int32(h), codecType: hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+                                           encoderSpecification: spec as CFDictionary, imageBufferAttributes: nil, compressedDataAllocator: nil,
+                                           outputCallback: heroOutput, refcon: nil, compressionSessionOut: &s)
+        guard r == noErr, let e = s else { log("hero \(screen): encoder \(w)x\(h) failed: \(r)"); return nil }
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_AverageBitRate, value: (kbps * 1000) as CFNumber)
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: fps as CFNumber)
+        VTSessionSetProperty(e, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: (fps * 10) as CFNumber)
+        VTCompressionSessionPrepareToEncodeFrames(e)
+        session = e
+    }
+    func encode(_ pb: CVPixelBuffer) {
+        guard let e = session, CVPixelBufferGetWidth(pb) == w, CVPixelBufferGetHeight(pb) == h else { return }  // mid-resize: skip
+        if let g = atlas?.lock.withLock({ atlas?.heroKeyGen }), g != keyGen { keyGen = g; forceKey = true }  // a peer joined
+        frame += 1; let key = forceKey; forceKey = false
+        VTCompressionSessionEncodeFrame(e, imageBuffer: pb, presentationTimeStamp: CMTime(value: frame, timescale: 60), duration: .invalid,
+                                        frameProperties: key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
+                                        sourceFrameRefcon: Unmanaged.passUnretained(self).toOpaque(), infoFlagsOut: nil)
+    }
+    func invalidate() { if let e = session { VTCompressionSessionInvalidate(e) }; session = nil }
+    func encoded(_ sample: CMSampleBuffer) {
+        guard let a = atlas, let block = CMSampleBufferGetDataBuffer(sample), let format = CMSampleBufferGetFormatDescription(sample) else { return }
+        let att = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[String: Any]]
+        let key = !(att?.first?[kCMSampleAttachmentKey_NotSync as String] as? Bool ?? false)
+        var annex = Data()
+        if key {  // parameter sets in-band: H.264 SPS/PPS, HEVC VPS/SPS/PPS
+            for i in 0..<(hevc ? 3 : 2) {
+                var p: UnsafePointer<UInt8>?; var len = 0, count = 0; var hl: Int32 = 0
+                let ok = hevc ? CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format, parameterSetIndex: i, parameterSetPointerOut: &p, parameterSetSizeOut: &len, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &hl)
+                              : CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: i, parameterSetPointerOut: &p, parameterSetSizeOut: &len, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &hl)
+                if ok == noErr, let p = p {
+                    if !hevc && i == 0 && len >= 4 { codecBytes = [p[1], p[2], p[3]] }
+                    annex.append(contentsOf: [0, 0, 0, 1]); annex.append(p, count: len)
+                }
+            }
+        }
+        var total = 0; var ptr: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &total, dataPointerOut: &ptr) == noErr, let ptr = ptr else { return }
+        let avcc = Data(bytes: ptr, count: total); var off = 0
+        while off + 4 <= avcc.count {
+            let n = Int(avcc[off]) << 24 | Int(avcc[off + 1]) << 16 | Int(avcc[off + 2]) << 8 | Int(avcc[off + 3]); off += 4
+            guard n > 0, off + n <= avcc.count else { return }
+            annex.append(contentsOf: [0, 0, 0, 1]); annex.append(avcc[off..<off + n]); off += n
+        }
+        let pts = UInt64(max(0, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)) * 1_000_000))
+        var p = Data([0x81, UInt8(screen >> 8 & 0xFF), UInt8(screen & 0xFF), (key ? 1 : 0) | (hevc ? 4 : 0)])
+        var be = pts.bigEndian; Swift.withUnsafeBytes(of: &be) { p.append(contentsOf: $0) }
+        var w16 = UInt16(w).bigEndian, h16 = UInt16(h).bigEndian
+        Swift.withUnsafeBytes(of: &w16) { p.append(contentsOf: $0) }; Swift.withUnsafeBytes(of: &h16) { p.append(contentsOf: $0) }
+        p.append(contentsOf: codecBytes); p.append(annex)
+        a.broadcast(p, key: key, meta: true)  // its own stream: not gated by the atlas's keyframe state
     }
 }
 
@@ -207,6 +289,57 @@ final class SynthSource: CellCapture {
     }
 }
 
+/// A screen we render ourselves with WebGPU (source type "surface", docs/sources.md): libpinpin_render.dylib (Rust
+/// wgpu on Metal, atlas/render/) draws each frame straight into one of this source's IOSurface-backed buffers at the
+/// size the layout asks for (the screen's VT level), and the buffer then takes the same deliver() path as a capture.
+/// Loaded with dlopen, so the sender runs without it; one renderer per sender, used only on the capture queue.
+final class SurfaceSource: CellCapture {
+    typealias NewFn = @convention(c) () -> UnsafeMutableRawPointer?
+    typealias FrameFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, Double) -> Int32
+    static var lib: (renderer: UnsafeMutableRawPointer, frame: FrameFn)? = {
+        let path = NSString(string: "~/.local/share/pinpin-atlas/libpinpin_render.dylib").expandingTildeInPath
+        guard let h = dlopen(path, RTLD_NOW), let n = dlsym(h, "pp_render_new"), let f = dlsym(h, "pp_render_frame") else {
+            log("surface source: \(path) not loadable: \(String(cString: dlerror()))"); return nil }
+        guard let r = unsafeBitCast(n, to: NewFn.self)() else { log("surface source: renderer init failed (no Metal adapter?)"); return nil }
+        log("surface source: WebGPU renderer loaded"); return (r, unsafeBitCast(f, to: FrameFn.self))
+    }()
+    static func isSurface(_ d: CGDirectDisplayID) -> Bool { d & 0xF000_0000 == 0xE000_0000 }
+    static func display(_ screen: Int) -> CGDirectDisplayID { 0xE000_0000 | CGDirectDisplayID(screen & 0xFFFF) }
+    var pool: [CVPixelBuffer] = [], k = 0, timer: DispatchSourceTimer?, queue: DispatchQueue?, t0 = Date(), failures = 0
+    func start(fps: Int, queue: DispatchQueue) {
+        self.queue = queue; self.fps = fps
+        queue.sync { pool = SurfaceSource.buffers(cells[0].frameW, cells[0].frameH) }
+        schedule()
+    }
+    func schedule() {
+        timer?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now(), repeating: .nanoseconds(1_000_000_000 / max(1, fps)))
+        t.setEventHandler { [weak self] in self?.renderOne() }
+        t.resume(); timer = t
+    }
+    func renderOne() {
+        guard let lib = SurfaceSource.lib, !pool.isEmpty else { return }
+        k += 1; let pb = pool[k % pool.count]
+        guard let surface = CVPixelBufferGetIOSurface(pb)?.takeUnretainedValue() else { return }
+        let rc = lib.frame(lib.renderer, Unmanaged.passUnretained(surface).toOpaque(), UInt32(CVPixelBufferGetWidth(pb)), UInt32(CVPixelBufferGetHeight(pb)),
+                           UInt32(screen), Date().timeIntervalSince(t0))
+        if rc != 0 { failures += 1; if failures & (failures - 1) == 0 { log("surface source: screen \(screen) frame failed (\(rc)), \(failures) so far") }; return }
+        deliver(pb)
+    }
+    override func resize(_ w: Int, _ h: Int, fps: Int) async {
+        let rateChanged = fps != self.fps; self.fps = fps
+        queue?.sync { if pool.first.map({ CVPixelBufferGetWidth($0) != w || CVPixelBufferGetHeight($0) != h }) ?? true { pool = SurfaceSource.buffers(w, h) } }
+        if rateChanged { schedule() }
+    }
+    override func stop() { atlas = nil; timer?.cancel(); timer = nil }
+    // Three buffers: the one being rendered, the one just delivered (latest, kept for relayouts), and a spare.
+    static func buffers(_ w: Int, _ h: Int) -> [CVPixelBuffer] {
+        let attrs: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary, kCVPixelBufferMetalCompatibilityKey: true]
+        return (0..<3).compactMap { _ in var pb: CVPixelBuffer?; return CVPixelBufferCreate(nil, w, h, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pb) == kCVReturnSuccess ? pb : nil }
+    }
+}
+
 final class Atlas {
     let o: Options
     let lock = NSLock()
@@ -224,7 +357,7 @@ final class Atlas {
     // Unseen screens cost nothing (their frames wait in `stash`), the bitrate is the extras' share of the budget
     // by priority, and each cell shrinks to the smallest width tier covering its px. Stale demand (> 2 s, e.g. no
     // headset) means: everything visible, full size, full bitrate.
-    struct Want { var vis = true, px = 1920, pri = 1.0, lvl: Int? = nil, have = -1 }
+    struct Want { var vis = true, px = 1920, pri = 1.0, lvl: Int? = nil, have = -1, hero = false }
     let dlock = NSLock()
     var busy = false, busyTicks = 0, heldTicks = 0
     // Capture only what is seen: a screen hidden for 2 s loses its SCStream (its cell keeps the last frame) and gets
@@ -248,6 +381,8 @@ final class Atlas {
     let elock = NSLock(); var submitAt: [Int64: UInt64] = [:], encMs: [Double] = [], encLogAt = Date()
     // vt: the last demand was protocol v2; each screen's display width (levels are octaves of it).
     var wantV2 = false, srcW: [Int: Int] = [:], gen = 0, layoutCore = ""
+    var heroes = Set<Int>(), heroHevc = true  // dlock: the hero screens demand asks for (v3)
+    var heroKeyGen = 0                         // lock: bumped when a peer connects
     // vt, under lock: last frame of a paused capture, for its mip tail and, scaled up, as the placeholder in its new
     // cells after a reveal until the restarted capture's first frame lands (no black or foreign pixels meanwhile).
     var resident: [CGDirectDisplayID: CVPixelBuffer] = [:]
@@ -339,10 +474,14 @@ final class Atlas {
         for e in list {
             guard let id = num(e["id"]) else { continue }
             next[Int(id)] = Want(vis: (num(e["vis"]) ?? 1) != 0, px: Int(num(e["px"]) ?? 1920), pri: num(e["pri"]) ?? 1,
-                                 lvl: num(e["lvl"]).map { max(0, Int($0)) }, have: Int(num(e["have"]) ?? -1))
+                                 lvl: num(e["lvl"]).map { max(0, Int($0)) }, have: Int(num(e["have"]) ?? -1), hero: (num(e["hero"]) ?? 0) != 0)
         }
         let now = Date(); var reveal: [Int] = []
-        let vt = o.flags.contains("vt") && num(j["v"]) == 2
+        let vt = o.flags.contains("vt") && (num(j["v"]) ?? 0) >= 2  // v2, or v3 (hero streams) on top of it
+        // hero streams (v3): the headset decides who (at most 3, visible); only with heroOk and --flags hero
+        let heroNext: Set<Int> = o.flags.contains("hero") && (num(j["heroOk"]) ?? 0) != 0
+            ? Set(next.filter { $0.value.hero && $0.value.vis && $0.key != 1 }.keys.sorted().prefix(3)) : []
+        let heroCodecHevc = (j["heroCodec"] as? String) != "h264"
         dlock.withLock {
             if now.timeIntervalSince(wantAt) > 10 { log("demand from headset") }
             let stale = now.timeIntervalSince(wantAt) > 2
@@ -355,12 +494,18 @@ final class Atlas {
                 // lvl, the smallest octave covering px), no 1920 cap: wide screens become several tiles.
                 var t = min(Atlas.tiers.first(where: { $0 >= w.px }) ?? o.cellW, o.cellW)
                 if vt {
-                    let full = srcW[id] ?? o.cellW
-                    if let l = w.lvl { t = max(16, full >> min(l, 8)) } else { var l = 0; while l < 6 && (full >> (l + 1)) >= w.px { l += 1 }; t = full >> l }
+                    // The finest of the v1-style widths that still covers the demanded px (octave levels alone were
+                    // too coarse for small screens: a 500 px wall screen got 960 px, wall-10's atlas 2.25x v1's,
+                    // fresh 62 -> 39 fps; work-c4, 2026-11-03). The level the headset asked for is the upper bound.
+                    let full = srcW[id] ?? o.cellW, octave = w.lvl.map { max(16, full >> min($0, 8)) } ?? full
+                    let widths = ([480, 640, 960, 1280, 1920, 2560, 3840, 5120] + [full]).filter { $0 <= full }.sorted()
+                    t = min(octave, widths.first { $0 >= w.px } ?? full)
                 }
                 let cur = tier[id] ?? o.cellW
                 if t == cur { tierWant[id] = nil } else if tierWant[id]?.w != t { tierWant[id] = (t, now) }
             }
+            if heroNext != heroes || heroCodecHevc != heroHevc { wake = true }  // move screens atlas <-> hero now
+            heroes = heroNext; heroHevc = heroCodecHevc
             want = next; wantAt = now; wantV2 = vt; budgetKbps = Int(num(j["budgetKbps"]) ?? 0)
             let game = (num(j["game"]) ?? 0) != 0
             if game != gameOn && o.flags.contains("gameyield") { log(game ? "game stream on: atlas yields the encoder" : "game stream off") }
@@ -397,12 +542,15 @@ final class Atlas {
 
     // ---- display list
     func entries() -> [Entry] {
-        if !o.synth.isEmpty { return o.synth.map { Entry(screen: $0.0, display: SynthSource.display($0.0), w: $0.1, h: $0.2) } }
+        if !o.synth.isEmpty || !o.surface.isEmpty {  // our own sources (synth and/or surface); no macOS displays
+            return o.synth.map { Entry(screen: $0.0, display: SynthSource.display($0.0), w: $0.1, h: $0.2) } +
+                   o.surface.map { Entry(screen: $0.0, display: SurfaceSource.display($0.0), w: $0.1, h: $0.2) }
+        }
         if !o.test.isEmpty {
             return o.test.split(separator: ",").compactMap { pair in
                 // "screen:display" or "screen:display:WxH" (the size the displays helper reports)
                 let p = pair.split(separator: ":"); guard p.count >= 2, let s = Int(p[0]) else { return nil }
-                let d = p[1] == "main" ? CGMainDisplayID() : p[1] == "synth" ? SynthSource.display(s) : CGDirectDisplayID(p[1]) ?? 0
+                let d = p[1] == "main" ? CGMainDisplayID() : p[1] == "synth" ? SynthSource.display(s) : p[1] == "surface" ? SurfaceSource.display(s) : CGDirectDisplayID(p[1]) ?? 0
                 let mode = CGDisplayCopyDisplayMode(d), size = p.count > 2 ? p[2].split(separator: "x").compactMap { Int($0) } : []
                 if size.count == 2 { return Entry(screen: s, display: d, w: size[0], h: size[1]) }
                 return Entry(screen: s, display: d, w: mode?.pixelWidth ?? 1920, h: mode?.pixelHeight ?? 1200)
@@ -599,12 +747,17 @@ final class Atlas {
         let capped = o.flags.contains("gamecap") && dlock.withLock { gameOn && now.timeIntervalSince(wantAt) <= 2 }
         if capped { key += "|gamecap" }
         if vt { key += "|vt|" + list.map { e in "\(e.screen)\(live.contains(e.display) ? "" : "t")@\(Int((pri[e.screen] ?? 1) * 20))" }.joined(separator: ",") }
+        let heroNow: Set<Int> = dlock.withLock { now.timeIntervalSince(wantAt) <= 2 ? heroes : [] }
+        let heroH264 = dlock.withLock { !heroHevc }
+        let heroList = list.filter { heroNow.contains($0.screen) && live.contains($0.display) }
+        if !heroList.isEmpty { key += "|hero:" + heroList.map { "\($0.screen)" }.joined(separator: ",") + (heroH264 ? "/h264" : "") }
         if key == layoutKey && !captures.values.contains(where: { $0.dead }) && Set(captures.keys) == live { return }
+        let atlasList = list.filter { e in !heroList.contains(where: { $0.screen == e.screen }) }
         let hiddenNow: Set<Int> = vt ? dlock.withLock { Set(want.filter { !$0.value.vis }.keys) } : []
         // On the first v2 layout after v1, the captures' sizes are v1's: hidden screens start as tails instead.
         let currentW = vt && !lastVT ? [:] : Dictionary(captures.values.map { ($0.screen, $0.cells[0].frameW) }, uniquingKeysWith: { a, _ in a })
         lastVT = vt
-        let (w, h, cells) = vt ? layoutVT(list, tiers, live, pri, cap: capped, hidden: hiddenNow, current: currentW) : layout(list, tiers, cap: capped)
+        let (w, h, cells) = vt ? layoutVT(atlasList, tiers, live, pri, cap: capped, hidden: hiddenNow, current: currentW) : layout(atlasList, tiers, cap: capped)
         let resized = w != W || h != H
         let cj = cells.map { c -> String in
             var j = "{\"screen\":\(c.entry.screen),\"x\":\(c.x),\"y\":\(c.y),\"w\":\(c.w),\"h\":\(c.h)"
@@ -618,14 +771,21 @@ final class Atlas {
             }
             return j + "}"
         }.joined(separator: ",")
-        let core = "\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]"
+        let heroJ = heroList.isEmpty ? "" : ",\"hero\":[" + heroList.map { "\($0.screen)" }.joined(separator: ",") + "]"
+        let core = "\"atlas\":[\(w),\(h)],\"cells\":[\(cj)]" + heroJ
         if vt && core != layoutCore { gen += 1 }
-        let json = vt ? "{\"atlas\":[\(w),\(h)],\"gen\":\(gen),\"cells\":[\(cj)]}" : "{\(core)}"
+        let json = vt ? "{\"atlas\":[\(w),\(h)],\"gen\":\(gen),\"cells\":[\(cj)]\(heroJ)}" : "{\(core)}"
         layoutCore = core
         var byDisplay: [CGDirectDisplayID: [Cell]] = [:]
         for c in cells { byDisplay[c.entry.display, default: []].append(c) }
+        // Hero screens: one off-atlas pseudo-cell (x = -1) at the level's full size (no tiles, no 1920 cap)
+        for e in heroList {
+            let hw = max(16, min(e.w, tiers[e.screen] ?? e.w) / 2 * 2), hh = max(16, hw * e.h / max(1, e.w) / 2 * 2)
+            byDisplay[e.display] = [Cell(entry: e, x: -1, y: -1, w: hw, h: hh, sx: 0, sy: 0, fw: hw, fh: hh)]
+        }
         // Stop captures whose display is gone, died, or moved (a capture started mid-move shows only the wallpaper).
-        for (d, c) in captures where c.dead || !live.contains(d) || !cells.contains(where: { $0.entry.display == d }) || CGDisplayBounds(d).origin != c.origin {
+        for (d, c) in captures where c.dead || !live.contains(d) || byDisplay[d] == nil || CGDisplayBounds(d).origin != c.origin {
+            lock.withLock { c.hero?.invalidate(); c.hero = nil }
             if !live.contains(d) && !c.dead { log("screen \(c.screen) out of view: capture paused") }
             if vt { lock.withLock { if let pb = c.latest { resident[d] = pb } } }
             c.stop(); captures[d] = nil
@@ -636,6 +796,13 @@ final class Atlas {
             if resized { W = w; H = h; pixels = [UInt8](repeating: 0, count: w * h * 4) }
             for d in resident.keys where !vt || byDisplay[d] == nil || captures[d]?.latest != nil { resident[d] = nil }
             for (d, cs) in byDisplay {
+                if cs[0].x < 0 {  // a hero: no atlas pixels; its capture resizes to the hero size
+                    guard let cap = captures[d] else { continue }
+                    let old = cap.cells[0]; cap.cells = cs
+                    if old.frameW != cs[0].frameW || old.frameH != cs[0].frameH { resizes.append((cap, cs[0])) }
+                    continue
+                }
+                if let cap = captures[d], cap.hero != nil { cap.hero?.invalidate(); cap.hero = nil }  // back in the atlas
                 // mip tail, or the placeholder of a screen whose capture has not delivered yet
                 if vt, captures[d]?.latest == nil, let pb = resident[d] { for c in cs { blitScaled(pb, c) } }
                 guard let cap = captures[d] else { continue }
@@ -657,6 +824,12 @@ final class Atlas {
             captures[c.entry.display] = cap; log("screen \(c.entry.screen) synthetic source")
         }
         missing.removeAll { SynthSource.isSynth($0.entry.display) }
+        for c in missing where SurfaceSource.isSurface(c.entry.display) {
+            guard SurfaceSource.lib != nil else { continue }  // logged once at load
+            let cap = SurfaceSource(byDisplay[c.entry.display]!, self); cap.start(fps: o.fps, queue: capQ)
+            captures[c.entry.display] = cap; log("screen \(c.entry.screen) WebGPU surface source")
+        }
+        missing.removeAll { SurfaceSource.isSurface($0.entry.display) }
         if !missing.isEmpty {
             if let content = try? await SCShareableContent.current {
                 for c in missing {
@@ -667,7 +840,19 @@ final class Atlas {
                 }
             } else { log("no shareable content") }
         }
-        layoutKey = Set(captures.keys) == live.intersection(cells.map { $0.entry.display }) ? key : ""  // anything missing: retry
+        // Hero encoders: one per hero screen at its capture size; a new size or codec recreates it (one IDR, that stream)
+        for e in heroList {
+            guard let cap = captures[e.display], let c = byDisplay[e.display]?.first else { continue }
+            let hevc = !heroH264
+            let ok = lock.withLock { cap.hero.map { $0.w == c.frameW && $0.h == c.frameH && $0.hevc == hevc } ?? false }
+            if ok { continue }
+            let kbps = max(4000, min(20000, appliedKbps / max(1, heroList.count + 1)))
+            let enc = HeroEncoder(screen: e.screen, w: c.frameW, h: c.frameH, hevc: hevc, kbps: kbps, fps: o.fps, atlas: self)
+            lock.withLock { cap.hero?.invalidate(); cap.hero = enc }
+            if enc != nil { log("hero \(e.screen): \(hevc ? "HEVC" : "H.264") \(c.frameW)x\(c.frameH) at \(kbps) kbps") }
+        }
+        let wanted = live.intersection(Set(byDisplay.keys))
+        layoutKey = Set(captures.keys) == wanted ? key : ""  // anything missing: retry
         if changed { log("layout \(layoutJSON)"); forceKey = true }
     }
 
@@ -861,6 +1046,7 @@ final class Atlas {
     }
     func accept(_ c: NWConnection) {
         let id = UUID(), peer = Peer(c); peers[id] = peer; forceKey = true
+        lock.withLock { heroKeyGen += 1 }  // a new peer needs every hero's keyframe (the encoders check it per frame)
         c.stateUpdateHandler = { [weak self] st in
             switch st { case .failed, .cancelled: self?.net.async { self?.peers.removeValue(forKey: id); self?.updateWake() }; default: break }
         }
