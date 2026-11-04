@@ -23,8 +23,11 @@ VIS_STALE_S = float(os.environ.get("PINPIN_VIS_STALE_S", "2"))            # olde
 VIS_URL = os.environ.get("PINPIN_VIS_URL")                                # alternative: atlas vis over HTTP
 ENABLED = os.environ.get("PINPIN_FOCUS_ENABLED", "") == "1"              # must opt in to act
 DRY = os.environ.get("PINPIN_FOCUS_DRY", "") == "1"                       # log decisions, never POST act
-POLL_S = float(os.environ.get("PINPIN_FOCUS_POLL_S", "10"))
+POLL_S = float(os.environ.get("PINPIN_FOCUS_POLL_S", "1.5"))             # vis poll (cheap) -> near-instant restore
+PROBE_S = float(os.environ.get("PINPIN_FOCUS_PROBE_S", "10"))            # how often to probe a screen for dropping
 UNSEEN_PAUSE_S = float(os.environ.get("PINPIN_FOCUS_PAUSE_S", "60"))
+HYST_UNSEEN_S = float(os.environ.get("PINPIN_FOCUS_HYST_S", "5"))         # drop quality only after >=5s unseen
+STATUS_URL = os.environ.get("PINPIN_STATUS_URL", APPS + "/api/status/component")
 ONLY = [s.strip() for s in os.environ.get("PINPIN_FOCUS_SCREENS", "").split(",") if s.strip()]
 
 
@@ -51,6 +54,24 @@ def video(sid, state):
                                           "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=8) as r:
         return json.load(r)
+
+
+_last_status = [None]   # last posted count, so we only POST on change
+
+
+def post_status(n_lowered):
+    if _last_status[0] == n_lowered:
+        return
+    _last_status[0] = n_lowered
+    body = json.dumps({"component": "video-focus", "ok": True,
+                       "text": "active, %d screen%s lowered" % (n_lowered, "" if n_lowered == 1 else "s")}).encode()
+    try:
+        req = urllib.request.Request(STATUS_URL, data=body, method="POST",
+                                     headers={"Authorization": "Bearer " + _token(),
+                                              "Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=6).read()
+    except Exception as e:
+        print("status post failed:", e, flush=True)
 
 
 def web_screens():
@@ -101,50 +122,61 @@ def get_vis():
 
 
 def decide_unseen(unseen_for, probe):
-    """Action for an UNSEEN screen: pause if muted & unseen >=60 s, else low quality; None if no video."""
+    """Action for an UNSEEN screen. Hysteresis: do nothing until unseen >=HYST_UNSEEN_S (anti-flap).
+    Then pause if muted & unseen >=60 s, else low quality. Never pauses audible video."""
+    if unseen_for < HYST_UNSEEN_S:
+        return None                                   # too briefly unseen -> hold (no flapping)
     playing = [v for v in (probe.get("videos") or []) if v.get("playing") and not v.get("paused")]
     if not playing:
         return None
     if unseen_for >= UNSEEN_PAUSE_S and all(v.get("muted") for v in playing):
-        return ("pause",)
-    return ("low",)       # unseen but audible, or not yet 60 s -> cut decode cost via low quality
+        return ("pause",)                             # muted + long unseen -> pause
+    return ("low",)                                   # audible, or not yet 60 s -> low quality (never pause audible)
+
+
+def _apply(sid, want, note):
+    print("%s screen %s -> %s (%s)" % (time.strftime("%H:%M:%S"), sid, "/".join(want), note), flush=True)
+    if ENABLED and not DRY:
+        for s in want:
+            try:
+                video(sid, s)
+            except Exception as e:
+                print("  act %s failed: %s" % (s, e), flush=True)
 
 
 def tick(state):
     vis = get_vis()
-    screens = web_screens()
     now = time.time()
-    for sid in screens:
-        st = state.setdefault(sid, {"last_seen": now, "acted": None})
+    for sid in web_screens():
+        st = state.setdefault(sid, {"last_seen": now, "acted": None, "last_probe": 0.0})
         seen = True if vis is None else vis.get(sid, False)
         if seen:
             st["last_seen"] = now
+            if st["acted"] in (("low",), ("pause",)):      # restore INSTANTLY on first visible frame
+                _apply(sid, ("play", "full"), "seen -> restore")
+                st["acted"] = None
+            continue
         unseen_for = now - st["last_seen"]
+        if unseen_for < HYST_UNSEEN_S:
+            continue                                        # anti-flap: hold until >=5s unseen
+        if st["acted"] in (("low",), ("pause",)) and now - st["last_probe"] < PROBE_S:
+            continue                                        # already dropped; don't re-probe every poll
         try:
             probe = video(sid, "probe")
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                continue       # no runner window on this screen
+                continue                                    # no runner window on this screen
             continue
         except Exception:
             continue
-        if seen:
-            # only restore screens WE paused/lowered; never touch ones we didn't act on
-            want = ("play", "full") if st["acted"] in (("pause",), ("low",)) else ()
-        else:
-            want = decide_unseen(unseen_for, probe) or ()
-        if not want or st["acted"] == want:
-            continue           # nothing to do, or already in this state (idempotent, no churn)
-        print("%s screen %s seen=%s unseen=%ds videos=%d -> %s" % (
-            time.strftime("%H:%M:%S"), sid, seen, int(unseen_for), len(probe.get("videos") or []),
-            "/".join(want)), flush=True)
-        if ENABLED and not DRY:
-            for s in want:
-                try:
-                    video(sid, s)
-                except Exception as e:
-                    print("  act %s failed: %s" % (s, e), flush=True)
-        st["acted"] = want
+        st["last_probe"] = now
+        want = decide_unseen(unseen_for, probe) or ()
+        if want and st["acted"] != want:
+            _apply(sid, want, "unseen %ds, videos=%d" % (int(unseen_for), len(probe.get("videos") or [])))
+            st["acted"] = want
+    # /status line so the user can see it (only when actually active)
+    if ENABLED and not DRY:
+        post_status(sum(1 for s in state.values() if s.get("acted") in (("low",), ("pause",))))
 
 
 def main():

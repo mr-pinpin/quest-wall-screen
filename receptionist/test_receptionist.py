@@ -134,6 +134,17 @@ def test_reply_cleaner():
     check("line completes on newline", c2.feed("rld\n").strip() == "hello world")
 
 
+def test_focus_policy():
+    import focus_controller as fc
+    P = lambda muted: {"videos": [{"playing": True, "paused": False, "muted": muted}]}
+    check("hysteresis: <5s unseen holds", fc.decide_unseen(3, P(True)) is None)
+    check("unseen >=5s audible -> low", fc.decide_unseen(7, P(False)) == ("low",))
+    check("unseen >=5s muted <60s -> low", fc.decide_unseen(7, P(True)) == ("low",))
+    check("unseen >=60s muted -> pause", fc.decide_unseen(70, P(True)) == ("pause",))
+    check("never pause audible (even >60s)", fc.decide_unseen(70, P(False)) == ("low",))
+    check("no playing video -> no action", fc.decide_unseen(70, {"videos": []}) is None)
+
+
 def test_block():
     old = svc.BLOCKED; svc.BLOCKED = {"work-df", "deadbeef"}
     try:
@@ -146,7 +157,7 @@ def test_block():
 
 if __name__ == "__main__":
     for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch,
-              test_reply_cleaner, test_audit, test_block):
+              test_reply_cleaner, test_focus_policy, test_audit, test_block):
         print(t.__name__); t()
     print("\n%d passed, %d failed" % (PASS, FAIL))
     sys.exit(1 if FAIL else 0)
