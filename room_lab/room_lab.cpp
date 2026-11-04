@@ -629,6 +629,7 @@ struct App {
         f << "{\"locked\":" << (editLocked ? 1 : 0) << ",\"menuSaved\":" << (menuSaved ? 1 : 0) << ",\"menuWall\":\"" << menuWall << "\",\"menu\":["
           << menuRel.position.x << "," << menuRel.position.y << "," << menuRel.position.z << "," << menuRel.orientation.x << ","
           << menuRel.orientation.y << "," << menuRel.orientation.z << "," << menuRel.orientation.w << "]";
+        f << ",\"overrides\":["; { bool fo = true; for (auto& o : userOverride) { f << (fo ? "" : ",") << "\"" << o << "\""; fo = false; } } f << "]";
         f << ",\"saveset\":" << (saveSet ? 1 : 0) << ",\"resume\":" << (resumeOn ? 1 : 0) << ",\"source\":\"" << lastSource << "\"";
         if (saveSet) {
             f << ",\"toggles\":{";
@@ -642,6 +643,42 @@ struct App {
         }
         f << "}";
     }
+    // Force files (files/*-on, codec-h264): bench pairs and self-tests switch a flag on by creating one. The user's own
+    // toggle wins: toggling a flag while its file is there records an override (settings.json "overrides"), and from then
+    // on the menu value counts until the file goes away (2026-11-04: geometry-on kept the wire mesh on, and the user's
+    // GEOMETRY toggle could not turn it off).
+    std::set<std::string> userOverride;
+    static constexpr const char* kForce[][2] = {{"QUAD", "quad-on"}, {"MIPQ", "mipq-on"}, {"VT", "vt-on"}, {"BUDGET", "budget-on"}, {"GPUTIME", "gputime-on"}, {"H264", "codec-h264"}, {"WIFILL", "wifill-on"}, {"MODELS", "models-on"}, {"LODPOSE", "lodpose-on"}, {"HERO", "hero-on"}, {"KEYREQ", "keyreq-on"}, {"SHOULDER", "shoulder-on"}, {"HOUSE", "house-on"}, {"DEPTHGAP", "depthgap-on"}, {"WRIST", "wrist-on"}, {"SCAN", "scan-on"}, {"SCROLL", "scroll-on"}, {"WALLTOOL", "walltool-on"}, {"ASSIST", "assist-on"}, {"RELOCCHECK", "reloccheck-on"}, {"GEOMETRY", "geometry-on"}, {"MULTIROOM", "multiroom-on"}, {"DEPTHPLACE", "depthplace-on"}};
+    bool force(const char* label, const char* file) {
+        bool there = access((gDir + "/" + file).c_str(), F_OK) == 0;
+        if (!there) userOverride.erase(label);
+        return there && !userOverride.count(label);
+    }
+    void pollForceFiles() {
+        quadFile = force("QUAD", "quad-on");
+        mipqFile = force("MIPQ", "mipq-on");
+        vtFile = force("VT", "vt-on");
+        budgetFile = force("BUDGET", "budget-on");
+        gpuTimeFile = force("GPUTIME", "gputime-on");
+        codecFile = force("H264", "codec-h264");
+        wifiLlFile = force("WIFILL", "wifill-on");
+        modelsFile = force("MODELS", "models-on");
+        lodPoseFile = force("LODPOSE", "lodpose-on");
+        heroFile = force("HERO", "hero-on");
+        keyReqFile = force("KEYREQ", "keyreq-on");
+        shoulderFile = force("SHOULDER", "shoulder-on");
+        houseFile = force("HOUSE", "house-on");
+        depthGapFile = force("DEPTHGAP", "depthgap-on");
+        wristFile = force("WRIST", "wrist-on");
+        scanFile = force("SCAN", "scan-on");
+        scrollFile = force("SCROLL", "scroll-on");
+        wallToolFile = force("WALLTOOL", "walltool-on");
+        assistFile = force("ASSIST", "assist-on");
+        relocFile = force("RELOCCHECK", "reloccheck-on");
+        geometryFile = force("GEOMETRY", "geometry-on");
+        multiRoomFile = force("MULTIROOM", "multiroom-on");
+        depthPlaceFile = force("DEPTHPLACE", "depthplace-on");
+    }
     void loadSettings() {
         std::ifstream f(gDir + "/settings.json"); if (!f) return;
         std::stringstream ss; ss << f.rdbuf(); std::string j = ss.str();
@@ -652,6 +689,9 @@ struct App {
         menuStickWall = menuWall;
         if (b != std::string::npos) sscanf(j.c_str() + b + 8, "%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
         menuRel.position = {v[0], v[1], v[2]}; menuRel.orientation = {v[3], v[4], v[5], v[6]};
+        { size_t o = j.find("\"overrides\":["), e = o == std::string::npos ? o : j.find(']', o);
+          if (o != std::string::npos && e != std::string::npos) for (size_t q = j.find('"', o + 13); q != std::string::npos && q < e; ) {
+              size_t q2 = j.find('"', q + 1); if (q2 == std::string::npos || q2 > e) break; userOverride.insert(j.substr(q + 1, q2 - q - 1)); q = j.find('"', q2 + 1); } }
         saveSet = j.find("\"saveset\":0") == std::string::npos;  // absent (a v0.43 or older file): on
         resumeOn = j.find("\"resume\":0") == std::string::npos;
         size_t sp = j.find("\"source\":\""); if (sp != std::string::npos) { sp += 10; lastSource = j.substr(sp, j.find('"', sp) - sp); }
@@ -673,6 +713,11 @@ struct App {
     }
     void choose(int i) {
         std::string l = menuItems[i].label;
+        for (auto& ff : kForce) if (l == ff[0] && !userOverride.count(l) && access((gDir + "/" + ff[1]).c_str(), F_OK) == 0) {
+            bool wasOn = itemOn(ff[0]) > 0; userOverride.insert(l); pollForceFiles();
+            event("settings: " + l + " overrides its force file");
+            if (wasOn && itemOn(ff[0]) <= 0) { saveSettings(); return; }   // the file was what kept it on: now off
+        }
         auto* w = placed.active ? wallById(placed.wall) : nullptr;
         if (l == "MINI" || l == "LAPTOP") lastSource = l;
         if (l == "MINI") launcher.launch(hostFor(0));
@@ -3962,29 +4007,7 @@ void main(){
             }
         }
         if (quadTick++ % 60 == 0) {
-            quadFile = access((gDir + "/quad-on").c_str(), F_OK) == 0;
-            mipqFile = access((gDir + "/mipq-on").c_str(), F_OK) == 0;  // forces MIPQ for self-tests
-            vtFile = access((gDir + "/vt-on").c_str(), F_OK) == 0;      // forces VT for self-tests
-            budgetFile = access((gDir + "/budget-on").c_str(), F_OK) == 0;  // forces BUDGET for self-tests
-            gpuTimeFile = access((gDir + "/gputime-on").c_str(), F_OK) == 0;  // forces GPUTIME for self-tests
-            codecFile = access((gDir + "/codec-h264").c_str(), F_OK) == 0;    // forces CODEC (H.264) for bench pairs
-            wifiLlFile = access((gDir + "/wifill-on").c_str(), F_OK) == 0;    // forces WIFILL for bench pairs
-            modelsFile = access((gDir + "/models-on").c_str(), F_OK) == 0;    // forces MODELS for self-tests
-            lodPoseFile = access((gDir + "/lodpose-on").c_str(), F_OK) == 0;  // forces LODPOSE for self-tests
-            heroFile = access((gDir + "/hero-on").c_str(), F_OK) == 0;        // forces HERO for self-tests
-            keyReqFile = access((gDir + "/keyreq-on").c_str(), F_OK) == 0;    // forces KEYREQ for self-tests
-            shoulderFile = access((gDir + "/shoulder-on").c_str(), F_OK) == 0;  // forces SHOULDER for self-tests
-            houseFile = access((gDir + "/house-on").c_str(), F_OK) == 0;        // forces HOUSE for self-tests
-            depthGapFile = access((gDir + "/depthgap-on").c_str(), F_OK) == 0;  // forces DEPTHGAP for self-tests
-            wristFile = access((gDir + "/wrist-on").c_str(), F_OK) == 0;        // forces WRIST for self-tests
-            scanFile = access((gDir + "/scan-on").c_str(), F_OK) == 0;          // forces SCAN for self-tests
-            scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
-            wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
-            assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
-            relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
-            geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
-            multiRoomFile = access((gDir + "/multiroom-on").c_str(), F_OK) == 0;  // forces MULTIROOM for self-tests
-            depthPlaceFile = access((gDir + "/depthplace-on").c_str(), F_OK) == 0;  // forces DEPTHPLACE for self-tests
+            pollForceFiles();
             updateReloc();
             { bool need; { std::lock_guard<std::mutex> g(appsLock); need = appsToken.empty(); }
               if (need) { std::ifstream tf(gDir + "/apps-token"); std::string t; if (tf >> t) { std::lock_guard<std::mutex> g(appsLock); appsToken = t; event("apps: token loaded"); } } }
