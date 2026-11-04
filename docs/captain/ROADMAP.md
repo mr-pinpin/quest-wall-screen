@@ -53,11 +53,8 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 
 ## Morning list for the user (needs a click or a decision)
 - [ ] Accessibility re-grant on the Air after the PinPin Displays rebuild (scroll on extra screens), batched with other TCC prompts (42)
-- [ ] Permanent root on the headset? (the never-sleep wake lock needs root; Magisk is lost on reboot)
 - [ ] Move screen 2 to a solid wall (DEPTHGAP: hangs over a 38 cm recess)
 - [ ] Hand checks: ring scaling, snap drop, MINI click
 - [ ] Optional 3-min VT/HERO visual check (docs/vt-visual-check.md); an agent preps the sender first
-- [ ] Which screen is the kitchen one (screen 3, the small 0.68 m one?) -> assign the recipes app (ad)
 - [ ] Air: System Settings → Wallpaper → pick any STILL picture (not the animated aerial or Sequoia dynamic). The aerial plus colorsync costs ~1.3 cores, slows the stream and blocks clean benchmarks; the CLI fixes all failed and were reverted
-- [ ] Spotify on the Air: its renderer spins at 80–190% CPU even when idle (it skews benchmarks and the stream). Quit it, or remove it from login items?
 - [ ] Close 2 stray Safari windows on the Air main display (example.com, YouTube search) from the first assistant test
