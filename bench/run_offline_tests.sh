@@ -50,6 +50,8 @@ run "SETTINGS panel as one texture: dirty flag, pixels on the layout, hit-test =
 run "SETCAT: SETTINGS in categories, pages under 1 m, flags.json hidden/greyed, cascade hit-test (room_lab/settings_menu.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/settings_menu_test.cpp -o $T/setm && (ulimit -v 1500000; timeout 60 $T/setm room_lab/room_lab.cpp room_lab/flags.json)"
 run "flags_data.h (the registry compiled into the app) matches flags.json" python3 bench/gen_flags_data.py --check
 run "RECKEEP: CLAUDE chat history cache, last N exchanges, mic self-check (room_lab/reception_persist.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/reception_persist_test.cpp -o $T/recp && (ulimit -v 1500000; timeout 60 $T/recp)"
+run "MESHBATCH: room mesh in one buffer, exact draws over 600 scan frames (room_lab/mesh_arena.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/mesh_arena_test.cpp -o $T/marena && (ulimit -v 1500000; timeout 60 $T/marena)"
+run "BEZELFEW: VT bezel strips cut on tile edges (room_lab/vt_strip.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/vt_strip_test.cpp -o $T/vts && (ulimit -v 1500000; timeout 60 $T/vts)"
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py

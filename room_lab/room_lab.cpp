@@ -31,6 +31,8 @@
 #include "settings_menu.h"
 #include "flags_data.h"
 #include "reception_persist.h"
+#include "mesh_arena.h"
+#include "vt_strip.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -259,7 +261,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -546,7 +548,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 51;
+    static constexpr int kMenuItems = 53;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -572,7 +574,8 @@ struct App {
         {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"},
         {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
-        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"}};
+        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"},
+        {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -617,6 +620,8 @@ struct App {
         if (l == "DICTQ") return dictQMenu;
         if (l == "SETCAT") return setCatMenu;
         if (l == "RECKEEP") return recKeepMenu;
+        if (l == "MESHBATCH") return meshBatchMenu;
+        if (l == "BEZELFEW") return bezelFewMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -714,7 +719,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -786,7 +791,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -846,6 +851,8 @@ struct App {
         else if (l == "PANELTEX") panelTexMenu = !panelTexMenu;                 // SETTINGS as one texture
         else if (l == "DICTQ") dictQMenu = !dictQMenu;                          // queued assistant dictation
         else if (l == "RECKEEP") recKeepMenu = !recKeepMenu;                    // CLAUDE chat across restarts
+        else if (l == "MESHBATCH") meshBatchMenu = !meshBatchMenu;              // room mesh in one buffer, few draws
+        else if (l == "BEZELFEW") bezelFewMenu = !bezelFewMenu;                 // AMBI under VT cut on tile edges only
         else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -2622,6 +2629,50 @@ struct App {
         }
         meshDrawnTris = tris;
     }
+    // MESHBATCH (room_lab/mesh_arena.h): every block in one buffer, sub-allocated; a changed block rewrites only its
+    // range, a freed range is zeroed; the blocks to draw merge into runs, so a frame is a few draws instead of one per
+    // block. Blocks still pulsing after a change are drawn on their own (the pulse is a uniform). Under meshLock.
+    mesharena::Arena meshArena{30 * 20000, 10}; std::map<int64_t, long> meshArenaVer; GLuint meshArenaVbo = 0; size_t meshArenaGlCap = 0;
+    int meshArenaDraws = 0, meshDrawCalls = 0; std::vector<float> meshZeros;
+    template <class Attribs> void drawMeshArena(std::chrono::steady_clock::time_point tn, Attribs attribs) {
+        for (auto& [k, b] : meshBlocks) {  // new / changed / emptied blocks
+            auto it = meshArenaVer.find(k);
+            if (b.empty || b.cpu.empty()) { if (it != meshArenaVer.end()) { meshArena.erase(k); meshArenaVer.erase(it); } continue; }
+            if (it == meshArenaVer.end() || it->second != b.version) { meshArena.put(k, b.cpu.size()); meshArenaVer[k] = b.version; }
+        }
+        for (auto it = meshArenaVer.begin(); it != meshArenaVer.end();) {  // blocks that are gone
+            if (!meshBlocks.count(it->first)) { meshArena.erase(it->first); it = meshArenaVer.erase(it); } else ++it;
+        }
+        meshArena.maybePack();
+        if (!meshArenaVbo) glGenBuffers(1, &meshArenaVbo);
+        glBindBuffer(GL_ARRAY_BUFFER, meshArenaVbo);
+        if (meshArena.rebuilt || meshArenaGlCap != meshArena.cap) {  // a new size, or packed: everything again
+            glBufferData(GL_ARRAY_BUFFER, meshArena.cap * sizeof(float), nullptr, GL_DYNAMIC_DRAW); meshArenaGlCap = meshArena.cap;
+            meshZeros.assign(std::min<size_t>(meshArena.cap, 1 << 20), 0.0f);
+            for (size_t o = 0; o < meshArena.cap; o += meshZeros.size()) glBufferSubData(GL_ARRAY_BUFFER, o * sizeof(float), std::min(meshZeros.size(), meshArena.cap - o) * sizeof(float), meshZeros.data());
+            for (auto& [k, r] : meshArena.allocs) glBufferSubData(GL_ARRAY_BUFFER, r.off * sizeof(float), r.len * sizeof(float), meshBlocks[k].cpu.data());
+            meshArena.rebuilt = false; meshArena.dirty.clear();
+        } else if (!meshArena.dirty.empty()) {
+            std::map<size_t, int64_t> at; for (auto& [k, r] : meshArena.allocs) at[r.off] = k;
+            for (auto& d : meshArena.dirty) {
+                auto f = at.find(d.off);
+                if (f != at.end() && meshArena.allocs[f->second].len == d.len) glBufferSubData(GL_ARRAY_BUFFER, d.off * sizeof(float), d.len * sizeof(float), meshBlocks[f->second].cpu.data());
+                else { if (meshZeros.size() < d.len) meshZeros.assign(d.len, 0.0f); glBufferSubData(GL_ARRAY_BUFFER, d.off * sizeof(float), d.len * sizeof(float), meshZeros.data()); }
+            }
+            meshArena.dirty.clear();
+        }
+        std::set<int64_t> draw(meshDraw.begin(), meshDraw.end()), pulsing;
+        for (int64_t k : meshDraw) if (std::chrono::duration<float>(tn - meshBlocks[k].changedAt).count() < 1.0f) pulsing.insert(k);
+        auto runs = meshArena.runs(draw, pulsing, 30 * 60);  // bridge up to 60 far triangles rather than add a draw
+        attribs(); glUniform1f(meshLocPulse, 0);
+        for (auto& r : runs) glDrawArrays(GL_TRIANGLES, (GLint)r.off, (GLsizei)r.len);
+        for (int64_t k : pulsing) {
+            auto it = meshArena.allocs.find(k); if (it == meshArena.allocs.end()) continue;
+            float age = std::chrono::duration<float>(tn - meshBlocks[k].changedAt).count();
+            glUniform1f(meshLocPulse, 1.0f - age); glDrawArrays(GL_TRIANGLES, (GLint)(it->second.off / 10), (GLsizei)(it->second.len / 10));
+        }
+        meshArenaDraws = (int)(runs.size() + pulsing.size());
+    }
     void drawRoomMesh(const float* vpmLocal, const std::vector<float>& screens) {
         // MESHSAVE: the volume is in the room frame; draw it through the last good room frame (none yet: not at all).
         if (houseFrame.ok) { meshRoomLast = houseFrame.roomInLocal; meshRoomKnown = true; }
@@ -2688,8 +2739,10 @@ struct App {
         bool flat = single(flatVbo, flatCpu, flatVersion, flatUp, flatVerts, 0.0f);  // the flat room replaces the block mesh once it exists
         if (scanning()) single(rawVbo, rawCpu, rawVersion, rawUp, rawVerts, 1.0f);
         glUniform1f(meshLocRaw, 0);
-        if (!flat) for (int64_t k : meshDraw) {
-            MeshBlock& b = meshBlocks[k];
+        meshDrawCalls = (flat ? 1 : 0) + (scanning() && !rawCpu.empty() ? 1 : 0);
+        if (!flat && meshBatchMenu) { drawMeshArena(tn, attribs); meshDrawCalls += meshArenaDraws; }
+        else if (!flat) for (int64_t k : meshDraw) {
+            MeshBlock& b = meshBlocks[k]; meshDrawCalls++;
             if (!b.vbo) glGenBuffers(1, &b.vbo);
             glBindBuffer(GL_ARRAY_BUFFER, b.vbo);
             if (b.uploaded != b.version) { glBufferData(GL_ARRAY_BUFFER, b.cpu.size() * sizeof(float), b.cpu.data(), GL_STATIC_DRAW); b.uploaded = b.version; b.verts = (int)(b.cpu.size() / 10); }
@@ -4297,13 +4350,17 @@ void main(){
                               {l - d1, bt - d0, l - d0, t + d0}, {r + d0, bt - d0, r + d1, t + d0}};  // left, right
             for (auto& q0 : xs) {
                 // Tiled (VT): cut the strip along its length so each piece samples the tile under it; else one piece.
-                int segs = tiled && bezelAmbi ? 16 : 1; bool alongX = (q0[2] - q0[0]) >= (q0[3] - q0[1]);
+                // BEZELFEW: only on the tile boundaries (room_lab/vt_strip.h), else 16 equal pieces.
+                bool alongX = (q0[2] - q0[0]) >= (q0[3] - q0[1]); float L0 = alongX ? q0[0] : q0[1], L1 = alongX ? q0[2] : q0[3];
+                std::vector<float> pts;
+                if (tiled && bezelAmbi && bezelFewMenu) pts = vtstrip::cuts(*tiles, alongX, L0, L1, alongX ? l : bt, alongX ? pl.w : pl.h);
+                else { int segs = tiled && bezelAmbi ? 16 : 1; for (int s = 0; s <= segs; s++) pts.push_back(L0 + (L1 - L0) * s / segs); }
+                int segs = (int)pts.size() - 1;
                 for (int s = 0; s < segs; s++) {
-                float q[4] = {q0[0], q0[1], q0[2], q0[3]};
-                if (segs > 1) {
-                    if (alongX) { float L0 = q0[0], L1 = q0[2]; q[0] = L0 + (L1 - L0) * s / segs; q[2] = L0 + (L1 - L0) * (s + 1) / segs; }
-                    else { float L0 = q0[1], L1 = q0[3]; q[1] = L0 + (L1 - L0) * s / segs; q[3] = L0 + (L1 - L0) * (s + 1) / segs; }
-                }
+                float q[4] = {q0[0], q0[1], q0[2], q0[3]}, p0 = pts[s], p1 = pts[s + 1];
+                if (alongX) { q[0] = p0; q[2] = p1; } else { q[1] = p0; q[3] = p1; }
+                float qs[4] = {q[0], q[1], q[2], q[3]};  // where the uv is sampled: a hair inside the piece (BEZELFEW)
+                if (tiled && bezelFewMenu) { if (alongX) { qs[0] = vtstrip::inside(p0, p0, p1); qs[2] = vtstrip::inside(p1, p0, p1); } else { qs[1] = vtstrip::inside(p0, p0, p1); qs[3] = vtstrip::inside(p1, p0, p1); } }
                 V3 a = P(q[0], q[1]), bb = P(q[2], q[1]), c = P(q[2], q[3]), d = P(q[0], q[3]);
                 if (!bezelAmbi) { b.quad(a, bb, c, d, col); continue; }
                 auto uv = [&](float x, float y, float* o) {
@@ -4313,7 +4370,7 @@ void main(){
                     else if (cell) { o[0] = cell[0] + u * (cell[2] - cell[0]) - 20; o[1] = cell[1] + (1 - v) * (cell[3] - cell[1]); }
                     else { o[0] = u - 10; o[1] = v; }
                 };
-                float ua[2], ub[2], uc[2], ud[2]; uv(q[0], q[1], ua); uv(q[2], q[1], ub); uv(q[2], q[3], uc); uv(q[0], q[3], ud);
+                float ua[2], ub[2], uc[2], ud[2]; uv(qs[0], qs[1], ua); uv(qs[2], qs[1], ub); uv(qs[2], qs[3], uc); uv(qs[0], qs[3], ud);
                 b.tri(a, bb, c, col, ua, ub, uc); b.tri(a, c, d, col, ua, uc, ud);
                 }
             }
@@ -4753,7 +4810,7 @@ void main(){
             }
             if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); draws += (int)chatQuads.size(); }
             draws += uiTexShown;
-            if ((geometryOn() || scanning())) draws += (int)meshDraw.size() + (flatCpu.empty() ? 0 : 1) + (rawCpu.empty() ? 0 : 1) + 1;
+            if ((geometryOn() || scanning())) draws += meshDrawCalls + 1;  // + the screens' depth rectangles
             if (models() && modelStarted) draws += 2;
             if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m, screenCorners); glUseProgram(program); glBindVertexArray(vao); }
             if (!ctl.v.empty()) {  // CTLTOP: after the model, the chats and the room mesh, with no depth test and no env occlusion
