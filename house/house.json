@@ -1,0 +1,221 @@
+{
+ "schema": 1,
+ "rev": 1,
+ "updated": "2026-11-04T00:39:42Z",
+ "by": "migrate",
+ "nextScreenId": 4,
+ "rooms": [
+  {
+   "id": "r1",
+   "name": "home",
+   "anchors": []
+  }
+ ],
+ "links": [],
+ "walls": [
+  {
+   "id": "w-851ff933",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "851ff933da164cab35f7293e373d2105"
+   ],
+   "w": 3.587,
+   "h": 2.51
+  },
+  {
+   "id": "w-df0486f4",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "df0486f4f8c1f48e728b8a1aac628737"
+   ],
+   "w": 2.973,
+   "h": 2.51
+  },
+  {
+   "id": "w-488e679d",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "488e679d78667a5f018f7cfefad3e0e2"
+   ],
+   "w": 2.896,
+   "h": 2.51
+  },
+  {
+   "id": "w-f8817eb5",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "f8817eb50b8e774800ea7bb428465f63"
+   ],
+   "w": 0.745,
+   "h": 2.51
+  },
+  {
+   "id": "w-9e501f4e",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "9e501f4e2d357601ced64f4a7ae77b92"
+   ],
+   "w": 0.236,
+   "h": 2.51
+  },
+  {
+   "id": "w-fc6fbd15",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "fc6fbd157440ef8fa67ed7861e10d56a"
+   ],
+   "w": 1.153,
+   "h": 2.51
+  },
+  {
+   "id": "w-f9c52876",
+   "room": "r1",
+   "kind": "floor",
+   "source": "scene",
+   "scene": [
+    "f9c52876da4e068a339a1a1352f974c5"
+   ],
+   "w": 6.924,
+   "h": 5.716
+  },
+  {
+   "id": "w-63b48871",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "63b488711308a2ba15cc9cac27a40321"
+   ],
+   "w": 1.388,
+   "h": 2.51
+  },
+  {
+   "id": "w-d087923e",
+   "room": "r1",
+   "kind": "ceiling",
+   "source": "scene",
+   "scene": [
+    "d087923e7fc1ba322f7b5abd1aaf8304"
+   ],
+   "w": 3.211,
+   "h": 7.099
+  },
+  {
+   "id": "w-e76f73ed",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "e76f73edcdd89c79abae2d0f8c4bbcee"
+   ],
+   "w": 2.08,
+   "h": 2.51
+  },
+  {
+   "id": "w-691b203d",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "691b203d8b72aa1c71517e07a9d79fdc"
+   ],
+   "w": 0.707,
+   "h": 2.51
+  },
+  {
+   "id": "w-aeda1f4d",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "aeda1f4dd703d92e683ca70fe4d06704"
+   ],
+   "w": 3.564,
+   "h": 2.51
+  },
+  {
+   "id": "w-2fbb61bb",
+   "room": "r1",
+   "kind": "wall",
+   "source": "scene",
+   "scene": [
+    "2fbb61bb793f4d2fd5d7c244767576b9"
+   ],
+   "w": 1.135,
+   "h": 2.51
+  }
+ ],
+ "shapes": [],
+ "screens": [
+  {
+   "id": 1,
+   "role": "main",
+   "on": 1,
+   "wall": "w-851ff933",
+   "x": -0.465022,
+   "y": 0.243729,
+   "w": 1.96431,
+   "h": 1.2277,
+   "source": {
+    "kind": "atlas"
+   }
+  },
+  {
+   "id": 2,
+   "role": "extra",
+   "on": 1,
+   "wall": "w-df0486f4",
+   "x": -0.93019,
+   "y": 0.079663,
+   "w": 1.05222,
+   "h": 0.657638,
+   "source": {
+    "kind": "mac-display",
+    "screen": 2
+   }
+  },
+  {
+   "id": 3,
+   "role": "extra",
+   "on": 1,
+   "wall": "w-488e679d",
+   "x": -0.40869,
+   "y": -0.11862,
+   "w": 0.680491,
+   "h": 0.425307,
+   "source": {
+    "kind": "mac-display",
+    "screen": 3
+   }
+  }
+ ],
+ "menu": {
+  "panel": {
+   "wall": "w-851ff933",
+   "pose": [
+    0.947889,
+    0.156052,
+    5.09987,
+    -1.00972e-09,
+    -0.915635,
+    -1.0401e-08,
+    0.402011
+   ]
+  }
+ },
+ "settings": {
+  "locked": false
+ }
+}
