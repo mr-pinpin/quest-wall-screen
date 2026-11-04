@@ -1,5 +1,6 @@
 // Selection outline (room_lab/select_outline.h). g++ -std=c++17 -I room_lab bench/select_outline_test.cpp && ./a.out
 #include "select_outline.h"
+#include "select_house.h"
 #include <cmath>
 #include <cstdio>
 using namespace selout;
@@ -74,6 +75,22 @@ int main() {
     q.update(6.3f); check(!q.look(1, 6.3f).visible && q.items.size() == 1, "faded and dropped");
     q.select(1, 7); q.clear(7.5f); q.update(8); check(q.count() == 0 && q.items.empty(), "clear() all");
     check(!q.look(9, 8).visible, "unknown id not drawn");
+    // house["selected"] (work-42's contract): list, [] / absent / null = none, the old single object still read.
+    {   Selection hs; HouseSelect H; bool ok = true;
+        auto doc = [](const char* s) { return json::parse(s, nullptr); };
+        H.apply(doc("{\"selected\":[{\"id\":3,\"ts\":\"a\"},{\"id\":5,\"ts\":\"b\"}]}"), hs, 0);
+        check(hs.selected(3) && hs.selected(5) && hs.count() == 2, "house list: 3 and 5 outlined");
+        check(hs.look(3, 0.5f).number == 3, "badge shows the screen id");
+        H.apply(doc("{\"selected\":[{\"id\":3,\"ts\":\"a\"},{\"id\":5,\"ts\":\"b\"}]}"), hs, 2);
+        ok = hs.look(3, 2).thickScale < 1.3f; check(ok, "same sync again: no new pop");
+        H.apply(doc("{\"selected\":[{\"id\":3,\"ts\":\"c\"}]}"), hs, 3);
+        check(hs.look(3, 3).thickScale > 1.45f && !hs.selected(5), "new ts pops again; 5 dropped from the list is cleared");
+        H.apply(doc("{\"selected\":[]}"), hs, 4); check(hs.count() == 0, "[] clears");
+        H.apply(doc("{\"selected\":{\"id\":2,\"ts\":\"d\"}}"), hs, 5); check(hs.selected(2) && hs.count() == 1, "old single object read");
+        H.apply(doc("{\"screens\":[]}"), hs, 6); check(hs.count() == 0, "key absent clears");
+        H.apply(doc("{\"selected\":null}"), hs, 7); check(hs.count() == 0, "null: none");
+        H.apply(doc("{\"selected\":[{\"id\":\"x\"},{\"ts\":\"e\"}]}"), hs, 8); check(hs.count() == 0, "malformed entries ignored");
+    }
     printf("select outline: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;
 }
