@@ -33,6 +33,7 @@
 #include "reloc.h"
 #include "depthpick.h"
 #include "meshsave.h"
+#include "roomframe.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -1228,7 +1229,7 @@ struct App {
         // A dump waits until the scene walls are located (a dump taken at launch had none: walls:[], screens:[]).
         bool wallsKnown = false; for (auto& e : entities) wallsKnown = wallsKnown || (e.located && isWall(e) && !e.standIn && e.space != XR_NULL_HANDLE);  // real scene walls, not stand-ins
         DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted && wallsKnown;
-        sh.roomOk = roomFrame.ok; sh.room = roomFrame.roomInLocal; sh.roomExpected = !storedAnchors.empty() || !anchorsLoadTried;
+        sh.roomOk = houseFrame.ok; sh.room = houseFrame.roomInLocal; sh.roomExpected = !storedAnchors.empty() || !anchorsLoadTried;
         if (sh.dump) depthDumpWanted = false;
         auto addScreen = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr; if (!w || !w->located) return;
@@ -1403,6 +1404,23 @@ struct App {
     int scanSurfaces = 0, scanCommitted = 0; std::string scanErr; std::vector<wallfit::Wall> scanResult;
     struct OurAnchor { std::string uuid; XrSpace space = XR_NULL_HANDLE; XrPosef local{{0, 0, 0, 1}, {0, 0, 0}}; bool located = false, saved = false; };
     std::vector<OurAnchor> ours; std::vector<anchors::Stored> storedAnchors; anchors::Frame roomFrame;
+    // The house frame SCAN commits and MESHSAVE use (roomframe.h): Meta's scene planes where the house has their poses,
+    // else our anchors' frame. sceneStored is rebuilt when the house doc changes.
+    roomframe::Result houseFrame; std::vector<anchors::Stored> sceneStored; const json::Value* sceneStoredDoc = nullptr; std::shared_ptr<const json::Value> sceneStoredHold;
+    void updateHouseFrame() {
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        if (d && d.get() != sceneStoredDoc) {
+            sceneStoredDoc = d.get(); sceneStoredHold = d; sceneStored.clear();
+            for (auto& w : (*d)["walls"].a) if (w.has("pose") && w["source"].str() == "scene" && w["scene"].size() && (w["room"].str().empty() || w["room"].str() == "r1"))
+                sceneStored.push_back({w["scene"][0].str(), poseFrom(w["pose"])});
+        }
+        std::vector<anchors::Seen> seen;
+        for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.space != XR_NULL_HANDLE) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; seen.push_back({e.uuid, wp(cp)});
+        }
+        houseFrame = roomframe::choose(sceneStored, seen, roomFrame);
+    }
     std::map<XrAsyncRequestIdFB, int> anchorReq;  // create / status / save request -> index in ours (-1-k: pending create k)
     std::vector<XrPosef> anchorPending; std::set<XrAsyncRequestIdFB> anchorQueryIds; bool anchorsQueried = false, anchorsLoadTried = false;
     std::set<std::string> anchorsAsked;   // uuids already queried or created this session
@@ -1470,6 +1488,7 @@ struct App {
             if (a.located) { a.local = sl.pose; anchorsLocated++; seen.push_back({a.uuid, wp(sl.pose)}); }
         }
         if (!storedAnchors.empty()) roomFrame = anchors::solve(storedAnchors, seen);
+        updateHouseFrame();
         if (multiRoomOn()) multiRoomUpdate(seen);
         if (scanState == ScanState::anchoring) {  // all created anchors saved (or failed), or 10 s: commit with what we have
             bool waiting = !anchorPending.empty() || !anchorReq.empty();
@@ -1555,6 +1574,13 @@ struct App {
             else mrExtraKnown.insert(a.uuid);
         }
         if (!have) { scanErr = "no anchor saved"; toast("scan", "SCAN NOT SAVED: NO ANCHOR", red, 4); event("scan: no anchor, nothing committed"); return; }
+        // Sanity: the fitted floor against Meta's floor (both LOCAL). More than 5 cm off: the frame or the fit is wrong.
+        { std::vector<float> fy; for (auto& w : scanResult) if (w.kind == wallfit::Kind::floor) fy.push_back(w.centre.y);
+          float my = 0; bool mk = false; for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.label.find("FLOOR") != std::string::npos) { my = e.pose.position.y; mk = true; }
+          roomframe::FloorCheck fc = roomframe::floorCheck(fy, my, mk);
+          if (!fc.ok) { scanErr = "floor " + std::to_string((int)std::lround(fc.offM * 100)) + " cm off Meta's"; toast("scan", "SCAN NOT SAVED: FLOOR " + std::to_string((int)std::lround(std::fabs(fc.offM) * 100)) + " CM OFF", red, 4);
+                        event("scan: refused, fitted floor " + std::to_string(fc.offM) + " m off Meta's floor"); return; }
+          event("scan: frame " + houseFrame.source + " (" + std::to_string(houseFrame.used) + " agree, anchors vs scene " + std::to_string(houseFrame.anchorsVsSceneM) + " m), floor " + (fc.known ? std::to_string(fc.offM) + " m off Meta's" : "unchecked")); }
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
         json::Value none; const json::Value& doc = d ? *d : none;
         // Scene walls in LOCAL, to say which house wall each fitted surface is.
@@ -1585,6 +1611,10 @@ struct App {
             // A Meta scene wall keeps its pose and size (the fit only goes under "fit"); our depth walls only grow (wallmerge.h).
             bool sceneWall = !uuid.empty() || o["source"].str() == "scene";
             o = wallmerge::merge(o, sceneWall, poseJson(anchors::compose(anchors::inverse(room), w.pose())), w.w, w.h, w.rms_m, (double)w.samples, stamp);
+            // For work-34's consolidation: the fitter's own confidence, and which frame this commit was written in.
+            o.o["fit"].o["conf"] = house::num(w.confidence);
+            { json::Value fr = house::obj(); fr.o["source"] = house::str(houseFrame.source); fr.o["used"] = house::num(houseFrame.used);
+              fr.o["anchorsVsSceneM"] = house::num(houseFrame.anchorsVsSceneM); fr.o["at"] = house::str(stamp); o.o["frame"] = fr; }
             edits.push_back({"walls", id, o});
         }
         // Every located scene wall without a pose gets Space Setup's own pose and size in the room frame, so one SCAN
@@ -1670,7 +1700,7 @@ struct App {
         const rooms::Placed* p = rooms::find(mrPlaced, scanRoom); return p && p->frame.ok;
     }
     bool scanRoomFrame(wallfit::Pose& out) const {
-        if (!multiRoomOn()) { if (roomFrame.ok) out = roomFrame.roomInLocal; return roomFrame.ok; }
+        if (!multiRoomOn()) { if (houseFrame.ok) out = houseFrame.roomInLocal; return houseFrame.ok; }
         const rooms::Placed* p = rooms::find(mrPlaced, scanRoom); if (!p || !p->ok) return false;
         out = p->inLocal; return true;
     }
@@ -2263,7 +2293,7 @@ struct App {
     }
     void drawRoomMesh(const float* vpmLocal, const std::vector<float>& screens) {
         // MESHSAVE: the volume is in the room frame; draw it through the last good room frame (none yet: not at all).
-        if (roomFrame.ok) { meshRoomLast = roomFrame.roomInLocal; meshRoomKnown = true; }
+        if (houseFrame.ok) { meshRoomLast = houseFrame.roomInLocal; meshRoomKnown = true; }
         M4 vpRoom; const float* vpm = vpmLocal; V3 eyeM = v3(head.position);
         if (meshInRoom.load()) {
             if (!meshRoomKnown) return;
@@ -4331,7 +4361,9 @@ void main(){
         j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"
           << ",\"anchors\":{\"stored\":" << storedAnchors.size() << ",\"found\":" << ours.size() << ",\"located\":" << anchorsLocated << ",\"used\":" << roomFrame.used
           << ",\"drifted\":" << roomFrame.drifted.size() << ",\"spreadM\":" << roomFrame.spreadM << ",\"spreadDeg\":" << roomFrame.spreadDeg << ",\"roomOk\":" << (roomFrame.ok ? 1 : 0)
-          << ",\"created\":" << anchorsCreated << ",\"saved\":" << anchorsSavedN << ",\"failed\":" << anchorsFailed << "}";
+          << ",\"created\":" << anchorsCreated << ",\"saved\":" << anchorsSavedN << ",\"failed\":" << anchorsFailed << "}"
+          << ",\"houseFrame\":{\"source\":\"" << houseFrame.source << "\",\"used\":" << houseFrame.used << ",\"stored\":" << sceneStored.size()
+          << ",\"anchorsVsSceneM\":" << houseFrame.anchorsVsSceneM << ",\"anchorsVsSceneDeg\":" << houseFrame.anchorsVsSceneDeg << "}";
         { std::lock_guard<std::mutex> g(gapLock); j << ",\"depthGap\":{\"on\":" << (depthGap() ? 1 : 0) << ",\"reads\":" << rbReads << ",\"rb\":\"" << rbErr << "\"" << (gapJson.empty() ? "" : "," + gapJson) << "}"; }
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";

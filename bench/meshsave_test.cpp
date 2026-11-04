@@ -4,6 +4,7 @@
 // frames in LOCAL instead (what v0.63 and older did) is the control: its walls land off the true ones.
 //   g++ -std=c++17 -O2 -I room_lab -I bench bench/meshsave_test.cpp && ./a.out
 #include "meshsave.h"
+#include "roomframe.h"
 #include <cstdio>
 #include <random>
 using wallfit::DepthFrame; using wallfit::Quat; using wallfit::V3; using wallfit::Pose;
@@ -64,11 +65,30 @@ int main() {
     check(minX < -1.9f && maxX < 1.5f, "session 1 saw the left side only");
     // Session 2: LOCAL origin 3 m away and turned 100 deg (a relocalised start); load, then look right.
     Pose B{yaw(-70), {-2.5f, 0.1f, 3.0f}};
+    // Its frame as room_lab now picks it (roomframe.h): our anchors drifted 10 cm down against Meta's scene, so the
+    // frame comes from Meta's planes stored in the house (here: the four walls and the floor of the box).
+    const float s2 = std::sqrt(0.5f);
+    std::vector<anchors::Stored> planes = {{"n", {yaw(0), {0, 1.25f, -3}}}, {"s", {yaw(180), {0, 1.25f, 1.5f}}}, {"e", {yaw(-90), {2, 1.25f, -0.75f}}},
+                                           {"w", {yaw(90), {-2, 1.25f, -0.75f}}}, {"f", {{-s2, 0, 0, s2}, {0, 0, -0.75f}}}};
+    std::vector<anchors::Seen> seenB; for (auto& pl : planes) seenB.push_back({pl.uuid, anchors::compose(B, pl.inRoom)});
+    anchors::Frame drifted; drifted.ok = true; drifted.used = 3; drifted.roomInLocal = anchors::compose(B, Pose{yaw(0.5f), {0, -0.10f, 0}});
+    roomframe::Result rf = roomframe::choose(planes, seenB, drifted);
+    check(rf.source == "scene", "session 2 frame from Meta's planes, not the drifted anchors");
     roommesh::Volume v2(P); check(v2.load(blob), "blob loads"); v2.update(1e9);
-    session(v2, s, B, B, -100, -20, true);
+    session(v2, s, B, rf.roomInLocal, -100, -20, true);
     stats(v2, worst, meanD, n2, minX, maxX);
     check(meanD < 0.02f && worst < 0.12f, "both sessions agree: every vertex on a true surface");
     check(minX < -1.9f && maxX > 1.9f && n2 > n1, "both halves of the room are in the mesh");
+    // The floor against Meta's (y = 0 in the room frame): within 1 cm.
+    double fy = 0; size_t fn = 0;
+    v2.forEachMesh([&](const roommesh::Key&, const roommesh::BlockMesh& m) { for (size_t i = 0; i + 2 < m.pos.size(); i += 3) if (m.pos[i + 1] < 0.15f && std::fabs(m.pos[i]) < 1.6f && m.pos[i + 2] > -2.6f && m.pos[i + 2] < 1.1f) { fy += m.pos[i + 1]; fn++; } });
+    printf("floor mean %.1f mm over %zu verts\n", fy / std::max<size_t>(fn, 1) * 1000, fn);
+    check(fn > 100 && std::fabs(fy / fn) < 0.01f, "mesh floor on Meta's floor within 1 cm");
+    // Control: the drifted anchors' frame would lift the second session's floor about 10 cm.
+    roommesh::Volume v4(P); session(v4, s, B, drifted.roomInLocal, -100, -20, true);
+    double gy = 0; size_t gn = 0;
+    v4.forEachMesh([&](const roommesh::Key&, const roommesh::BlockMesh& m) { for (size_t i = 0; i + 2 < m.pos.size(); i += 3) if (m.pos[i + 1] < 0.3f && std::fabs(m.pos[i]) < 1.6f && m.pos[i + 2] > -2.6f && m.pos[i + 2] < 1.1f) { gy += m.pos[i + 1]; gn++; } });
+    check(gn > 100 && gy / gn > 0.07f, "control: the drifted anchors' frame lifts the floor");
     // Control: the same session 2 fused in LOCAL (the old behaviour) lands its half 3 m away.
     roommesh::Volume v3(P); v3.load(blob); v3.update(1e9); session(v3, s, B, B, -100, -20, false);
     float w3, m3, x0, x1; size_t n3; stats(v3, w3, m3, n3, x0, x1);
