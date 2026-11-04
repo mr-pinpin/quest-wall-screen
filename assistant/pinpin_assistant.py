@@ -318,11 +318,10 @@ class ClaudeCliBackend(ModelBackend):
         argv = [self.claude, "-p", text, "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages",  # token-level text deltas -> first word streams immediately
                 "--model", model, "--append-system-prompt", sys_prompt,
+                "--mcp-config", self.mcp_config, "--allowedTools", "mcp__screen__*",
                 "--max-turns", str(MAX_STEPS)]
-        # A plain-chat turn (haiku route) needs no screen tools, so skip loading the MCP server — that saves the
-        # tool-init round-trip and gets the first word out faster. Tool/build/think turns keep the tools.
-        if model != MODEL_CHAT:
-            argv += ["--mcp-config", self.mcp_config, "--allowedTools", "mcp__screen__*"]
+        # (Tried skipping the MCP server on chat turns to shave startup; measured it neither faster nor safer — a
+        # mis-routed chat turn then couldn't use a tool — so the tools stay loaded on every turn.)
         if session.get("claudeSessionId"):
             argv += ["--resume", session["claudeSessionId"]]
         return argv, {**os.environ, "PINPIN_SCREEN": str(screen)}
