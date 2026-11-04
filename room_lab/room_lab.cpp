@@ -29,6 +29,7 @@
 #include "house.h"
 #include "wallfit.h"
 #include "anchors.h"
+#include "rooms_house.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -229,6 +230,10 @@ struct App {
     // RELOCCHECK flag (default ON, read-only): the main screen's gap to the real wall behind it, from depth every 2 s;
     // a sustained gap over 20 cm means Meta placed the room wrong (2026-11-04: relocalised in the dark) -> a hint.
     bool relocMenu = true, relocFile = false; bool relocOn() const { return relocMenu || relocFile; }
+    // MULTIROOM flag (room_lab/rooms.h, roadmap "Next"): every room's anchors are queried; each room gets its frame from
+    // its own located anchors or through a learned link; the current room is the one the head is in, and SCAN writes to
+    // it (or to a new room when the head is in none). Links (b in a, doorway) go to house.json links[]. Status "multiroom".
+    bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
     // locked or not (locked, the bar is dimmer and the move needs the same hold); bars hit on the wall plane, so a bar
     // hanging below a wall's scanned rect still works. CLOSEX (default ON): an X in each extra screen's corner while
@@ -502,7 +507,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 41;
+    static constexpr int kMenuItems = 42;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -523,7 +528,7 @@ struct App {
         {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"},
         {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
-        {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}};
+        {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -558,6 +563,7 @@ struct App {
         if (l == "ALLBARS") return allBars();
         if (l == "CLOSEX") return closeX();
         if (l == "GEOMETRY") return geometryOn();
+        if (l == "MULTIROOM") return multiRoomOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -618,7 +624,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -647,7 +653,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -692,6 +698,7 @@ struct App {
         else if (l == "ALLBARS") allBarsMenu = !allBarsMenu;                    // move bar on every screen
         else if (l == "CLOSEX") closeXMenu = !closeXMenu;                       // X to close a screen
         else if (l == "GEOMETRY") geometryMenu = !geometryMenu;                 // room wire mesh
+        else if (l == "MULTIROOM") multiRoomMenu = !multiRoomMenu;              // several linked rooms
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1225,7 +1232,8 @@ struct App {
     struct OurAnchor { std::string uuid; XrSpace space = XR_NULL_HANDLE; XrPosef local{{0, 0, 0, 1}, {0, 0, 0}}; bool located = false, saved = false; };
     std::vector<OurAnchor> ours; std::vector<anchors::Stored> storedAnchors; anchors::Frame roomFrame;
     std::map<XrAsyncRequestIdFB, int> anchorReq;  // create / status / save request -> index in ours (-1-k: pending create k)
-    std::vector<XrPosef> anchorPending; XrAsyncRequestIdFB anchorQueryId = 0; bool anchorsQueried = false, anchorsLoadTried = false;
+    std::vector<XrPosef> anchorPending; std::set<XrAsyncRequestIdFB> anchorQueryIds; bool anchorsQueried = false, anchorsLoadTried = false;
+    std::set<std::string> anchorsAsked;   // uuids already queried or created this session
     long anchorsCreated = 0, anchorsSavedN = 0, anchorsFailed = 0; int anchorsLocated = 0;
     shoulder::Item scanItem() const {
         return scanning() ? shoulder::Item{"DONE", "FINISH AND SAVE THE SCAN", "scan-done"} : shoulder::Item{"SCAN", "SCAN WHAT IS IN FRONT OF YOU", "scan"};
@@ -1245,18 +1253,26 @@ struct App {
         return p;
     }
     // The saved anchors of room r1 in the house: query them once the house is known.
+    // With MULTIROOM, every room's anchors (asked again when the house gains rooms); each uuid is queried once.
     void anchorsLoad() {
-        if (anchorsLoadTried || !xrQuerySpacesFB_) return;
+        if (!xrQuerySpacesFB_) return;
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
         if (!d) return;
-        anchorsLoadTried = true;
-        for (auto& r : (*d)["rooms"].a) if (r["id"].str() == "r1") for (auto& a : r["anchors"].a) storedAnchors.push_back({a["uuid"].str(), poseFrom(a["pose"])});
-        if (storedAnchors.empty()) { event("anchors: the house has none yet"); return; }
-        std::vector<XrUuidEXT> ids; for (auto& a : storedAnchors) ids.push_back(uuidFromHex(a.uuid));
+        if (!anchorsLoadTried) {
+            anchorsLoadTried = true;
+            for (auto& r : (*d)["rooms"].a) if (r["id"].str() == "r1") for (auto& a : r["anchors"].a) storedAnchors.push_back({a["uuid"].str(), poseFrom(a["pose"])});
+            if (storedAnchors.empty()) event("anchors: the house has none yet");
+        }
+        std::vector<std::string> want; for (auto& a : storedAnchors) want.push_back(a.uuid);
+        if (multiRoomOn()) for (auto& r : (*d)["rooms"].a) for (auto& a : r["anchors"].a) want.push_back(a["uuid"].str());
+        std::vector<XrUuidEXT> ids; for (auto& u : want) if (u.size() == 32 && anchorsAsked.insert(u).second) ids.push_back(uuidFromHex(u));
+        if (ids.empty()) return;
         XrSpaceStorageLocationFilterInfoFB storage{XR_TYPE_SPACE_STORAGE_LOCATION_FILTER_INFO_FB, nullptr, XR_SPACE_STORAGE_LOCATION_LOCAL_FB};
         XrSpaceUuidFilterInfoFB uf{XR_TYPE_SPACE_UUID_FILTER_INFO_FB, &storage, (uint32_t)ids.size(), ids.data()};
         XrSpaceQueryInfoFB qi{XR_TYPE_SPACE_QUERY_INFO_FB, nullptr, XR_SPACE_QUERY_ACTION_LOAD_FB, 32, 0, reinterpret_cast<XrSpaceFilterInfoBaseHeaderFB*>(&uf), nullptr};
-        XrResult r = xrQuerySpacesFB_(session, reinterpret_cast<XrSpaceQueryInfoBaseHeaderFB*>(&qi), &anchorQueryId);
+        XrAsyncRequestIdFB qid = 0;
+        XrResult r = xrQuerySpacesFB_(session, reinterpret_cast<XrSpaceQueryInfoBaseHeaderFB*>(&qi), &qid);
+        if (XR_SUCCEEDED(r)) anchorQueryIds.insert(qid);
         event("anchors: query " + std::to_string(ids.size()) + " saved anchors -> " + std::to_string((int)r));
     }
     void anchorsRetrieve(XrAsyncRequestIdFB id) {
@@ -1269,7 +1285,9 @@ struct App {
                 XrSpaceComponentStatusSetInfoFB si{XR_TYPE_SPACE_COMPONENT_STATUS_SET_INFO_FB, nullptr, XR_SPACE_COMPONENT_TYPE_LOCATABLE_FB, XR_TRUE, 0};
                 XrAsyncRequestIdFB rid; xrSetSpaceComponentStatusFB_(r.space, &si, &rid);
             }
-            OurAnchor a; a.uuid = hexUuid(r.uuid); a.space = r.space; a.saved = true; ours.push_back(a);
+            OurAnchor a; a.uuid = hexUuid(r.uuid); a.space = r.space; a.saved = true;
+            bool dup = false; for (auto& o : ours) dup = dup || o.uuid == a.uuid;
+            if (!dup) ours.push_back(a);
         }
     }
     void anchorsLocate(XrTime t) {
@@ -1280,6 +1298,7 @@ struct App {
             if (a.located) { a.local = sl.pose; anchorsLocated++; seen.push_back({a.uuid, wp(sl.pose)}); }
         }
         if (!storedAnchors.empty()) roomFrame = anchors::solve(storedAnchors, seen);
+        if (multiRoomOn()) multiRoomUpdate(seen);
         if (scanState == ScanState::anchoring) {  // all created anchors saved (or failed), or 10 s: commit with what we have
             bool waiting = !anchorPending.empty() || !anchorReq.empty();
             if (!waiting || std::chrono::steady_clock::now() - anchorT0 > std::chrono::seconds(10)) scanCommit();
@@ -1304,7 +1323,8 @@ struct App {
         if (scanResult.empty()) { scanState = ScanState::failed; scanErr = "nothing solid captured"; const float red[4] = {1, 0.3f, 0.25f, 1}; toast("scan", "SCAN: NOTHING SOLID YET, TRY AGAIN", red, 4); return; }
         scanState = ScanState::anchoring; anchorT0 = std::chrono::steady_clock::now();
         scanAddDepthWalls();
-        if (roomFrame.ok || !xrCreateSpatialAnchorFB_) return;  // the room is already anchored (or anchors unsupported: commit in LOCAL is refused)
+        scanRoomPick();
+        if (scanAnchored() || !xrCreateSpatialAnchorFB_) return;  // the room is already anchored (or anchors unsupported: commit in LOCAL is refused)
         std::vector<wallfit::V3> c; for (auto& w : scanResult) if (w.kind == wallfit::Kind::wall) c.push_back(w.centre);
         if (c.empty()) for (auto& w : scanResult) c.push_back(w.centre);
         float yaw = std::atan2(-rot(head.orientation, {0, 0, -1}).x, -rot(head.orientation, {0, 0, -1}).z);
@@ -1322,7 +1342,7 @@ struct App {
         anchorReq.erase(it); if (!anchorPending.empty()) anchorPending.pop_back();
         if (XR_FAILED(e.result)) { anchorsFailed++; event("anchor create failed " + std::to_string((int)e.result)); return; }
         anchorsCreated++;
-        OurAnchor a; a.uuid = hexUuid(e.uuid); a.space = e.space; ours.push_back(a);
+        OurAnchor a; a.uuid = hexUuid(e.uuid); a.space = e.space; ours.push_back(a); anchorsAsked.insert(a.uuid);
         XrSpaceComponentStatusSetInfoFB si{XR_TYPE_SPACE_COMPONENT_STATUS_SET_INFO_FB, nullptr, XR_SPACE_COMPONENT_TYPE_STORABLE_FB, XR_TRUE, 0};
         XrAsyncRequestIdFB rid;
         XrResult r = xrSetSpaceComponentStatusFB_(e.space, &si, &rid);
@@ -1352,13 +1372,15 @@ struct App {
         scanState = ScanState::failed;
         // The room frame: the solved one (anchors already in the house), else our first saved anchor this scan.
         wallfit::Pose room; bool have = false; std::vector<json::Value> newAnchors;
-        if (roomFrame.ok) { room = roomFrame.roomInLocal; have = true; }
+        if (scanRoomFrame(room)) have = true;
         for (auto& a : ours) {
-            bool known = false; for (auto& st : storedAnchors) known = known || st.uuid == a.uuid;
+            bool known = anchorKnown(a.uuid);
             if (known || !a.saved || !a.located) continue;
             if (!have) { room = wp(a.local); have = true; }
             json::Value o = house::obj(); o.o["uuid"] = house::str(a.uuid); o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), wp(a.local)));
-            newAnchors.push_back(o); storedAnchors.push_back({a.uuid, anchors::compose(anchors::inverse(room), wp(a.local))});
+            newAnchors.push_back(o);
+            if (scanRoom == "r1") storedAnchors.push_back({a.uuid, anchors::compose(anchors::inverse(room), wp(a.local))});
+            else mrExtraKnown.insert(a.uuid);
         }
         if (!have) { scanErr = "no anchor saved"; toast("scan", "SCAN NOT SAVED: NO ANCHOR", red, 4); event("scan: no anchor, nothing committed"); return; }
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
@@ -1384,7 +1406,8 @@ struct App {
             }
             json::Value o = house::obj();
             for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
-            o.o["id"] = house::str(id); o.o["room"] = house::str("r1"); o.o["kind"] = house::str(wallfit::kindName(w.kind));
+            const bool mr = multiRoomOn(); std::string wroom = mr && o["room"].type == json::Value::Str ? o["room"].str() : scanRoom;
+            o.o["id"] = house::str(id); o.o["room"] = house::str(wroom); o.o["kind"] = house::str(wallfit::kindName(w.kind));
             if (!o.has("source")) o.o["source"] = house::str(uuid.empty() ? "depth" : "scene");
             if (!uuid.empty() && !o.has("scene")) { json::Value sc = house::arr(); sc.a.push_back(house::str(uuid)); o.o["scene"] = sc; }
             // A Meta scene wall keeps its pose and size (the fit only goes under "fit"); our depth walls only grow (wallmerge.h).
@@ -1401,20 +1424,99 @@ struct App {
             json::Value o = house::obj();
             if (ed) o = ed->obj; else for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
             if (o.has("pose")) continue;
+            if (multiRoomOn() && o["room"].type == json::Value::Str && o["room"].str() != scanRoom) continue;  // another room's wall
+            if (multiRoomOn()) o.o["room"] = house::str(scanRoom);
             o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), scene[i].pose)); o.o["w"] = house::num(scene[i].w); o.o["h"] = house::num(scene[i].h);
             if (!o.has("source")) o.o["source"] = house::str("scene");
             if (ed) ed->obj = o; else edits.push_back({"walls", id, o});
         }
-        json::Value r1 = house::obj(); r1.o["id"] = house::str("r1"); r1.o["name"] = house::str("home");
-        for (auto& r : doc["rooms"].a) if (r["id"].str() == "r1") r1 = r;
+        json::Value r1 = house::obj(); r1.o["id"] = house::str(scanRoom); r1.o["name"] = house::str(scanRoom == "r1" ? "home" : "room " + scanRoom.substr(1));
+        for (auto& r : doc["rooms"].a) if (r["id"].str() == scanRoom) r1 = r;
         json::Value an = r1["anchors"].type == json::Value::Arr ? r1["anchors"] : house::arr();
         for (auto& a : newAnchors) an.a.push_back(a);
-        r1.o["anchors"] = an; edits.push_back({"rooms", "r1", r1});
+        r1.o["anchors"] = an; edits.push_back({"rooms", scanRoom, r1});
         houseStart();
         { std::lock_guard<std::mutex> g(houseLock); for (auto& e : edits) houseQueue.push_back(e); }
         scanCommitted = (int)scanResult.size(); scanState = ScanState::done;
         toast("scan", "SCAN SAVED: " + std::to_string(scanCommitted) + " SURFACES", green, 4);
-        event("scan: committed " + std::to_string(scanCommitted) + " surfaces, " + std::to_string(newAnchors.size()) + " new anchors");
+        event("scan: committed " + std::to_string(scanCommitted) + " surfaces, " + std::to_string(newAnchors.size()) + " new anchors, room " + scanRoom);
+    }
+    // ---- MULTIROOM (room_lab/rooms.h). Off, every helper below answers as before: room r1 and roomFrame.
+    std::vector<rooms::Room> mrRooms; std::vector<rooms::Link> mrLinks; std::vector<rooms::Placed> mrPlaced;
+    rooms::Tracker mrTracker; rooms::Learner mrLearner; const json::Value* mrDocSeen = nullptr; std::shared_ptr<const json::Value> mrDocHold;
+    std::set<std::string> mrExtraKnown; std::chrono::steady_clock::time_point mrSampleAt{}, mrWriteAt{};
+    long mrCrossings = 0, mrLinkWrites = 0; std::string scanRoom = "r1";
+    bool anchorKnown(const std::string& u) const {
+        for (auto& st : storedAnchors) if (st.uuid == u) return true;
+        for (auto& r : mrRooms) for (auto& a : r.anchors) if (a.uuid == u) return true;
+        return mrExtraKnown.count(u) > 0;
+    }
+    void multiRoomLoad(const json::Value& doc) { rooms::load(doc, mrRooms, mrLinks); }  // walls / floor give each room's box
+    void multiRoomUpdate(const std::vector<anchors::Seen>& seen) {
+        { std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+          if (d && d.get() != mrDocSeen) { mrDocSeen = d.get(); mrDocHold = d; multiRoomLoad(*d); anchorsLoad(); } }
+        mrPlaced = rooms::place(mrRooms, mrLinks, seen);
+        wallfit::V3 h{head.position.x, head.position.y, head.position.z};
+        std::string was = mrTracker.current;
+        if (mrTracker.update(mrRooms, mrPlaced, h)) {
+            const rooms::Placed* p = rooms::find(mrPlaced, mrTracker.current);
+            event("multiroom: in " + mrTracker.current + (was.empty() ? "" : " (from " + was + ")") + (p && p->viaLink ? " via link from " + p->via : ""));
+            if (!was.empty()) { const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}; toast("room", "ROOM " + mrTracker.current.substr(1), cyan, 2); }
+        }
+        for (auto& c : mrTracker.crossings) { mrLearner.crossing(c, mrPlaced); mrCrossings++; }
+        mrTracker.crossings.clear();
+        auto now = std::chrono::steady_clock::now();
+        if (now - mrSampleAt > std::chrono::seconds(1)) { mrSampleAt = now; mrLearner.sample(mrPlaced); }
+    }
+    // Learned links that changed go to the house as whole objects, at most every 30 s.
+    void multiRoomCommitLinks() {
+        auto now = std::chrono::steady_clock::now();
+        if (now - mrWriteAt < std::chrono::seconds(30) || !mrDocSeen) return;
+        std::vector<std::string> changed; std::vector<rooms::Link> merged = mrLearner.merge(mrLinks, &changed);
+        if (changed.empty()) return;
+        mrWriteAt = now; char stamp[32]; time_t t = time(nullptr); strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", gmtime(&t));
+        std::vector<house::Edit> edits = rooms::linkEdits(merged, mrLinks, changed, stamp);
+        mrLinks = merged; houseStart();
+        { std::lock_guard<std::mutex> g(houseLock); for (auto& e : edits) houseQueue.push_back(e); }
+        mrLinkWrites += (long)changed.size(); event("multiroom: saved " + std::to_string(changed.size()) + " link(s)");
+    }
+    // SCAN's room: off, r1. On: the current room when the head is inside it, else a new room.
+    void scanRoomPick() {
+        scanRoom = "r1";
+        if (!multiRoomOn()) return;
+        const rooms::Room* r = rooms::find(mrRooms, mrTracker.current); const rooms::Placed* p = rooms::find(mrPlaced, mrTracker.current);
+        wallfit::V3 h{head.position.x, head.position.y, head.position.z};
+        if (r && p && rooms::outside(*r, *p, h, mrTracker.margin) == 0) scanRoom = r->id;
+        else {   // a room of the house without anchors yet (r1 before its first scan) before a new one
+            scanRoom = rooms::nextId(mrRooms);
+            for (auto& x : mrRooms) if (x.anchors.empty()) { scanRoom = x.id; break; }
+        }
+        event("multiroom: scanning room " + scanRoom);
+    }
+    bool scanAnchored() const {
+        if (!multiRoomOn()) return roomFrame.ok;
+        const rooms::Placed* p = rooms::find(mrPlaced, scanRoom); return p && p->frame.ok;
+    }
+    bool scanRoomFrame(wallfit::Pose& out) const {
+        if (!multiRoomOn()) { if (roomFrame.ok) out = roomFrame.roomInLocal; return roomFrame.ok; }
+        const rooms::Placed* p = rooms::find(mrPlaced, scanRoom); if (!p || !p->ok) return false;
+        out = p->inLocal; return true;
+    }
+    std::string multiRoomJson() const {
+        std::ostringstream j;
+        const rooms::Placed* cur = rooms::find(mrPlaced, mrTracker.current);
+        j << "{\"on\":" << (multiRoomOn() ? 1 : 0) << ",\"room\":\"" << jsonEscape(mrTracker.current) << "\",\"via\":\""
+          << (!cur || !cur->ok ? "none" : cur->viaLink ? "link" : "anchors") << "\",\"rooms\":[";
+        for (size_t i = 0; i < mrPlaced.size(); i++) {
+            auto& p = mrPlaced[i];
+            j << (i ? "," : "") << "{\"id\":\"" << jsonEscape(p.id) << "\",\"ok\":" << (p.ok ? 1 : 0) << ",\"used\":" << p.frame.used
+              << ",\"drifted\":" << p.frame.drifted.size() << ",\"via\":\"" << jsonEscape(p.via) << "\"}";
+        }
+        j << "],\"links\":[";
+        for (size_t i = 0; i < mrLinks.size(); i++)
+            j << (i ? "," : "") << "{\"id\":\"" << jsonEscape(mrLinks[i].id()) << "\",\"samples\":" << mrLinks[i].samples << ",\"door\":" << (mrLinks[i].hasDoor ? 1 : 0) << "}";
+        j << "],\"crossings\":" << mrCrossings << ",\"linkWrites\":" << mrLinkWrites << ",\"scanRoom\":\"" << jsonEscape(scanRoom) << "\"}";
+        return j.str();
     }
     // The progress cue: each surface being captured fills in place (cyan while uncertain, green once solid) with a
     // sweep line crossing it. Drawn in the occluded batch, so real things in front hide it like the room itself.
@@ -2472,9 +2574,9 @@ void main(){
                 else if (state == XR_SESSION_STATE_EXITING || state == XR_SESSION_STATE_LOSS_PENDING) gQuit = true;
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB) {
                 auto id = reinterpret_cast<XrEventDataSpaceQueryResultsAvailableFB*>(&ev)->requestId;
-                if (id == anchorQueryId) anchorsRetrieve(id); else retrieveSpaces(id);
+                if (anchorQueryIds.count(id)) anchorsRetrieve(id); else retrieveSpaces(id);
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB) {
-                if (reinterpret_cast<XrEventDataSpaceQueryCompleteFB*>(&ev)->requestId == anchorQueryId) { anchorsQueried = true; event("anchors: query complete, " + std::to_string(ours.size()) + " found"); }
+                if (anchorQueryIds.erase(reinterpret_cast<XrEventDataSpaceQueryCompleteFB*>(&ev)->requestId)) { anchorsQueried = true; event("anchors: query complete, " + std::to_string(ours.size()) + " found"); }
                 else { sceneState = "loaded"; pg.finished(); event("scene query complete"); }
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB) {
                 anchorCreated(*reinterpret_cast<XrEventDataSpatialAnchorCreateCompleteFB*>(&ev));
@@ -3826,13 +3928,15 @@ void main(){
             assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
             relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
             geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
+            multiRoomFile = access((gDir + "/multiroom-on").c_str(), F_OK) == 0;  // forces MULTIROOM for self-tests
             updateReloc();
             { bool need; { std::lock_guard<std::mutex> g(appsLock); need = appsToken.empty(); }
               if (need) { std::ifstream tf(gDir + "/apps-token"); std::string t; if (tf >> t) { std::lock_guard<std::mutex> g(appsLock); appsToken = t; event("apps: token loaded"); } } }
             if (!extras.empty() && std::chrono::steady_clock::now() - appsRefreshAt > std::chrono::seconds(10)) { appsRefreshAt = std::chrono::steady_clock::now(); appsFetch(); }
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
-            if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
+            if (houseOn() || scanOn() || multiRoomOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
+            if (multiRoomOn()) multiRoomCommitLinks();
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {
@@ -4023,6 +4127,7 @@ void main(){
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }
           j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris
             << ",\"fuseMs\":" << meshFuseMs.load() << ",\"frames\":" << meshFrames.load() << ",\"changed\":" << meshChanged.load() << ",\"refused\":" << meshVol.refusedBlocks << ",\"rawMs\":" << rawMs.load() << ",\"flatMs\":" << flatMs.load() << ",\"flatTris\":" << flatTris.load() << "}"; }
+        if (multiRoomOn()) j << ",\"multiroom\":" << multiRoomJson();
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
