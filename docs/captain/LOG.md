@@ -6,3 +6,4 @@
 - 01:50 check: c4, 34, 42, ad all busy; closed ghost headset_hold[1858753]; NOSLEEP waits for a wake window (headset asleep)
 - 02:00 work-34 campaign GO (sender flags only auto-flip after smoke); work-42 e2e tonight approved on display 90 (≤3 turns, public pages); displays rebuild deferred to morning (TCC)
 - 02:10 rebase collision in the shared checkout resolved by c4/42; suggest per-agent worktrees
+- 02:20 c4: v0.47 built (WALLTOOL, ASSIST UI, SCROLL; flags off); NOSLEEP active since 01:50 with root; v0.47 session GO
