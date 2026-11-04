@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- House sync server on the Mini (house/README.md): the canonical house.json in ~/pinpin-house (a git repo), on
+     :57800 for the headset. Install: house/install-house-server.sh (copies the code to ~/pinpin-house-server, this
+     plist to ~/Library/LaunchAgents, and bootstraps it). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>io.mr-pinpin.house</string>
+	<key>ProgramArguments</key>
+	<array><string>/bin/sh</string><string>-c</string><string>exec /opt/homebrew/bin/python3 "$HOME/pinpin-house-server/server.py" --data "$HOME/pinpin-house" --port 57800</string></array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ThrottleInterval</key><integer>5</integer>
+	<key>StandardOutPath</key><string>/tmp/pinpin-house.log</string>
+	<key>StandardErrorPath</key><string>/tmp/pinpin-house.log</string>
+</dict>
+</plist>
