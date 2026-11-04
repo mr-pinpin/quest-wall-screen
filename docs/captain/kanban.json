@@ -1,5 +1,5 @@
 {
- "rev": 33,
+ "rev": 34,
  "next": 16,
  "cards": [
   {
@@ -480,18 +480,29 @@
    "links": [],
    "id": "K15",
    "created": "2026-11-04T10:10:00Z",
-   "updated": "2026-11-04T10:10:00Z",
+   "updated": "2026-11-04T10:17:20Z",
    "by": "work-42",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T10:17:20Z",
+     "by": "work-42",
+     "text": "Controller built + committed (cb877e2/68b10b6): probe/pause/low/play/full via work-ad lever; reads work-c4 /tmp/pinpin-atlas-vis.json (2s staleness), house.selected fallback; flag-gated off + DRY mode; decision logic unit-tested. Remaining: CPU before/after measurement on a spare display, waiting on /video on the Air laptop runner (work-ad ~10:15)."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T10:10:00Z",
      "by": "work-42",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T10:17:20Z",
+     "by": "work-42",
+     "what": "commented"
     }
    ]
   }
  ],
- "updated": "2026-11-04T10:10:00Z"
+ "updated": "2026-11-04T10:17:20Z"
 }
