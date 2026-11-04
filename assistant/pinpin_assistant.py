@@ -196,9 +196,10 @@ class LiveScreenController(ScreenController):
     def screenshot(self, screen):
         # Prefer the CDP screenshot via the apps server (/shot): it's the only way to capture a REMOTE
         # CDP screen like the MINI (the Air can't capture the Mini's display locally), and it unifies
-        # once the runner has /shot everywhere. Fall back to local capture only when the endpoint is
-        # not implemented yet (400 "unknown input shot"); NOT on 404 "not enabled", so a MINI screen
-        # never silently captures the wrong Air display when the feature is off.
+        # once the runner has /shot everywhere. If /shot doesn't give a PNG, fall back to LOCAL display
+        # capture WHEN this screen is a local display (resolve succeeds); for a remote screen with no
+        # local display (the MINI), surface the /shot error instead of capturing the wrong display.
+        shot_err = None
         try:
             req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/shot?max=900",
                                          headers=apps_headers())
@@ -212,12 +213,12 @@ class LiveScreenController(ScreenController):
                     except ValueError:
                         pass
                 return png, w, h
-        except urllib.error.HTTPError as e:
-            if e.code != 400:
-                raise ScreenError(f"shot {e.code} for screen {screen}")
-        except Exception:
-            pass   # apps server unreachable -> try local capture
-        d = self.resolve(screen)
+        except Exception as e:
+            shot_err = getattr(e, "code", type(e).__name__)
+        try:
+            d = self.resolve(screen)   # local display? (raises for a remote screen like the MINI)
+        except ScreenError:
+            raise ScreenError(f"shot unavailable ({shot_err}) and screen {screen} has no local display")
         out = subprocess.run(self.cap_cmd + [str(d["display"])], capture_output=True, timeout=15)
         if out.returncode != 0:
             raise ScreenError("screenshot failed: " + out.stderr.decode("utf-8", "replace")[:200])
