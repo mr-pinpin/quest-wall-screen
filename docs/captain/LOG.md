@@ -18,3 +18,4 @@
 - 04:50 check: c4 (v0.58 wallmerge fix, house walls restored rev 20), 34 (budgeted hero offline, A2 waits for quiet Air), ad busy; 42 un-held to diagnose the colorsync peg. Block A report: vt strong but load-tainted; vt-latency rule pre-registered 04:48Z
 - 05:10 check: all four active. Wallpaper CLI fix failed and was reverted (42); the user picks a still wallpaper in the morning. Apps token enforced 04:58. ad on data backups; 34 on budgeted hero; c4 busy
 - 05:30 check: c4, 34, ad busy; 42 given the proxy DNS-pinning fix (pinpin-apps, coordinated with ad). ad self-review fixed 14 defects. Hero corrected to INCONCLUSIVE (scoring bug), budgeted hero built; VT visual-check doc ready. Watchdog flags the long NOSLEEP watch and the campaign as hung (expected, waiting for a quiet Air)
+- 05:50 check: c4, 34, ad active (shell); 42 on standby after 15a merged and deployed. v0.60 installed and checked on the charger (72 fps scan, real house untouched). Morning brief written
