@@ -58,6 +58,7 @@ class Schema(unittest.TestCase):
             'link unknown room': lambda d: d['links'].append({'a': 'r1', 'b': 'r9', 'pose': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}}),
             'shoulder side': lambda d: d['menu'].__setitem__('shoulder', {'side': 'up'}),
             'room mesh not a blob id': lambda d: d['rooms'][0].__setitem__('mesh', 'not-a-sha'),
+            'fit extent negative': lambda d: d['walls'][0].__setitem__('fit', {'rms_m': 0.01, 'samples': 10, 'updated': '', 'w': -1}),
             'toggle not bool': lambda d: d['settings'].__setitem__('toggles', {'VT': 1}),
             'schema 99': lambda d: d.__setitem__('schema', 99),
             'rooms not list': lambda d: d.__setitem__('rooms', {}),
@@ -78,7 +79,7 @@ class Schema(unittest.TestCase):
         d['links'].append({'a': 'r1', 'b': 'r2', 'pose': {'p': [4, 0, 0], 'q': [0, 0.7071, 0, 0.7071]}})
         d['walls'].append({'id': 'w-depth1', 'room': 'r2', 'kind': 'wall', 'source': 'depth', 'scene': [], 'w': 3, 'h': 2.5,
                            'pose': {'p': [1, 1.2, -1], 'q': [0, 0, 0, 1]}, 'outline': [[-1.5, -1.25], [1.5, -1.25], [1.5, 1.25]],
-                           'fit': {'rms_m': 0.004, 'samples': 1800, 'updated': '2026-11-04T00:00:00Z'},
+                           'fit': {'rms_m': 0.004, 'samples': 1800, 'updated': '2026-11-04T00:00:00Z', 'w': 2.9, 'h': 2.4},
                            'anchors': [{'uuid': 'b' * 32, 'pose': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}}]})
         d['shapes'] += [{'id': 's1', 'wall': w0, 'type': 'line', 'pts': [[0, 0], [1, 0], [1, 1]], 'dashed': True, 'color': '#ffcc00'},
                         {'id': 's2', 'wall': w0, 'type': 'circle', 'pts': [[0.2, 0.3]], 'r': 0.25},

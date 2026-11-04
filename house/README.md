@@ -22,7 +22,7 @@ from its cached copy.
  "walls":   [{"id": "w-851ff933", "room": "r1", "kind": "wall", "source": "scene|depth|manual",
               "scene": ["<Meta Space Setup uuid, newest first>"], "anchors": [...], "w": 4.1, "h": 2.6,
               "pose": {"p": [...], "q": [...]}, "outline": [[x, y], ...],
-              "fit": {"rms_m": 0.004, "samples": 1800, "updated": "..."}, "mesh": "<sha256 of a blob>"}],
+              "fit": {"rms_m": 0.004, "samples": 1800, "updated": "...", "w": 3.9, "h": 2.4}, "mesh": "<sha256 of a blob>"}],
  "shapes":  [{"id": "s1", "wall": "w-851ff933", "type": "line|circle|skin", "pts": [[x, y], ...],
               "dashed": true, "closed": false, "r": 0.25, "depth": 0.05, "color": "#ffcc00"}],
  "screens": [{"id": 1, "role": "main", "on": 1, "wall": "w-851ff933", "x": -0.47, "y": 0.24, "w": 1.96, "h": 1.23,
@@ -37,6 +37,8 @@ Frames:
 - Wall poses: relative to the room frame.
 - Wall-2D coordinates (screens' x/y, shapes' pts): metres from the wall pose. +x is right as seen from inside the room, +y is up, +z points into the room; a skin's depth extrudes along +z.
 - Screen ids: the main screen is id 1, and an extra screen's id is the laptop screen it shows.
+- Wall extents: `w`/`h` are authoritative; `fit.w`/`fit.h` are what the last depth fit measured (a scan never shrinks a
+  wall, it records what it saw).
 - Ids: walls use our own ids, which stay stable across rescans. `scene` lists the Meta uuids that have meant that wall and is only a hint for matching.
 
 ## Sync protocol (server.py, port 57800)

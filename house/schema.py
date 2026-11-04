@@ -139,6 +139,10 @@ def validate(doc, blobs=None):
             if not (isinstance(f, dict) and _num(f.get('rms_m')) and f['rms_m'] >= 0 and isinstance(f.get('samples'), int)
                     and isinstance(f.get('updated', ''), str)):
                 e.append(f'{p}.fit: needs rms_m >= 0, samples (int), updated (ISO string)')
+            # fit.w / fit.h (optional): the extent the depth fit measured; the wall's own w/h stay authoritative
+            # (work-c4's wallmerge: a scan never shrinks a wall, it only records what it saw)
+            elif any(k in f and not (_num(f[k]) and f[k] > 0) for k in ('w', 'h')):
+                e.append(f'{p}.fit.w/h: the measured extent must be positive numbers')
         if 'outline' in w and not _pts(w['outline'], 3): e.append(f'{p}.outline: not a list of >= 3 [x,y] points')
         if 'mesh' in w:
             if not (isinstance(w['mesh'], str) and SHA.match(w['mesh'])): e.append(f'{p}.mesh: not a sha256 blob id')
