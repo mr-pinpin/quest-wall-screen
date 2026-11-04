@@ -22,3 +22,4 @@
 - 06:10 check: c4 and 34 active; 42 and ad on standby (done, waiting for the user). Closed ghost -c[1891297]. Apps runner token check-in deployed; smoke 10.7 fps (wallpaper)
 - 06:30 check: c4 and 34 active; 42 and ad on standby for the user (wake ~06:40). Nothing stuck
 - 06:50 check: c4 and 34 active; 42 and ad on standby. The user is due awake; the morning brief is ready
+- 07:10 check: 34 active; c4, 42, ad waiting for the user. Never-sleep verified (219/221). Closed the demo-pause ghost with the original owner tag
