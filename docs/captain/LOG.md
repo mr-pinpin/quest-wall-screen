@@ -25,3 +25,4 @@
 - 07:10 check: 34 active; c4, 42, ad waiting for the user. Never-sleep verified (219/221). Closed the demo-pause ghost with the original owner tag
 - 07:30 check: 34 active; c4 given MULTIROOM offline; 42 and ad on standby for the user
 - 07:50 v0.61 installed and checked (4/4 screens from scene, anchors 3/3, 72 fps); GEOMETRY switched off again (it was on only for the scan compare)
+- 07:50 check: 34 active (A2 waits for a quiet Air); c4, 42, ad waiting on the user (hand checks, morning list, the geometry-on removal decision). Nothing stuck
