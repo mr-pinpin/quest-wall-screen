@@ -1504,20 +1504,54 @@ struct App {
         }).detach();
     }
     // Returns true when a Claude button takes the right hand this frame.
+    // v0.49 conversation (the user's spec): a press OPENS the chat beside the screen with a local greeting and listens;
+    // after a pause what was said is sent and the answer streams in; while the chat is open the mic re-arms after each
+    // answer (dots: terracotta listening, amber answering); a press CLOSES it; reopening reloads the history
+    // (GET /session/N). One screen listens at a time; 60 s without speech closes the mic (the panel stays open).
+    std::set<int> chatOpen; bool assistWaiting = false;
+    void assistOpen(int id) {
+        for (int o : std::set<int>(chatOpen)) if (o != id) assistClose(o);
+        chatOpen.insert(id); chatScroll[id] = 0;
+        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear(); c.greet("Hi, what do you want on this screen?"); }
+        std::string host = assistHost;
+        std::thread([this, id, host] {  // the conversation so far, behind the greeting
+            house::Response r = house::http(host, 57840, "GET", "/session/" + std::to_string(id));
+            bool ok = false; json::Value v = json::parse(r.body, &ok);
+            std::lock_guard<std::mutex> g(assistLock);
+            if (r.status == 200 && ok && v["messages"].size()) { assist::Chat& c = chats[id]; if (c.state == "idle") { c.load(v["messages"]); c.greet("What next?"); } }
+            else if (!r.error.empty()) assistErr = "history: " + r.error;
+        }).detach();
+        assistListen(id);
+        event("assist: chat opened for screen " + std::to_string(id));
+    }
+    void assistListen(int id) {
+        assistArmed = id; assistBuffer.clear(); assistWaiting = false; assistT0 = assistHeardAt = std::chrono::steady_clock::now();
+        if (!dictation.recording) dictation.start();
+    }
+    void assistClose(int id) {
+        chatOpen.erase(id);
+        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = 0; assistBuffer.clear(); assistWaiting = false; }
+        event("assist: chat closed for screen " + std::to_string(id));
+    }
+    // Returns true when a Claude button takes the right hand this frame.
     bool updateAssist() {
         assistHover = 0; chatHover = 0;
-        if (!assistOn()) { if (assistArmed) { dictation.stop(); assistArmed = 0; } return false; }
+        if (!assistOn()) { if (assistArmed) { dictation.stop(); assistArmed = 0; } chatOpen.clear(); return false; }
         assistLoadHistory();
-        // Armed: stop after 30 s; once stopped and transcribed, send what was heard.
         auto tn = std::chrono::steady_clock::now();
-        if (assistArmed && dictation.recording && tn - assistT0 > std::chrono::seconds(30)) { dictation.stop(); event("assist: 30 s, stop listening"); }
-        // Pause: words were heard, then 2.5 s of nothing new and a quiet microphone.
-        if (assistArmed && dictation.recording && !assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(2500) && dictation.level.load() < 800) {
-            dictation.stop(); event("assist: pause, stop listening");
+        if (assistArmed && dictation.recording && !assistWaiting) {
+            // Pause: words were heard, then 2.5 s of nothing new and a quiet microphone -> stop and send.
+            if (!assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(2500) && dictation.level.load() < 800) { dictation.stop(); event("assist: pause, sending"); }
+            // Nothing said for 60 s: close the mic, keep the panel.
+            else if (assistBuffer.empty() && tn - assistT0 > std::chrono::seconds(60)) { dictation.stop(); assistArmed = 0; event("assist: 60 s quiet, mic closed"); }
         }
-        if (assistArmed && !dictation.recording && dictation.drained()) {
-            if (!assistBuffer.empty()) assistSend(assistArmed, assistBuffer);
-            assistBuffer.clear(); assistArmed = 0;
+        if (assistArmed && !assistWaiting && !dictation.recording && dictation.drained()) {
+            if (!assistBuffer.empty()) { assistSend(assistArmed, assistBuffer); assistWaiting = true; } else assistArmed = 0;
+            assistBuffer.clear();
+        }
+        if (assistArmed && assistWaiting) {  // the answer is done: listen again while the chat is open
+            std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[assistArmed].state; }
+            if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = 0; assistWaiting = false; } }
         }
         if (!(handActive[1] && ray[1].valid)) return false;
         float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
@@ -1527,15 +1561,14 @@ struct App {
             float bx = p.x + p.w / 2 + 0.06f, by = p.y + p.h / 2 - 0.06f;
             if (std::hypot(hx - bx, hy - by) < kBtnR * 1.3f) {
                 assistHover = id;
-                if (ray[1].pinch && !pinchPrev[1] && std::chrono::steady_clock::now() - assistPressAt > std::chrono::milliseconds(400)) {  // press edge, 400 ms debounce
-                    assistPressAt = std::chrono::steady_clock::now();
-                    if (assistArmed == id && dictation.recording) { dictation.stop(); event("assist: stop listening"); }
-                    else if (!assistArmed) { assistArmed = id; assistBuffer.clear(); assistT0 = std::chrono::steady_clock::now(); dictation.start(); event("assist: listening for screen " + std::to_string(id)); }
+                if (ray[1].pinch && !pinchPrev[1] && tn - assistPressAt > std::chrono::milliseconds(400)) {  // press edge, 400 ms debounce
+                    assistPressAt = tn;
+                    if (chatOpen.count(id)) assistClose(id); else assistOpen(id);
                 }
                 return true;
             }
             float cx0 = bx + 0.06f, ch = std::fmax(p.h, 0.6f);  // the chat panel: hover for SCROLL
-            if (hx > cx0 && hx < cx0 + kChatW && hy < p.y + p.h / 2 && hy > p.y + p.h / 2 - ch) { chatHover = id; return false; }
+            if (chatOpen.count(id) && hx > cx0 && hx < cx0 + kChatW && hy < p.y + p.h / 2 && hy > p.y + p.h / 2 - ch) { chatHover = id; return false; }
         }
         return false;
     }
@@ -1548,7 +1581,7 @@ struct App {
             V3 eye = v3(head.position), c = assistButton(p, *w), n = rot(w->pose.orientation, {0, 0, 1});
             if (!seenFrom(eye, c, n, p.wall)) continue;
             V3 ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0});
-            bool hot = assistHover == id, listening = assistArmed == id;
+            bool hot = assistHover == id, listening = assistArmed == id && dictation.recording;
             std::string st; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(id); if (it != chats.end()) st = it->second.state; }
             bool streaming = st == "sending" || st == "streaming";
             // The button: a dark disc with a terracotta eight-ray spark (Anthropic-style), brighter on hover.
@@ -1571,7 +1604,7 @@ struct App {
                 }
             }
             // The chat panel quad (texture refreshed below when the chat or its scroll changed).
-            bool any; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(id); any = it != chats.end() && !it->second.turns.empty(); }
+            bool any = chatOpen.count(id) > 0;  // the panel shows while its chat is open
             if (!any) continue;
             float x0 = p.x + p.w / 2 + 0.12f, top = p.y + p.h / 2, ch = std::fmax(p.h, 0.6f);
             ChatQuad& Q = chatTex[id]; Q.id = id;
@@ -1640,12 +1673,13 @@ struct App {
             sm.stack.clear(); V3 up = rot(head.orientation, {0, 1, 0});
             sm.openRadial(sp(hp), sp(hp + gaze * 0.45f - up * 0.12f));
         } else if (scene == "assist") {
+            chatOpen.insert(1);
             std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[1];
             c.user("Open YouTube and search for lofi", "demo");
             json::Value e = json::parse("{\"type\":\"text\",\"turnId\":\"demo\",\"delta\":\"Opening **YouTube** and searching for *lofi*.\\n- found a 24/7 stream\\n- playing it now\"}"); c.apply(e);
             c.apply(json::parse("{\"type\":\"action\",\"turnId\":\"demo\",\"action\":\"open_url\",\"detail\":\"youtube.com\",\"status\":\"begin\"}"));
             c.apply(json::parse("{\"type\":\"done\",\"turnId\":\"demo\"}"));
-        } else if (scene == "close") { sm.stack.clear(); wt.cancel(); std::lock_guard<std::mutex> g(assistLock); chats.erase(1); }
+        } else if (scene == "close") { sm.stack.clear(); wt.cancel(); chatOpen.erase(1); std::lock_guard<std::mutex> g(assistLock); chats.erase(1); }
         event("ui-demo: " + scene + " (" + wallshape::stateName(wt.state()) + ")");
     }
     // ---- RELOCCHECK: relocGap is the running median (last 20 good frames) of the main screen's signed gap to the real

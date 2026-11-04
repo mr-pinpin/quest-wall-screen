@@ -32,6 +32,10 @@ int main(int argc, char** argv) {
     check(c.turns.back().actions.size() == 2 && c.turns.back().actions[1] == "click (failed)", "actions: ok skipped, error marked");
     ev("{\"type\":\"done\",\"turnId\":\"t1\"}"); check(c.turns.back().done && c.state == "idle", "done closes the turn");
     ev("{\"type\":\"text\",\"delta\":\"late\",\"turnId\":\"t1\"}"); check(c.turns.back().text == "Opening YouTube.", "nothing after done");
+    // A local greeting is a finished assistant line and does not capture the next turn's events.
+    Chat g; g.greet("Hi, what do you want on this screen?"); g.user("open news", "t5");
+    g.apply(json::parse("{\"type\":\"text\",\"delta\":\"Opening.\",\"turnId\":\"t5\"}"));
+    check(g.turns[0].text == "Hi, what do you want on this screen?" && g.turns.back().text == "Opening.", "greeting stays, reply goes to the new turn");
     // Wrapping: headings, bullets with hanging indent, code kept verbatim, links and bold as text, UTF-8 counted by code points.
     Chat m; m.user("q", "t2"); m.turns.back().text = "# Plan\nUse **bold** and [the docs](http://x) here please now\n- a bullet that is long enough to wrap around\n```\ncode line that is long\n```\nЖЖЖЖЖЖЖЖЖЖЖЖ";
     m.turns.back().done = true;

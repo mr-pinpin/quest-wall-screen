@@ -87,6 +87,8 @@ struct Chat {
         else return;
         version++;
     }
+    // A local assistant line (the greeting when the panel opens): shown, never sent, no turn id.
+    void greet(const std::string& text) { turns.push_back({"assistant", text, "", {}, true, false}); version++; }
     // History from GET /session/<id>: its "messages" [{role, content (or text), actions:[...]}].
     void load(const json::Value& arr) {
         turns.clear();
