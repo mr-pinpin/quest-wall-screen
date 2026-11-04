@@ -36,7 +36,7 @@ PKG = 'com.pinpin.wallscreen.roomlab'
 ADB = '~/.local/share/pinpin-quest/platform-tools/adb -s 127.0.0.1:26351'
 APP = '~/Applications/PinPin Stress Pattern.app'
 HEADSET_IP = '192.168.0.3'
-LAPTOP_IP = '192.168.0.102'  # fallback only: the laptop's DHCP address changes (it was .104 after the 2026-11-03 reboot),
+LAPTOP_IP = '192.168.0.105'  # fallback only: the laptop's DHCP address changes (.104 after the 11-03 reboot, .105 after 11-04),
                              # and a stale one left the stand-in with no stream at all; laptop_ip() asks the laptop
 IDLE_NEEDED = 600
 BENCH_CHIP, BENCH_MODEL = 'Apple M1', 'MacBookAir10,1'  # the pinned benchmark host (user direction 2026-11-03)
