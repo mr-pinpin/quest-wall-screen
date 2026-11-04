@@ -150,6 +150,11 @@ def _move_screen(args):
         s["x"] = round(s["x"] + float(args["dx_m"]), 3)
     if args.get("dy_m") is not None:
         s["y"] = round(s["y"] + float(args["dy_m"]), 3)
+    _DIRS = {"left": ("x", -1), "right": ("x", 1), "up": ("y", 1), "down": ("y", -1)}
+    if args.get("direction"):  # unambiguous nudge: the tool does the sign/axis, the model just names the way
+        axis, sign = _DIRS.get(str(args["direction"]).lower(), (None, None))
+        if axis:
+            s[axis] = round(s[axis] + sign * float(args.get("amount_m", 0.3)), 3)
     wall = _wall_of(doc, s["wall"])
     if wall and wall.get("w"):  # clamp to the wall extent (3 cm margin)
         lim = wall["w"] / 2 - s["w"] / 2 - 0.03
@@ -312,12 +317,13 @@ TOOLS = [
          "app": {"type": "string"}, "url": {"type": "string"}}}},
     {"name": "close_screen", "description": "Turn a screen off (reversible). Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}}}},
-    {"name": "move_screen", "description": "Move a screen. Absolute: x_m,y_m (metres from wall centre). RELATIVE: "
-                    "dx_m,dy_m (metres to shift) — use these for 'a bit to the left' (dx_m negative) / right "
-                    "(positive). Or move to another scene wall. Defaults to THIS screen.",
-     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "x_m": {"type": "number"},
-                     "y_m": {"type": "number"}, "dx_m": {"type": "number"}, "dy_m": {"type": "number"},
-                     "wall": {"type": "string"}}}},
+    {"name": "move_screen", "description": "Move a screen. For 'a bit to the left/right/up/down' just pass "
+                    "direction (and optional amount_m, default 0.3) — the tool handles the math. Or absolute x_m,y_m "
+                    "(metres from wall centre), relative dx_m,dy_m, or a new scene wall. Defaults to THIS screen.",
+     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"},
+                     "direction": {"type": "string", "enum": ["left", "right", "up", "down"]},
+                     "amount_m": {"type": "number"}, "x_m": {"type": "number"}, "y_m": {"type": "number"},
+                     "dx_m": {"type": "number"}, "dy_m": {"type": "number"}, "wall": {"type": "string"}}}},
     {"name": "resize_screen", "description": "Set a screen's width in metres (height keeps its aspect). Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "width_m": {"type": "number"}},
                      "required": ["width_m"]}},
