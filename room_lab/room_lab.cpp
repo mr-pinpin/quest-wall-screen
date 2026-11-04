@@ -31,6 +31,7 @@
 #include "anchors.h"
 #include "rooms_house.h"
 #include "reloc.h"
+#include "depthpick.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -234,6 +235,9 @@ struct App {
     // MULTIROOM flag (room_lab/rooms.h, roadmap "Next"): every room's anchors are queried; each room gets its frame from
     // its own located anchors or through a learned link; the current room is the one the head is in, and SCAN writes to
     // it (or to a new room when the head is in none). Links (b in a, doorway) go to house.json links[]. Status "multiroom".
+    // DEPTHPLACE (default ON, the user asked: placing a screen in the room near the TV said no): when a summon or move
+    // ray hits no scene wall, the solid depth-fitted wall it hits becomes a placement target (depthpick.h, w-d... walls).
+    bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
     // locked or not (locked, the bar is dimmer and the move needs the same hold); bars hit on the wall plane, so a bar
@@ -452,6 +456,8 @@ struct App {
     bool menuOpen = false, editLocked = true, palmArmed = true; float palmHold = 0; int menuHover = -1;
     bool settingsLoaded = false, menuSaved = false; std::string menuWall; XrPosef menuRel{{0, 0, 0, 1}, {0, 0, 0}};
     // Unlocked, the panel has a grab bar like the screen: hold, drag, and it sticks flat to the wall you point at.
+    XrPosef menuWallAt{{0, 0, 0, 1}, {0, 0, 0}};  // the wall's pose when the panel was last put on it
+    static float dotq(XrQuaternionf a, XrQuaternionf b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
     bool menuRestored = false, menuMoving = false, menuBarHover = false; float menuBarHold = 0; std::string menuStickWall;
     std::chrono::steady_clock::time_point menuBarStart{};
     float menuHalfW() const { return menuGrid.halfW; }
@@ -508,7 +514,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 42;
+    static constexpr int kMenuItems = 43;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -529,7 +535,8 @@ struct App {
         {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"},
         {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
-        {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"}};
+        {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"},
+        {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -565,6 +572,7 @@ struct App {
         if (l == "CLOSEX") return closeX();
         if (l == "GEOMETRY") return geometryOn();
         if (l == "MULTIROOM") return multiRoomOn();
+        if (l == "DEPTHPLACE") return depthPlaceOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -609,7 +617,10 @@ struct App {
     void saveSettings() {
         Entity* w = menuStickWall.empty() ? nullptr : wallById(menuStickWall);
         if (!w || !w->located) w = anyWall();
+        if (menuSaved && !menuRestored) w = nullptr;   // not back on its wall yet: keep the saved spot as it is
+        if (w && w->standIn) w = nullptr;               // never measure the panel against a stand-in
         if (w && menuOpen) {
+            if (w->uuid == menuStickWall) menuWallAt = w->pose;
             menuWall = w->uuid; menuSaved = true;
             V3 r = untransform(w->pose, v3(menu.pose.position));
             menuRel.position = {r.x, r.y, r.z}; menuRel.orientation = qmul(qinv(w->pose.orientation), menu.pose.orientation);
@@ -625,7 +636,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -654,7 +665,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -700,6 +711,7 @@ struct App {
         else if (l == "CLOSEX") closeXMenu = !closeXMenu;                       // X to close a screen
         else if (l == "GEOMETRY") geometryMenu = !geometryMenu;                 // room wire mesh
         else if (l == "MULTIROOM") multiRoomMenu = !multiRoomMenu;              // several linked rooms
+        else if (l == "DEPTHPLACE") depthPlaceMenu = !depthPlaceMenu;            // screens on depth-fitted walls
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -724,11 +736,20 @@ struct App {
             launcher.launch(hostFor(pendingResume == "MINI" ? 0 : 1));
         }
         // Bring the saved panel back once its wall is located (the scene loads a moment after start).
-        if (menuSaved && !menuRestored) if (auto* w = wallById(menuWall)) if (w->located) {
-            menuRestored = true;
+        // Only onto the real wall: 2026-11-04 the panel was restored onto the wall's stand-in (last-known spot, 3.6 m
+        // off after Meta relocalised), then a toggle saved that wrong offset; the user lost the panel.
+        if (menuSaved && !menuRestored) if (auto* w = wallById(menuWall)) if (w->located && !w->standIn) {
+            menuRestored = true; menuWallAt = w->pose;
             V3 c = xform(w->pose, v3(menuRel.position));
             menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = qmul(w->pose.orientation, menuRel.orientation);
             menuOpen = true;
+        }
+        // The panel follows its wall (a re-query or STAGE rebase moves the wall after the restore).
+        if (menuRestored && !menuMoving && !menuStickWall.empty() && menuStickWall == menuWall) if (auto* w = wallById(menuWall)) if (w->located && !w->standIn) {
+            if (len(v3(w->pose.position) - v3(menuWallAt.position)) > 0.02f || std::fabs(dotq(w->pose.orientation, menuWallAt.orientation)) < 0.99995f) {
+                V3 c = xform(w->pose, v3(menuRel.position));
+                menu.pose.position = {c.x, c.y, c.z}; menu.pose.orientation = qmul(w->pose.orientation, menuRel.orientation); menuWallAt = w->pose;
+            }
         }
         V3 palm;
         if (!wristOn() && palmFacing(palm)) {  // WRIST on: the wrist button takes this pose instead
@@ -1963,6 +1984,32 @@ struct App {
         if (added) house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
         event("scan: " + std::to_string(added) + " scanned walls kept as placement targets");
     }
+    // DEPTHPLACE: the solid depth-fitted wall this ray hits (no scene wall there) becomes one of our depth walls, now.
+    long depthPlaced = 0;
+    bool adoptDepthWall(V3 o, V3 d) {
+        if (!depthPlaceOn() || !stageOk) return false;
+        std::vector<wallfit::Wall> ws; { std::lock_guard<std::mutex> g(gapLock); ws = gapWalls; }
+        std::vector<wallfit::HouseWall> scene;
+        for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.space != XR_NULL_HANDLE) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height});
+        }
+        int i = depthpick::pick(ws, {o.x, o.y, o.z}, {d.x, d.y, d.z}, scene);
+        if (i < 0) return false;
+        const wallfit::Wall& w = ws[i]; std::string id;
+        for (auto& [k, c] : depthWalls) {
+            wallfit::Pose cl = pguard::toLocal(wp(stageInLocal), c);
+            if (wallfit::match(w, {{cl, c.w, c.h}}, 0.08f, 5.0f).index >= 0) { id = k; break; }
+        }
+        if (!id.empty()) return false;   // already ours (its entity is there): the ray missed its rect
+        static std::mt19937 rng((unsigned)time(nullptr)); char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); id = b;
+        pguard::CachedWall c = pguard::fromLocal(id, wp(stageInLocal), w.pose(), -w.w / 2, -w.h / 2, w.w, w.h);
+        depthWalls[id] = c; house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
+        entities.push_back(Entity{}); Entity& e = entities.back(); e.uuid = id; e.label = "WALL_FACE"; e.has2d = true;
+        e.r2 = {{c.ox, c.oy}, {c.w, c.h}}; e.pose = xp(pguard::toLocal(wp(stageInLocal), c)); e.located = true;
+        depthPlaced++; event("depthplace: wall " + id + " (" + std::to_string(w.w).substr(0, 4) + " x " + std::to_string(w.h).substr(0, 4) + " m, conf " + std::to_string(w.confidence).substr(0, 4) + ") kept as a placement target");
+        return true;
+    }
     pguard::Requery pg; std::map<std::string, pguard::CachedWall> wallCache; bool wallCacheLoaded = false;
     std::chrono::steady_clock::time_point wallCacheSaved{};
     XrPosef stageInLocal{{0, 0, 0, 1}, {0, 0, 0}}; bool stageOk = false;
@@ -2866,6 +2913,7 @@ void main(){
         const float gold[4] = {1.0f, 0.8f, 0.25f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         V3 eye = v3(head.position), d = norm(c - eye);
         float hx, hy; Entity* w = rayWall(eye, d, hx, hy);
+        if (!w && adoptDepthWall(eye, d)) w = rayWall(eye, d, hx, hy);
         if (!w) { burst(c, r, red); toast("spell", "POINT THE CIRCLE AT A WALL", red, 3); return; }
         float distWall = len(xform(w->pose, {hx, hy, 0}) - eye), distHand = std::fmax(len(c - eye), 0.2f);
         Placement np; np.active = true; np.wall = w->uuid; np.x = hx; np.y = hy;
@@ -2914,6 +2962,7 @@ void main(){
         bool p1 = handActive[1] && ray[1].pinch;
         if (extraMoving >= 0 && extraMoving < (int)extras.size()) {
             Placement& p = extras[extraMoving].p; float hx, hy;
+            if (ray[1].valid && !rayWall(ray[1].o, ray[1].d, hx, hy)) adoptDepthWall(ray[1].o, ray[1].d);
             if (ray[1].valid) if (Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy)) {
                 candidate.active = true; candidate.wall = w->uuid; candidate.x = hx; candidate.y = hy + p.h / 2 + kBarGap; candidate.w = p.w; candidate.h = p.h;
                 validate(candidate, *w);
@@ -3423,6 +3472,7 @@ void main(){
                 best = t; hit = &e; hx = x; hy = y;
             }
             lastNearest = nearest < 1e8f ? nearest : -1;
+            if (moving && !hit) adoptDepthWall(o, d);  // DEPTHPLACE: the wall is there next frame
             bool onPanel = false;
             hoverButton = -1;
             if (moving) {
@@ -3934,6 +3984,7 @@ void main(){
             relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
             geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
             multiRoomFile = access((gDir + "/multiroom-on").c_str(), F_OK) == 0;  // forces MULTIROOM for self-tests
+            depthPlaceFile = access((gDir + "/depthplace-on").c_str(), F_OK) == 0;  // forces DEPTHPLACE for self-tests
             updateReloc();
             { bool need; { std::lock_guard<std::mutex> g(appsLock); need = appsToken.empty(); }
               if (need) { std::ifstream tf(gDir + "/apps-token"); std::string t; if (tf >> t) { std::lock_guard<std::mutex> g(appsLock); appsToken = t; event("apps: token loaded"); } } }
@@ -4133,6 +4184,7 @@ void main(){
           j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris
             << ",\"fuseMs\":" << meshFuseMs.load() << ",\"frames\":" << meshFrames.load() << ",\"changed\":" << meshChanged.load() << ",\"refused\":" << meshVol.refusedBlocks << ",\"rawMs\":" << rawMs.load() << ",\"flatMs\":" << flatMs.load() << ",\"flatTris\":" << flatTris.load() << "}"; }
         if (multiRoomOn()) j << ",\"multiroom\":" << multiRoomJson();
+        j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
