@@ -28,6 +28,17 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [x] SCROLL global wave gesture (c4) — PRD: prd/assistant.md §Scroll
 - [x] ASSIST button and chat bubble on every screen (c4, 2bd2e26; backend e2e pending)
 
+
+## User feedback 2026-11-04 ~02:20 UTC
+- [ ] P0 placements never disappear (scene re-query, last-known pose, own anchors as the record, regression suite) (c4) -> v0.48
+- [ ] v0.47 installed with ASSIST on for the user (c4)
+- [ ] screens made from the menu get the move bar like the main one (c4)
+- [ ] screens can be created on walls in rooms we scanned (multi-room placement) (c4)
+- [ ] close button on unlocked screens with a double-press confirm (c4)
+- [ ] progressive tessellated scan mesh like Meta (TSDF + marching cubes) (34 core, c4 render)
+- [ ] GEOMETRY flag to show the room mesh and walls (c4 + 34)
+- [ ] assistant: per-screen Chrome window lands on its display; verify-after-act (42 + ad)
+
 ## Next
 - [ ] SCAN on demand: own persisted anchors, sweep progress cue, commit to house.json (c4 + 09)
 - [ ] Multi-room: room links, relocalisation across rooms
