@@ -436,6 +436,19 @@
    ]
   },
   {
+   "name": "RELOCCHECK",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "Read-only: the main screen's gap to the real wall from depth every 2 s; over 20 cm for 20 s shows 'room looks misaligned: turn on the lights and look around' (2026-11-04 night: Meta relocalised the room in the dark). Asked for by the user via work-df.",
+   "evidence": [
+    {
+     "commit": "20a2ab3"
+    }
+   ]
+  },
+  {
    "name": "SCROLL",
    "where": "headset",
    "default": false,

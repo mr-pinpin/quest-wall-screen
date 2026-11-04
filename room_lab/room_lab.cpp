@@ -32,6 +32,7 @@
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
+#include "placement_guard.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -151,6 +152,7 @@ struct Entity {
     XrRect2Df r2{};
     XrRect3DfFB r3{};
     XrPosef pose{{0, 0, 0, 1}, {0, 0, 0}};
+    bool standIn = false;  // built from the last-known-spot cache until the real wall is located (placement_guard.h)
 };
 static bool isWall(const Entity& e) { return e.has2d && e.label.find("WALL_FACE") != std::string::npos && e.label.find("INVISIBLE") == std::string::npos; }
 
@@ -168,7 +170,7 @@ struct App {
     XrInstance instance = XR_NULL_HANDLE;
     XrSystemId system = XR_NULL_SYSTEM_ID;
     XrSession session = XR_NULL_HANDLE;
-    XrSpace local = XR_NULL_HANDLE, view = XR_NULL_HANDLE;
+    XrSpace local = XR_NULL_HANDLE, view = XR_NULL_HANDLE, stage = XR_NULL_HANDLE;
     XrSessionState state = XR_SESSION_STATE_UNKNOWN;
     bool running = false;
     std::set<std::string> enabledExt;
@@ -219,6 +221,9 @@ struct App {
     // ASSIST flag (room_lab/assist.h, docs/prd/assistant-protocol.md): a Claude button on every screen; speech goes to
     // that screen's assistant and the answer streams into a chat panel beside it.
     bool assistMenu = false, assistFile = false; bool assistOn() const { return assistMenu || assistFile; }
+    // RELOCCHECK flag (default ON, read-only): the main screen's gap to the real wall behind it, from depth every 2 s;
+    // a sustained gap over 20 cm means Meta placed the room wrong (2026-11-04: relocalised in the dark) -> a hint.
+    bool relocMenu = true, relocFile = false; bool relocOn() const { return relocMenu || relocFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -478,7 +483,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 37;
+    static constexpr int kMenuItems = 38;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -496,7 +501,8 @@ struct App {
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
         {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
         {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"},
-        {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"}};
+        {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"},
+        {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -527,6 +533,7 @@ struct App {
         if (l == "SCROLL") return scrollOn();
         if (l == "WALLTOOL") return wallToolOn();
         if (l == "ASSIST") return assistOn();
+        if (l == "RELOCCHECK") return relocOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -587,7 +594,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -616,7 +623,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -657,6 +664,7 @@ struct App {
         else if (l == "SCROLL") scrollMenu = !scrollMenu;                       // wave to scroll
         else if (l == "WALLTOOL") wallToolMenu = !wallToolMenu;                // wall drawing tool
         else if (l == "ASSIST") assistMenu = !assistMenu;                       // Claude button on every screen
+        else if (l == "RELOCCHECK") relocMenu = !relocMenu;                     // room-misaligned hint
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -949,7 +957,7 @@ struct App {
             } else rbErr = "map failed";
             glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         }
-        if (frames - rbLast < (scanning() || depthDumpWanted ? 18 : 36)) return;
+        if (frames - rbLast < (scanning() || depthDumpWanted ? 18 : (depthGap() ? 36 : 144))) return;  // RELOCCHECK alone: every 2 s
         int k = !rbBusy[0] ? 0 : !rbBusy[1] ? 1 : -1; if (k < 0) return;
         if (!rbProg) {
             const char* vs = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
@@ -1048,8 +1056,9 @@ struct App {
                           << ",\"wallOffset\":" << m.offset << ",\"wallDeg\":" << m.angleDeg << ",\"rms\":" << w.rms_m << ",\"conf\":" << w.confidence << "}";
                         plane = q.str(); break;
                     }
-                    auto& r = recent[s.id]; if (g.n) { r.push_back(g.median); if (r.size() > 20) r.erase(r.begin()); }
+                    auto& r = recent[s.id]; if (g.n && g.valid >= 0.5f) { r.push_back(g.median); if (r.size() > 20) r.erase(r.begin()); }
                     std::vector<float> sr = r; std::sort(sr.begin(), sr.end());
+                    if (s.id == 1) { relocGap = sr.size() >= 5 ? sr[sr.size() / 2] : NAN; relocSamples = (int)sr.size(); }
                     j << (first ? "" : ",") << "{\"id\":" << s.id << ",\"wall\":\"" << s.wall.substr(0, 8) << "\",\"median\":" << num(g.median) << ",\"p10\":" << num(g.p10) << ",\"p90\":" << num(g.p90)
                       << ",\"valid\":" << g.valid << ",\"tl\":" << num(g.tl) << ",\"tr\":" << num(g.tr) << ",\"bl\":" << num(g.bl) << ",\"br\":" << num(g.br)
                       << ",\"median20\":" << (sr.empty() ? -99.0f : sr[sr.size() / 2]) << ",\"plane\":" << plane << "}";
@@ -1616,6 +1625,92 @@ struct App {
         } else if (scene == "close") { sm.stack.clear(); wt.cancel(); std::lock_guard<std::mutex> g(assistLock); chats.erase(1); }
         event("ui-demo: " + scene + " (" + wallshape::stateName(wt.state()) + ")");
     }
+    // ---- RELOCCHECK: relocGap is the running median (last 20 good frames) of the main screen's signed gap to the real
+    // surface over its rect, from the depth worker. Over 20 cm for 20 s in a row: the room is misaligned -> a hint every
+    // 60 s until it recovers. Our anchors cannot catch this: they live in the same Meta tracking map as the scene walls.
+    std::atomic<float> relocGap{NAN}; std::atomic<int> relocSamples{0};
+    bool relocWarn = false; long relocWarnings = 0; int relocBadSecs = 0; std::chrono::steady_clock::time_point relocToastAt{}, relocTick{};
+    void updateReloc() {
+        auto t = std::chrono::steady_clock::now();
+        if (t - relocTick < std::chrono::seconds(1)) return;
+        relocTick = t;
+        float g = relocGap.load();
+        if (!relocOn() || !placed.active || !std::isfinite(g)) { relocBadSecs = 0; relocWarn = false; return; }
+        relocBadSecs = std::fabs(g) > 0.20f ? relocBadSecs + 1 : 0;
+        bool warn = relocBadSecs >= 20;
+        if (warn && !relocWarn) { relocWarnings++; event("reloc: main screen " + std::to_string((int)(g * 100)) + " cm off the real wall"); }
+        relocWarn = warn;
+        if (warn && t - relocToastAt > std::chrono::seconds(60)) {
+            const float amber[4] = {1.0f, 0.75f, 0.25f, 1};
+            toast("reloc", "ROOM LOOKS MISALIGNED: TURN ON THE LIGHTS AND LOOK AROUND", amber, 8); relocToastAt = t;
+        }
+    }
+    // ---- Placements never disappear (room_lab/placement_guard.h; 2026-11-04: a restart raced Meta's relocalisation, the
+    // one scene query came back empty and only the helmet showed). Every frame: the walls the placed screens need; any
+    // missing or unlocated real wall -> re-query on the guard's cadence, and meanwhile a stand-in wall from the STAGE
+    // cache (files/lastwalls.json) under the same uuid, so every screen path draws at its saved spot. Real walls refresh
+    // the cache (only when they moved). status "placement" reports per screen where it is drawn from and its STAGE spot.
+    json::Value sceneTest; bool sceneTestRead = false;
+    pguard::Requery pg; std::map<std::string, pguard::CachedWall> wallCache; bool wallCacheLoaded = false;
+    std::chrono::steady_clock::time_point wallCacheSaved{};
+    XrPosef stageInLocal{{0, 0, 0, 1}, {0, 0, 0}}; bool stageOk = false;
+    std::set<std::string> neededWalls() const {
+        std::set<std::string> n; if (placed.active && !placed.wall.empty()) n.insert(placed.wall);
+        for (auto& e : extras) if (e.p.active && !e.p.wall.empty()) n.insert(e.p.wall);
+        return n;
+    }
+    void updatePlacementGuard(XrTime t) {
+        if (!wallCacheLoaded) { wallCacheLoaded = true; std::string txt; if (house::readFile(gDir + "/lastwalls.json", txt)) wallCache = pguard::load(txt);
+                                event("placement: " + std::to_string(wallCache.size()) + " cached wall spots"); }
+        XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
+        stageOk = stage != XR_NULL_HANDLE && XR_SUCCEEDED(xrLocateSpace(stage, local, t, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+        if (stageOk) stageInLocal = sl.pose;
+        std::set<std::string> need = neededWalls(), have;
+        for (auto& e : entities) if (!e.standIn && e.located) have.insert(e.uuid);
+        // Re-query (one in flight; not while Meta's own first query is still the one running).
+        if (running && (state == XR_SESSION_STATE_VISIBLE || state == XR_SESSION_STATE_FOCUSED) && pg.due(now(), need, have) && sceneState.rfind("querying", 0) != 0) {
+            pg.started(now()); querySpaces(); event("placement: re-query (" + std::to_string(have.size()) + " real walls located)");
+        }
+        // Stand-ins: add or move them; drop those whose real wall is here.
+        entities.erase(std::remove_if(entities.begin(), entities.end(), [&](const Entity& e) { return e.standIn && have.count(e.uuid); }), entities.end());
+        if (stageOk) for (auto& u : pguard::standIns(need, have, wallCache)) {
+            const pguard::CachedWall& c = wallCache[u];
+            Entity* e = nullptr; for (auto& x : entities) if (x.uuid == u) e = &x;
+            if (!e) { entities.push_back(Entity{}); e = &entities.back(); e->uuid = u; e->label = "WALL_FACE"; e->standIn = true; e->has2d = true;
+                      event("placement: stand-in for wall " + u.substr(0, 8) + " (last known spot)"); }
+            if (!e->standIn) continue;  // a real entity that is not located: leave it (its own pose is the last good one)
+            e->r2 = {{c.ox, c.oy}, {c.w, c.h}}; e->pose = xp(pguard::toLocal(wp(stageInLocal), c)); e->located = true;
+        }
+        // Cache refresh from real walls, at most every 2 s.
+        if (stageOk && std::chrono::steady_clock::now() - wallCacheSaved > std::chrono::seconds(2)) {
+            bool dirty = false;
+            for (auto& e : entities) if (!e.standIn && e.located && need.count(e.uuid) && e.has2d) {
+                pguard::CachedWall c = pguard::fromLocal(e.uuid, wp(stageInLocal), wp(e.pose), e.r2.offset.x, e.r2.offset.y, e.r2.extent.width, e.r2.extent.height);
+                auto it = wallCache.find(e.uuid);
+                if (it == wallCache.end() || pguard::moved(it->second, c)) { wallCache[e.uuid] = c; dirty = true; }
+            }
+            if (dirty) house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
+            wallCacheSaved = std::chrono::steady_clock::now();
+        }
+    }
+    std::string placementJson() {
+        std::ostringstream j; j.setf(std::ios::fixed); j.precision(3);
+        j << "{\"stage\":" << (stageOk ? 1 : 0) << ",\"queries\":" << pg.queries << ",\"cached\":" << wallCache.size() << ",\"screens\":[";
+        bool first = true;
+        auto one = [&](int id, const Placement& p) {
+            Entity* w = p.active ? wallById(p.wall) : nullptr;
+            std::string src = !w ? "none" : w->standIn ? "cache" : w->located ? "scene" : "unlocated";
+            j << (first ? "" : ",") << "{\"id\":" << id << ",\"wall\":\"" << p.wall.substr(0, 8) << "\",\"source\":\"" << src << "\"";
+            if (w && stageOk) {
+                V3 c = xform(w->pose, {p.x, p.y, 0.02f}); wallfit::Pose s = anchors::compose(anchors::inverse(wp(stageInLocal)), wallfit::Pose{{0, 0, 0, 1}, {c.x, c.y, c.z}});
+                j << ",\"stage\":[" << s.p.x << "," << s.p.y << "," << s.p.z << "]";
+            }
+            j << "}"; first = false;
+        };
+        one(1, placed); for (auto& e : extras) one(e.id, e.p);
+        j << "]}";
+        return j.str();
+    }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
         float aspect = placed.h / placed.w, m = 0.03f;
@@ -1797,6 +1892,7 @@ void main(){
         XrReferenceSpaceCreateInfo rs{XR_TYPE_REFERENCE_SPACE_CREATE_INFO}; rs.poseInReferenceSpace.orientation.w = 1;
         rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL; ok(xrCreateReferenceSpace(session, &rs, &local), "local space");
         rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW; ok(xrCreateReferenceSpace(session, &rs, &view), "view space");
+        rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE; ok(xrCreateReferenceSpace(session, &rs, &stage), "stage space");  // last-known spots
 
         uint32_t vc = 0; XrViewConfigurationView cv[2] = {{XR_TYPE_VIEW_CONFIGURATION_VIEW}, {XR_TYPE_VIEW_CONFIGURATION_VIEW}};
         xrEnumerateViewConfigurationViews(instance, system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 2, &vc, cv);
@@ -1917,7 +2013,22 @@ void main(){
             }
             if (componentEnabled(r.space, XR_SPACE_COMPONENT_TYPE_BOUNDED_2D_FB)) e.has2d = XR_SUCCEEDED(xrGetSpaceBoundingBox2DFB_(session, r.space, &e.r2));
             if (componentEnabled(r.space, XR_SPACE_COMPONENT_TYPE_BOUNDED_3D_FB)) e.has3d = XR_SUCCEEDED(xrGetSpaceBoundingBox3DFB_(session, r.space, &e.r3));
-            entities.push_back(e);
+            // Self-test hook (bench/placement_regress.py): files/scene-test {"ignoreFirstS": N, "hide": [uuid,...]} drops
+            // results for N s after launch (relocalisation pending) and hides walls (Meta uuids changed).
+            if (!sceneTestRead) {
+                sceneTestRead = true; std::string txt;
+                if (house::readFile(gDir + "/scene-test", txt)) { bool okj = false; sceneTest = json::parse(txt, &okj); event("placement: scene-test " + txt); }
+            }
+            bool hidden = now() < sceneTest["ignoreFirstS"].num(0);
+            for (auto& h : sceneTest["hide"].a) hidden = hidden || h.str() == e.uuid;
+            if (hidden) { xrDestroySpace(e.space); continue; }
+            bool dup = false;
+            for (auto& x : entities) if (x.uuid == e.uuid) {
+                if (x.standIn) { x = e; event("placement: real wall " + e.uuid.substr(0, 8) + " replaces its stand-in"); }
+                else xrDestroySpace(e.space);  // already have it from an earlier query
+                dup = true; break;
+            }
+            if (!dup) entities.push_back(e);
         }
         event("scene query returned " + std::to_string(out.size()) + " spaces");
     }
@@ -1943,6 +2054,7 @@ void main(){
             if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
                 auto* sc = reinterpret_cast<XrEventDataSessionStateChanged*>(&ev);
                 state = sc->state; event("session state " + std::to_string((int)state));
+                if (state == XR_SESSION_STATE_FOCUSED) pg.forced = true;  // resumed / worn again: make sure the walls are current
                 if (state == XR_SESSION_STATE_READY) {
                     XrSessionBeginInfo bi{XR_TYPE_SESSION_BEGIN_INFO}; bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                     running = ok(xrBeginSession(session, &bi), "xrBeginSession");
@@ -1961,7 +2073,7 @@ void main(){
                 if (id == anchorQueryId) anchorsRetrieve(id); else retrieveSpaces(id);
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB) {
                 if (reinterpret_cast<XrEventDataSpaceQueryCompleteFB*>(&ev)->requestId == anchorQueryId) { anchorsQueried = true; event("anchors: query complete, " + std::to_string(ours.size()) + " found"); }
-                else { sceneState = "loaded"; event("scene query complete"); }
+                else { sceneState = "loaded"; pg.finished(); event("scene query complete"); }
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB) {
                 anchorCreated(*reinterpret_cast<XrEventDataSpatialAnchorCreateCompleteFB*>(&ev));
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB) {
@@ -1970,6 +2082,8 @@ void main(){
                 anchorSaved(*reinterpret_cast<XrEventDataSpaceSaveCompleteFB*>(&ev));
             } else if (ev.type == XR_TYPE_EVENT_DATA_SCENE_CAPTURE_COMPLETE_FB) {
                 event("scene capture complete"); entities.clear(); querySpaces();
+            } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+                pg.forced = true; event("placement: reference space change pending, re-query");  // recentre / relocalisation
             } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) gQuit = true;
             ev = {XR_TYPE_EVENT_DATA_BUFFER};
         }
@@ -3195,7 +3309,7 @@ void main(){
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_NONE);
                 depthConfigured.insert(depthTex);
             }
-            if (depthGap() || depthDumpWanted || scanning()) depthReadback(depthTex);
+            if (depthGap() || depthDumpWanted || scanning() || relocOn()) depthReadback(depthTex);
         }
         bool hasVideo = video.update(display) && video.mipTex;
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
@@ -3260,6 +3374,8 @@ void main(){
             scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
             wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
             assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
+            relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
+            updateReloc();
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
@@ -3358,11 +3474,13 @@ void main(){
             XrSpaceLocation hl{XR_TYPE_SPACE_LOCATION};
             if (XR_SUCCEEDED(xrLocateSpace(view, local, fs.predictedDisplayTime, &hl)) && (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) head = hl.pose;
             for (auto& e : entities) {
+                if (e.standIn) continue;
                 XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
                 if (XR_SUCCEEDED(xrLocateSpace(e.space, local, fs.predictedDisplayTime, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
                     (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) { e.pose = sl.pose; e.located = true; }
             }
             anchorsLocate(fs.predictedDisplayTime);
+            updatePlacementGuard(fs.predictedDisplayTime);
             if (depthStarted) {
                 XrEnvironmentDepthImageAcquireInfoMETA ai{XR_TYPE_ENVIRONMENT_DEPTH_IMAGE_ACQUIRE_INFO_META}; ai.space = local; ai.displayTime = fs.predictedDisplayTime;
                 XrEnvironmentDepthImageMETA img{XR_TYPE_ENVIRONMENT_DEPTH_IMAGE_META};
@@ -3445,6 +3563,8 @@ void main(){
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
         { std::lock_guard<std::mutex> g(assistLock);
           j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
+        j << ",\"placement\":" << placementJson();
+        j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
         j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"

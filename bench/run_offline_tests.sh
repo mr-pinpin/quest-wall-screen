@@ -27,6 +27,7 @@ run "room frame from our anchors (room_lab/anchors.h)" bash -c "g++ -std=c++17 -
 run "wave to scroll (room_lab/scroll.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/scroll_test.cpp -o $T/scr && $T/scr"
 run "assistant backend (offline model + screen mocks)" python3 bench/assistant_mock_test.py
 run "assistant client: SSE, chat, wrapping (room_lab/assist.h)" bash bench/assist_test.sh
+run "placements never disappear (room_lab/placement_guard.h, simulated scene timing)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/placement_guard_test.cpp -o $T/pg && $T/pg"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "depth wall fitting on a real Quest depth frame (both eyes agree on the wall)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_replay.cpp -o $T/wfreplay && $T/wfreplay house/fixtures/depth-47041720"
@@ -37,7 +38,7 @@ run "house file: schema, migration, sync server (house/test_house.py)" python3 h
 run "bench lock modes: shared / exclusive, writer priority, expiry (bench/benchlock_test.py)" python3 bench/benchlock_test.py
 run "verdict.py self-test (pass/drop rules)" python3 bench/verdict.py --self-test
 run "video LOD ladder along pose paths (bench/ladder_sim.cpp)" bash -c "g++ -std=c++17 -O1 -I room_lab bench/ladder_sim.cpp -o $T/ladder && $T/ladder"
-run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py bench/headset_hold.py bench/vt_check.py bench/verdict.py bench/stress/headset_sim.py bench/watchdog.py bench/campaign.py bench/benchlock.py house/server.py house/migrate.py assistant/pinpin_assistant.py assistant/screen_mcp.py
+run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py bench/headset_hold.py bench/vt_check.py bench/verdict.py bench/stress/headset_sim.py bench/watchdog.py bench/campaign.py bench/benchlock.py bench/placement_regress.py bench/headset_awake.py house/server.py house/migrate.py assistant/pinpin_assistant.py assistant/screen_mcp.py
 mv "$T" "$T.done" 2>/dev/null   # scratch binaries stay in /tmp
 [ $fail = 0 ] && echo "all offline tests passed" || echo "OFFLINE TESTS FAILED"
 exit $fail

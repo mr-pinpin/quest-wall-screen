@@ -40,4 +40,18 @@ try:
     with stress.install_lock('t'): check(False, 'live old-style lock ignored')
 except stress.OwnerRefused: pass
 check(os.path.isdir(stress.INSTALL_LOCK), 'live old-style lock left alone'); os.rmdir(stress.INSTALL_LOCK)
+# prox_close: refused off the charger and at night (dumpsys faked through stress.mini).
+stress.OWNER_FILE.write_text('agents\n')
+import time as _t
+real_gm = _t.gmtime
+def prox_try(battery, hour):
+    stress.mini = lambda cmd, **k: battery if 'dumpsys battery' in cmd else ''
+    stress.time.gmtime = lambda *a: _t.struct_time((2026, 11, 4, hour, 0, 0, 2, 308, 0))
+    try: stress.prox('prox_close', 'test'); return True
+    except stress.OwnerRefused: return False
+    finally: stress.time.gmtime = real_gm
+stress.PROX_LOG = str(d / 'prox.log')
+check(not prox_try('AC powered: false\nUSB powered: false', 12), 'prox_close refused off the charger')
+check(not prox_try('AC powered: true', 2), 'prox_close refused at night')
+check(prox_try('AC powered: true', 12), 'prox_close allowed on the charger by day')
 print(f'guard self-test: {fails} failures'); sys.exit(1 if fails else 0)
