@@ -18,6 +18,7 @@ refuses truncated, corrupt, invalid or stale writes.
   POST /house/rollback?rev=N   new revision with revision N's content (If-Match: current rev)
   PUT  /blob/<sha256>          a mesh or other binary; the body must hash to the name. GET /blob/<sha256>.
   GET  /legacy/placement.json | screens.json | settings.json   the house in today's headset file formats
+  GET  /house/plan.svg         top-down floor plan from the walls' poses (house/floorplan.py)
   GET  /health
 """
 import argparse
@@ -231,6 +232,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {'error': 'no such blob'})
             with open(path, 'rb') as f:
                 return self.send(200, f.read(), 'application/octet-stream')
+        if p == '/house/plan.svg':
+            import floorplan
+            return self.send(200, floorplan.plan(st.doc), 'image/svg+xml')
         if p.startswith('/legacy/'):
             fn = {'placement.json': schema.legacy_placement, 'screens.json': schema.legacy_screens,
                   'settings.json': schema.legacy_settings}.get(p[8:])

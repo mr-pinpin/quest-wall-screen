@@ -131,6 +131,33 @@ class Migration(unittest.TestCase):
         self.assertEqual(schema.validate(migrate.build()), [])
 
 
+class FloorPlan(unittest.TestCase):
+    def test_box_room(self):
+        import floorplan
+        d = fixture()
+        # four walls of a 4 x 4.5 m room facing inward, pose = rect centre; one wall keeps no pose
+        def q_yaw(deg):
+            import math
+            return [0, math.sin(math.radians(deg) / 2), 0, math.cos(math.radians(deg) / 2)]
+        poses = [([0, 1.25, -2.25], q_yaw(0)), ([0, 1.25, 2.25], q_yaw(180)), ([-2, 1.25, 0], q_yaw(90))]
+        for w, (p, q) in zip(d['walls'], poses):
+            w['pose'] = {'p': p, 'q': q}; w['w'], w['h'] = 4.0, 2.5
+        d['walls'].append({'id': 'w-nopose', 'room': 'r1', 'kind': 'wall', 'source': 'scene', 'scene': ['e' * 32]})
+        self.assertEqual(schema.validate(d), [])
+        svg = floorplan.plan(d)
+        self.assertEqual(svg.count('class="wall"'), 3)
+        self.assertEqual(svg.count('class="normal"'), 3)
+        self.assertEqual(svg.count('class="screen"'), 3)
+        self.assertIn('1 without (no pose yet)', svg)
+        # the left wall (yaw 90: normal +x) is drawn vertical on the page, its normal tick pointing right
+        import re
+        lines = re.findall(r'class="(wall|normal)" x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"', svg)
+        walls = [l for l in lines if l[0] == 'wall']; normals = [l for l in lines if l[0] == 'normal']
+        self.assertAlmostEqual(float(walls[2][1]), float(walls[2][3]), delta=0.5)
+        self.assertGreater(float(normals[2][3]), float(normals[2][1]))
+        self.assertTrue(svg.lstrip().startswith('<svg') and svg.rstrip().endswith('</svg>'))
+
+
 class Server(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix='house-test-')
@@ -282,6 +309,9 @@ class Server(unittest.TestCase):
 
     def test_legacy_endpoints(self):
         self.seed()
+        st, h, svg = self.req('GET', '/house/plan.svg')
+        self.assertEqual((st, h['Content-Type']), (200, 'image/svg+xml'))
+        self.assertIn(b'</svg>', svg)
         self.assertEqual(json.loads(self.req('GET', '/legacy/placement.json')[2]), PLACEMENT)
         self.assertEqual(json.loads(self.req('GET', '/legacy/screens.json')[2]), SCREENS)
 
