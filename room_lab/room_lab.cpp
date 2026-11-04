@@ -2196,7 +2196,7 @@ struct App {
     // cache (files/lastwalls.json) under the same uuid, so every screen path draws at its saved spot. Real walls refresh
     // the cache (only when they moved). status "placement" reports per screen where it is drawn from and its STAGE spot.
     json::Value sceneTest; bool sceneTestRead = false;
-    std::set<std::string> stageChecked; long stageMoves = 0; float stageJumpM = 0;
+    std::set<std::string> stageChecked; long stageMoves = 0; float stageJumpM = 0; bool stageRebased = false;
     // SCAN's own walls (multi-room): solid fitted walls no Meta scene wall matches, kept in STAGE in files/depthwalls.json
     // and shown as walls of their own (ids "w-d..."), so screens can be placed in rooms Meta never scanned.
     std::map<std::string, pguard::CachedWall> depthWalls; bool depthWallsLoaded = false; std::vector<std::string> scanIds;
@@ -2293,6 +2293,7 @@ struct App {
     }
     void updatePlacementGuard(XrTime t) {
         if (!wallCacheLoaded) { wallCacheLoaded = true; std::string txt; if (house::readFile(gDir + "/lastwalls.json", txt)) wallCache = pguard::load(txt);
+                                for (auto& [u, c] : wallCache) c.stage = unitPose(c.stage);   // older builds let the quaternions drift off unit length
                                 event("placement: " + std::to_string(wallCache.size()) + " cached wall spots"); }
         XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
         stageOk = stage != XR_NULL_HANDLE && XR_SUCCEEDED(xrLocateSpace(stage, local, t, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
@@ -2306,6 +2307,7 @@ struct App {
         repairDepthWalls();
         // Our depth walls (SCAN): permanent walls of their own, posed from STAGE every frame.
         if (!depthWallsLoaded) { depthWallsLoaded = true; std::string txt; if (house::readFile(gDir + "/depthwalls.json", txt)) depthWalls = pguard::load(txt);
+                                 for (auto& [u, c] : depthWalls) c.stage = unitPose(c.stage);
                                  if (!depthWalls.empty()) event("placement: " + std::to_string(depthWalls.size()) + " scanned walls"); }
         if (stageOk) for (auto& [id, c] : depthWalls) {
             Entity* e = nullptr; for (auto& x : entities) if (x.uuid == id) e = &x;
@@ -2323,22 +2325,35 @@ struct App {
             if (!e->standIn) continue;  // a real entity that is not located: leave it (its own pose is the last good one)
             e->r2 = {{c.ox, c.oy}, {c.w, c.h}}; e->pose = xp(pguard::toLocal(wp(stageInLocal), c)); e->located = true;
         }
-        // STAGE moved (2026-11-04: 2.5 m between two sessions after a dark-room relocalisation): the first real wall that
-        // arrives more than 10 cm from its cached spot gives the rigid correction; every cached wall is rebased with it.
+        // STAGE moved (2026-11-04: 2.5 m between two sessions after a dark-room relocalisation): real walls more than 10 cm
+        // from their cached spots give the rigid correction; every cached wall (and our depth walls) is rebased with it.
         // Only Meta's own walls can tell (2026-11-04: our depth walls, posed from depthwalls.json and never rebased, were
         // taken as the reference, "stage moved 526 cm", and the cache was shifted the wrong way; screens 6 and 7 vanished).
-        if (stageOk) for (auto& e : entities) if (!e.standIn && e.located && e.space != XR_NULL_HANDLE && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
-            stageChecked.insert(e.uuid);
-            pguard::CachedWall& c = wallCache[e.uuid];
-            wallfit::Pose realStage = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose));
-            float jump = wallfit::len(realStage.p - c.stage.p);
-            if (jump > 0.10f) {
-                wallfit::Pose T = anchors::compose(realStage, anchors::inverse(c.stage));
+        // At most one rebase per session: after it, the other walls just refresh their cached spots (2026-11-04: an
+        // inconsistent cache fired four rebases at one start, 331 / 466 / 266 / 439 cm, each also moving our depth walls).
+        if (stageOk && !stageRebased) {
+            // Every Meta wall located now gives one estimate; the consensus (anchors::solve, 10 cm / 3 deg) is the
+            // correction, so one bad cache entry cannot move the rest.
+            std::vector<anchors::Seen> est; float jump = 0; std::string ref;
+            std::vector<std::string> seen;
+            for (auto& e : entities) if (!e.standIn && e.located && e.space != XR_NULL_HANDLE && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
+                seen.push_back(e.uuid);
+                wallfit::Pose realStage = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose)), c = unitPose(wallCache[e.uuid].stage);
+                est.push_back({"x", unitPose(anchors::compose(realStage, anchors::inverse(c)))});
+                float j = wallfit::len(realStage.p - c.p); if (j > jump) { jump = j; ref = e.uuid; }
+            }
+            if (est.size() < 2 && now() < 5) est.clear();          // wait (up to 5 s) for a second wall to vote
+            else for (auto& u : seen) stageChecked.insert(u);
+            anchors::Frame f = est.empty() ? anchors::Frame{} : anchors::solve({{"x", wallfit::Pose{{0, 0, 0, 1}, {0, 0, 0}}}}, est, 0.10f, 3.0f);
+            if (f.ok && wallfit::len(f.roomInLocal.p) > 0.10f && (f.used >= 2 || est.size() == 1)) {
+                wallfit::Pose T = unitPose(f.roomInLocal);
                 for (auto& [u, cw] : wallCache) cw.stage = unitPose(anchors::compose(T, cw.stage));
                 for (auto& [u, dw] : depthWalls) dw.stage = unitPose(anchors::compose(T, dw.stage));   // our walls move with STAGE too
                 if (!depthWalls.empty()) house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
-                stageMoves++; stageJumpM = jump; house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
-                event("placement: stage moved " + std::to_string((int)(jump * 100)) + " cm since the cache (wall " + e.uuid.substr(0, 8) + "); cache rebased");
+                stageMoves++; stageJumpM = wallfit::len(T.p); stageRebased = true; house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
+                event("placement: stage moved " + std::to_string((int)(stageJumpM * 100)) + " cm (" + std::to_string(f.used) + " of " + std::to_string(est.size()) + " walls agree); cache rebased");
+            } else if (!est.empty() && jump > 0.10f) {
+                event("placement: walls disagree with the cache (" + std::to_string(f.used) + " of " + std::to_string(est.size()) + " agree, worst " + std::to_string((int)(jump * 100)) + " cm at " + ref.substr(0, 8) + "); cache refreshed, not rebased");
             }
         }
         // Cache refresh from real walls, at most every 2 s.
