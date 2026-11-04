@@ -7,3 +7,4 @@
 - 02:00 work-34 campaign GO (sender flags only auto-flip after smoke); work-42 e2e tonight approved on display 90 (≤3 turns, public pages); displays rebuild deferred to morning (TCC)
 - 02:10 rebase collision in the shared checkout resolved by c4/42; suggest per-agent worktrees
 - 02:20 c4: v0.47 built (WALLTOOL, ASSIST UI, SCROLL; flags off); NOSLEEP active since 01:50 with root; v0.47 session GO
+- 02:10 check: all four active. User woke briefly: screens misplaced = Meta relocalised in the dark (lights on fixed it); perf flags were back on in settings.json, now off. New user rule: deploy/restart any time unless the user says not to disturb
