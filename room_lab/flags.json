@@ -410,6 +410,32 @@
    "menu": "EXPERIMENTAL"
   },
   {
+   "name": "WALLTOOL",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Draw lines and circles on the walls and extrude lines into surfaces from the WALLS menu; shapes saved in house.json. Feature in development.",
+   "evidence": [
+    {
+     "commit": "b59a0c7"
+    }
+   ]
+  },
+  {
+   "name": "SCROLL",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Wave an open hand (palm away) up/down/left/right to scroll the screen you point at: Moonlight wheel for the main screen, 'w' on the Air mouse port for extra screens. Feature in development.",
+   "evidence": [
+    {
+     "commit": "526b207"
+    }
+   ]
+  },
+  {
    "name": "vt",
    "where": "sender",
    "default": false,
