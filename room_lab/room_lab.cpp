@@ -31,6 +31,7 @@
 #include "anchors.h"
 #include "scroll.h"
 #include "wallshape.h"
+#include "assist.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -215,6 +216,9 @@ struct App {
     bool scrollMenu = false, scrollFile = false; bool scrollOn() const { return scrollMenu || scrollFile; }
     // WALLTOOL flag (room_lab/wallshape.h): draw lines and circles on the walls, extrude lines into skins; saved in house.json.
     bool wallToolMenu = false, wallToolFile = false; bool wallToolOn() const { return wallToolMenu || wallToolFile; }
+    // ASSIST flag (room_lab/assist.h, docs/prd/assistant-protocol.md): a Claude button on every screen; speech goes to
+    // that screen's assistant and the answer streams into a chat panel beside it.
+    bool assistMenu = false, assistFile = false; bool assistOn() const { return assistMenu || assistFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -474,7 +478,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 36;
+    static constexpr int kMenuItems = 37;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -492,7 +496,7 @@ struct App {
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
         {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
         {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"},
-        {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}};
+        {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -522,6 +526,7 @@ struct App {
         if (l == "SCAN") return scanOn();
         if (l == "SCROLL") return scrollOn();
         if (l == "WALLTOOL") return wallToolOn();
+        if (l == "ASSIST") return assistOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -582,7 +587,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -611,7 +616,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -651,6 +656,7 @@ struct App {
         else if (l == "SCAN") scanMenu = !scanMenu;                           // the scan button in SHOULDER / WRIST
         else if (l == "SCROLL") scrollMenu = !scrollMenu;                       // wave to scroll
         else if (l == "WALLTOOL") wallToolMenu = !wallToolMenu;                // wall drawing tool
+        else if (l == "ASSIST") assistMenu = !assistMenu;                       // Claude button on every screen
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -943,7 +949,7 @@ struct App {
             } else rbErr = "map failed";
             glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         }
-        if (frames - rbLast < (scanning() ? 18 : 36) && !depthDumpWanted) return;
+        if (frames - rbLast < (scanning() || depthDumpWanted ? 18 : 36)) return;
         int k = !rbBusy[0] ? 0 : !rbBusy[1] ? 1 : -1; if (k < 0) return;
         if (!rbProg) {
             const char* vs = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
@@ -986,7 +992,10 @@ struct App {
         glBindFramebuffer(GL_FRAMEBUFFER, prevFb); glViewport(vp[0], vp[1], vp[2], vp[3]); glUseProgram(prevProg); glBindVertexArray(prevVao);
         if (dt) glEnable(GL_DEPTH_TEST); if (bl) glEnable(GL_BLEND); if (sc) glEnable(GL_SCISSOR_TEST);
         // What the depth was taken against: the screens and scene walls as they stand now.
-        DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted; depthDumpWanted = false;
+        // A dump waits until the scene walls are located (a dump taken at launch had none: walls:[], screens:[]).
+        bool wallsKnown = false; for (auto& e : entities) wallsKnown = wallsKnown || (e.located && isWall(e));
+        DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted && wallsKnown;
+        if (sh.dump) depthDumpWanted = false;
         auto addScreen = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr; if (!w || !w->located) return;
             sh.screens.push_back({id, p.wall, wp(w->pose), p.x, p.y, p.w, p.h});
@@ -1320,7 +1329,8 @@ struct App {
     void updateScroll() {
         if (!scrollOn()) { wave.reset(); return; }
         auto nowT = std::chrono::steady_clock::now();
-        if (pointer.on) { scrollTarget = 1; scrollU = pointer.u; scrollV = pointer.v; scrollSeen = nowT; }
+        if (chatHover > 0) { scrollTarget = -chatHover; scrollSeen = nowT; }
+        else if (pointer.on) { scrollTarget = 1; scrollU = pointer.u; scrollV = pointer.v; scrollSeen = nowT; }
         else if (extraPtr >= 0 && extraPtr < (int)extras.size()) { scrollTarget = extras[extraPtr].id; scrollU = eu; scrollV = ev; scrollSeen = nowT; }
         const int h = 1; scrollg::Input in;
         in.t = now(); in.tracked = handActive[h]; in.open = handActive[h] && openHand(h); in.pinch = handActive[h] && ray[h].pinch;
@@ -1333,6 +1343,7 @@ struct App {
         scrollg::Out o = wave.update(in);
         if (!o.dx && !o.dy) return;
         if (scrollTarget == 0 || nowT - scrollSeen > std::chrono::milliseconds(1500)) return;
+        if (scrollTarget < 0) { chatScroll[-scrollTarget] += o.dy / 40.0f; scrollSent++; return; }  // a chat panel: 40 units a line
         if (scrollTarget == 1) {
             if (!streamInput()) return;
             if (o.dy) LiSendHighResScrollEvent((short)-o.dy);   // hand up: content up = wheel down (negative)
@@ -1423,6 +1434,156 @@ struct App {
         if (wt.state() == wallshape::State::Confirmed || wt.state() == wallshape::State::Done || wt.state() == wallshape::State::Dragging)
             for (auto& h : wt.handles()) ring({h.pos.x, h.pos.y, h.pos.z}, 0.025f, hcol);
         if (wt.cursor().ok() && wt.state() != wallshape::State::Idle) ring({wt.cursor().world.x, wt.cursor().world.y, wt.cursor().world.z}, 0.012f, ccol);
+    }
+    // ---- ASSIST (flag; room_lab/assist.h). Every screen gets a Claude button just outside its top-right corner. A press
+    // arms that screen and starts listening (no fist gesture, no Enter); a second press (or 30 s) stops, and once the
+    // last words are transcribed they go to POST /session/<id>/message on the assistant (192.168.0.50:57840, or
+    // files/assist-host). The reply streams into a chat panel beside the button: Markdown-lite, both sides, scrollable
+    // with SCROLL. Orbiting dots: terracotta while listening, amber while the answer streams. The panel is a texture
+    // redrawn only when that chat changes, drawn as one quad per screen.
+    std::mutex assistLock; std::map<int, assist::Chat> chats; std::map<int, float> chatScroll;
+    int assistArmed = 0, assistHover = 0, chatHover = 0; std::string assistBuffer, assistErr, assistHost; long assistSent = 0;
+    std::chrono::steady_clock::time_point assistT0{}; bool assistSending = false, assistHistoryLoaded = false;
+    struct ChatQuad { int id; V3 c[4]; GLuint tex = 0; long version = -1; int scroll = -1; };
+    std::map<int, ChatQuad> chatTex; std::vector<int> chatQuads;
+    GLuint chatProg = 0, chatVao = 0, chatVbo = 0; GLint chatLocVP = -1, chatLocTex = -1;
+    static constexpr float kChatW = 0.75f, kBtnR = 0.035f;
+    bool screenFor(int id, Placement& p, Entity*& w) {
+        if (id == 1) { p = placed; } else { int i = extraIndex(id); if (i < 0) return false; p = extras[i].p; }
+        w = p.active ? wallById(p.wall) : nullptr; return w && w->located;
+    }
+    void assistScreens(std::vector<int>& ids) { ids.clear(); if (placed.active) ids.push_back(1); for (auto& e : extras) ids.push_back(e.id); }
+    V3 assistButton(const Placement& p, const Entity& w) { return xform(w.pose, {p.x + p.w / 2 + 0.06f, p.y + p.h / 2 - 0.06f, 0.03f}); }
+    void assistLoadHistory() {
+        if (assistHistoryLoaded) return; assistHistoryLoaded = true;
+        { std::ifstream hf(gDir + "/assist-host"); std::string h; assistHost = (hf >> h) ? h : "192.168.0.50"; }
+        std::vector<int> ids; assistScreens(ids); std::string host = assistHost;
+        std::thread([this, ids, host] {
+            for (int id : ids) {
+                house::Response r = house::http(host, 57840, "GET", "/session/" + std::to_string(id));
+                bool ok = false; json::Value v = json::parse(r.body, &ok);
+                std::lock_guard<std::mutex> g(assistLock);
+                if (r.status == 200 && ok) chats[id].load(v["messages"]); else if (!r.error.empty()) assistErr = "history: " + r.error;
+            }
+        }).detach();
+    }
+    void assistSend(int id, const std::string& text) {
+        static std::mt19937 rng((unsigned)time(nullptr)); char turn[24]; snprintf(turn, sizeof turn, "h%08x", (unsigned)rng());
+        { std::lock_guard<std::mutex> g(assistLock); chats[id].user(text, turn); chatScroll[id] = 0; }
+        assistSent++; event("assist: screen " + std::to_string(id) + " <- " + text);
+        std::string host = assistHost, tid = turn;
+        std::thread([this, id, text, host, tid] {
+            std::string err = assist::send(host, 57840, id, text, tid, chats[id], assistLock);
+            std::lock_guard<std::mutex> g(assistLock); assistErr = err;
+        }).detach();
+    }
+    // Returns true when a Claude button takes the right hand this frame.
+    bool updateAssist() {
+        assistHover = 0; chatHover = 0;
+        if (!assistOn()) { if (assistArmed) { dictation.stop(); assistArmed = 0; } return false; }
+        assistLoadHistory();
+        // Armed: stop after 30 s; once stopped and transcribed, send what was heard.
+        if (assistArmed && dictation.recording && std::chrono::steady_clock::now() - assistT0 > std::chrono::seconds(30)) dictation.stop();
+        if (assistArmed && !dictation.recording && dictation.drained()) {
+            if (!assistBuffer.empty()) assistSend(assistArmed, assistBuffer);
+            assistBuffer.clear(); assistArmed = 0;
+        }
+        if (!(handActive[1] && ray[1].valid)) return false;
+        float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
+        std::vector<int> ids; assistScreens(ids);
+        for (int id : ids) {
+            Placement p; Entity* w; if (!screenFor(id, p, w) || w != hw) continue;
+            float bx = p.x + p.w / 2 + 0.06f, by = p.y + p.h / 2 - 0.06f;
+            if (std::hypot(hx - bx, hy - by) < kBtnR * 1.3f) {
+                assistHover = id;
+                if (ray[1].pinch && !pinchPrev[1]) {
+                    if (assistArmed == id && dictation.recording) { dictation.stop(); event("assist: stop listening"); }
+                    else if (!assistArmed) { assistArmed = id; assistBuffer.clear(); assistT0 = std::chrono::steady_clock::now(); dictation.start(); event("assist: listening for screen " + std::to_string(id)); }
+                }
+                return true;
+            }
+            float cx0 = bx + 0.06f, ch = std::fmax(p.h, 0.6f);  // the chat panel: hover for SCROLL
+            if (hx > cx0 && hx < cx0 + kChatW && hy < p.y + p.h / 2 && hy > p.y + p.h / 2 - ch) { chatHover = id; return false; }
+        }
+        return false;
+    }
+    void drawAssist(Batch& b) {
+        chatQuads.clear();
+        if (!assistOn()) return;
+        std::vector<int> ids; assistScreens(ids); float t = now();
+        for (int id : ids) {
+            Placement p; Entity* w; if (!screenFor(id, p, w)) continue;
+            V3 eye = v3(head.position), c = assistButton(p, *w), n = rot(w->pose.orientation, {0, 0, 1});
+            if (!seenFrom(eye, c, n, p.wall)) continue;
+            V3 ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0});
+            bool hot = assistHover == id, listening = assistArmed == id;
+            std::string st; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(id); if (it != chats.end()) st = it->second.state; }
+            bool streaming = st == "sending" || st == "streaming";
+            // The button: a dark disc with a terracotta eight-ray spark (Anthropic-style), brighter on hover.
+            const float disc[4] = {0.10f, 0.09f, 0.08f, 0.92f}, terra[4] = {0.85f, hot ? 0.55f : 0.47f, hot ? 0.42f : 0.34f, 1};
+            for (int q = 0; q < 20; q++) {
+                float a0 = q * 0.31416f, a1 = (q + 1) * 0.31416f;
+                b.quad(c, c + ax * (kBtnR * std::cos(a0)) + ay * (kBtnR * std::sin(a0)), c + ax * (kBtnR * std::cos(a1)) + ay * (kBtnR * std::sin(a1)), c, disc);
+            }
+            for (int k = 0; k < 8; k++) {
+                float a = k * 0.7854f + 0.39f; V3 d = ax * std::cos(a) + ay * std::sin(a);
+                b.line(c + d * (kBtnR * 0.18f) + n * 0.001f, c + d * (kBtnR * (k % 2 ? 0.55f : 0.75f)) + n * 0.001f, n, 0.0055f, terra);
+            }
+            if (listening || streaming) {  // orbiting dots
+                const float* col = listening ? terra : nullptr; const float amber[4] = {1.0f, 0.75f, 0.25f, 1};
+                float speed = listening ? 3.2f : 1.8f;
+                for (int k = 0; k < 3; k++) {
+                    float a = t * speed + k * 2.094f; V3 d = c + (ax * std::cos(a) + ay * std::sin(a)) * (kBtnR * 1.35f) + n * 0.002f;
+                    for (int q = 0; q < 8; q++) { float a0 = q * 0.785f, a1 = (q + 1) * 0.785f, r = 0.006f;
+                        b.quad(d, d + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), d + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), d, col ? col : amber); }
+                }
+            }
+            // The chat panel quad (texture refreshed below when the chat or its scroll changed).
+            bool any; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(id); any = it != chats.end() && !it->second.turns.empty(); }
+            if (!any) continue;
+            float x0 = p.x + p.w / 2 + 0.12f, top = p.y + p.h / 2, ch = std::fmax(p.h, 0.6f);
+            ChatQuad& Q = chatTex[id]; Q.id = id;
+            Q.c[0] = xform(w->pose, {x0, top - ch, 0.025f}); Q.c[1] = xform(w->pose, {x0 + kChatW, top - ch, 0.025f});
+            Q.c[2] = xform(w->pose, {x0 + kChatW, top, 0.025f}); Q.c[3] = xform(w->pose, {x0, top, 0.025f});
+            chatRefresh(Q, ch); chatQuads.push_back(id);
+        }
+    }
+    void chatRefresh(ChatQuad& Q, float heightM) {
+        const int W = 576; int H = std::max(64, (int)(W * heightM / kChatW));
+        long ver; int scroll = (int)chatScroll[Q.id]; std::vector<assist::Line> lines;
+        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[Q.id]; ver = c.version; if (ver != Q.version || scroll != Q.scroll) lines = assist::wrap(c, (W - 12) / 8); }
+        if (ver == Q.version && scroll == Q.scroll) return;
+        assist::Raster R; R.w = W; R.h = H;
+        int used = assist::render(lines, scroll, R); chatScroll[Q.id] = (float)used;
+        if (!Q.tex) { glGenTextures(1, &Q.tex); glBindTexture(GL_TEXTURE_2D, Q.tex); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); }
+        else glBindTexture(GL_TEXTURE_2D, Q.tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, R.px.data());
+        Q.version = ver; Q.scroll = used;
+    }
+    void drawChatPanels(const float* vpm) {
+        if (!chatProg) {
+            const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec2 aT; uniform mat4 uVP; out vec2 vT; void main(){ vT=aT; gl_Position=uVP*vec4(aP,1.0); }";
+            const char* fs = "#version 300 es\nprecision mediump float; in vec2 vT; uniform sampler2D uTex; out vec4 o; void main(){ o=texture(uTex,vT); }";
+            chatProg = glCreateProgram(); GLuint a = compile(GL_VERTEX_SHADER, vs), c = compile(GL_FRAGMENT_SHADER, fs);
+            glAttachShader(chatProg, a); glAttachShader(chatProg, c); glLinkProgram(chatProg);
+            chatLocVP = glGetUniformLocation(chatProg, "uVP"); chatLocTex = glGetUniformLocation(chatProg, "uTex");
+            glGenVertexArrays(1, &chatVao); glGenBuffers(1, &chatVbo);
+            glBindVertexArray(chatVao); glBindBuffer(GL_ARRAY_BUFFER, chatVbo);
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void*)12);
+        }
+        glUseProgram(chatProg); glBindVertexArray(chatVao); glBindBuffer(GL_ARRAY_BUFFER, chatVbo);
+        glUniformMatrix4fv(chatLocVP, 1, GL_FALSE, vpm); glUniform1i(chatLocTex, 1); glActiveTexture(GL_TEXTURE1);
+        for (int id : chatQuads) {
+            ChatQuad& Q = chatTex[id]; if (!Q.tex) continue;
+            // two triangles; texture row 0 is the top of the panel
+            float v[30] = {Q.c[0].x, Q.c[0].y, Q.c[0].z, 0, 1, Q.c[1].x, Q.c[1].y, Q.c[1].z, 1, 1, Q.c[2].x, Q.c[2].y, Q.c[2].z, 1, 0,
+                           Q.c[0].x, Q.c[0].y, Q.c[0].z, 0, 1, Q.c[2].x, Q.c[2].y, Q.c[2].z, 1, 0, Q.c[3].x, Q.c[3].y, Q.c[3].z, 0, 0};
+            glBufferData(GL_ARRAY_BUFFER, sizeof v, v, GL_STREAM_DRAW);
+            glBindTexture(GL_TEXTURE_2D, Q.tex); glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+        glActiveTexture(GL_TEXTURE0); glBindBuffer(GL_ARRAY_BUFFER, vbo);
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -2489,6 +2650,10 @@ void main(){
         if (dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
+            if (assistArmed > 0) {  // the Claude button is armed: the words go to that screen's assistant, not the stream
+                assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now();
+                event("assist: heard " + t); continue;
+            }
             if (streamInput()) {
                 std::string out = t + " "; LiSendUtf8TextEvent(out.c_str(), (unsigned)out.size());
                 typed.push_back(codepoints(out)); typedAt = std::chrono::steady_clock::now();
@@ -2537,7 +2702,7 @@ void main(){
         updateSpell();
         updateScan();
         updateScroll();
-        if (updateShoulder() || updateWallTool() || updateMenu() || updateExtras()) {
+        if (updateShoulder() || updateWallTool() || updateAssist() || updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
             return;
@@ -2860,6 +3025,7 @@ void main(){
         drawShoulder(over);
         drawScan(occ);
         drawWallTool(occ);
+        drawAssist(over);
         drawVoice(over);
         drawExtras(occ);
         drawSpell(over);
@@ -3062,6 +3228,7 @@ void main(){
             scanFile = access((gDir + "/scan-on").c_str(), F_OK) == 0;          // forces SCAN for self-tests
             scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
             wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
+            assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
@@ -3133,6 +3300,7 @@ void main(){
                 model.drawDepthQuads(vp.m, screenCorners); model.draw(vp.m);
                 glUseProgram(program); glBindVertexArray(vao);
             }
+            if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }
@@ -3243,6 +3411,8 @@ void main(){
         { std::lock_guard<std::mutex> g(houseLock);
           j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
+        { std::lock_guard<std::mutex> g(assistLock);
+          j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
         j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"

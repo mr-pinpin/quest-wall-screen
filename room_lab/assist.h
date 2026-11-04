@@ -152,6 +152,34 @@ inline std::vector<Line> wrap(const Chat& c, size_t cols) {
     return out;
 }
 
+// ---- The chat panel as an RGBA image (0xAABBGGRR, row 0 at the top): 8x16 glyphs, 18 px per line, the last lines
+// that fit shown, `scroll` lines back from the end. User turns in a blue tint, code on a darker band, headings
+// doubled for weight, action lines dim. Drawn only when the chat or the scroll changes.
+struct Raster { int w = 0, h = 0; std::vector<uint32_t> px; };
+inline uint32_t rgba(int r, int g, int b, int a) { return (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16 | (uint32_t)a << 24; }
+inline int lineH() { return 18; }
+inline void glyphAt(Raster& R, int x, int y, uint32_t cp, uint32_t col, bool bold) {
+    const unifont::Glyph* g = unifont::find(cp); if (!g) g = unifont::find('?'); if (!g) return;
+    for (int r = 0; r < 16; r++) for (int c = 0; c < 8; c++) if (g->rows[r] & (0x80 >> c))
+        for (int b = 0; b <= (bold ? 1 : 0); b++) { int X = x + c + b, Y = y + r; if (X >= 0 && X < R.w && Y >= 0 && Y < R.h) R.px[(size_t)Y * R.w + X] = col; }
+}
+inline int render(const std::vector<Line>& lines, int scroll, Raster& R) {
+    const uint32_t bg = rgba(16, 18, 24, 225), userBg = rgba(28, 44, 70, 235), codeBg = rgba(8, 10, 14, 240);
+    R.px.assign((size_t)R.w * R.h, bg);
+    int rows = (R.h - 8) / lineH(), n = (int)lines.size();
+    scroll = std::max(0, std::min(scroll, std::max(0, n - rows)));
+    int first = std::max(0, n - rows - scroll);
+    for (int k = 0; k < rows && first + k < n; k++) {
+        const Line& L = lines[first + k]; int y = 4 + k * lineH();
+        uint32_t band = L.style == 2 ? codeBg : L.user ? userBg : bg;
+        if (band != bg) for (int yy = y - 1; yy < y + lineH() - 1 && yy < R.h; yy++) for (int x = 0; x < R.w; x++) R.px[(size_t)yy * R.w + x] = band;
+        uint32_t col = L.style == 3 ? rgba(150, 160, 175, 255) : L.style == 2 ? rgba(170, 230, 170, 255) : L.user ? rgba(200, 220, 255, 255) : rgba(238, 240, 245, 255);
+        int x = 6;
+        for (size_t i = 0; i < L.text.size();) { uint32_t cp = unifont::next(L.text, i); glyphAt(R, x, y, cp, col, L.style == 1); x += 8; }
+    }
+    return scroll;
+}
+
 // ---- POST /session/<id>/message, streaming the reply into chat (under lock). Returns "" or an error.
 inline std::string send(const std::string& host, int port, int screen, const std::string& text, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS = 60) {
     json::Value b = house::obj(); b.o["text"] = house::str(text); b.o["turn"] = house::str(turn);

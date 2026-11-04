@@ -423,6 +423,19 @@
    ]
   },
   {
+   "name": "ASSIST",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "A Claude button on every screen: press, speak, and that screen's assistant answers in a chat panel beside it (docs/prd/assistant-protocol.md). Feature in development.",
+   "evidence": [
+    {
+     "commit": "627d84e"
+    }
+   ]
+  },
+  {
    "name": "SCROLL",
    "where": "headset",
    "default": false,

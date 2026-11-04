@@ -46,6 +46,12 @@ int main(int argc, char** argv) {
     }
     check(heading && bullet && hang && code && plain && width, "markdown-lite wrapping");
     check(L[0].user && L[0].text == "q", "user turn first");
+    // The panel image: lit pixels for text, the last lines shown, scroll clamped, user lines tinted.
+    Raster R; R.w = 64 * 8 + 12; R.h = 10 * lineH() + 8;
+    int sc = render(L, 0, R); size_t lit = 0; for (auto p : R.px) lit += (p & 0xff) > 150;
+    check(sc == 0 && lit > 200, "panel rasterised");
+    int clamped = render(L, 1000, R); check(clamped == std::max(0, (int)L.size() - 10), "scroll clamped to the first line");
+    Raster U; U.w = 100; U.h = 30; render({{"hi", 0, true}}, 0, U); check(U.px[(size_t)10 * 100 + 90] == rgba(28, 44, 70, 235), "user line tinted");
     // send() against the mock server: the reply streams in, and a server that dies mid-turn leaves an error.
     if (argc > 1) {
         int port = atoi(argv[1]); std::mutex lk; Chat s; s.user("hello", "T9");
