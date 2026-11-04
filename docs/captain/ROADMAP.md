@@ -58,7 +58,6 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [ ] Hand checks: ring scaling, snap drop, MINI click
 - [ ] Re-authenticate claude on the Mini (OAuth expired; the Air login works) (42)
 - [ ] Which screen is the kitchen one (screen 3, the small 0.68 m one?) -> assign the recipes app (ad)
-- [ ] Air colorsync pegged ~100% since 02:04Z (likely display churn; respawns pegged): a logout or reboot of the Air may be needed
-- [ ] FYI: the Air wallpaper was switched from the animated aerial to a still of the same image (the animation + colorsync cost ~1.3 cores and skewed the stream and the benchmarks). Want the animation back? A one-line revert is in docs
+- [ ] Air: System Settings → Wallpaper → pick any STILL picture (not the animated aerial or Sequoia dynamic). The aerial plus colorsync costs ~1.3 cores, slows the stream and blocks clean benchmarks; the CLI fixes all failed and were reverted
 - [ ] Spotify on the Air: its renderer spins at 80–190% CPU even when idle (it skews benchmarks and the stream). Quit it, or remove it from login items?
 - [ ] Close 2 stray Safari windows on the Air main display (example.com, YouTube search) from the first assistant test
