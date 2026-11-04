@@ -12,7 +12,7 @@ Security (per work-df):
   - Relays the user's words VERBATIM, prefix "[via headset] " — never rewritten.
   - Append-only audit log of every relay/switch: time, session, text hash.
 """
-import json, os, re, sys, time, hashlib, threading, socket, queue
+import json, os, re, sys, time, hashlib, threading, socket, queue, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +21,8 @@ import recept_core as rc
 STATE = os.path.expanduser("~/.local/share/pinpin-receptionist")
 TOKEN_FILE = os.path.join(STATE, "token")
 AUDIT_LOG = os.path.join(STATE, "routing.log")
+CONV_DIR = os.path.join(STATE, "conv")       # persisted chat history per conversation (survives app restarts)
+MAX_HIST = 200                               # keep the last N messages per conversation
 PORT = int(os.environ.get("PINPIN_RECEPT_PORT", "57850"))
 DEFAULT_TARGET = os.environ.get("PINPIN_RECEPT_DEFAULT", "work-df")   # the captain, single entry point
 
@@ -56,6 +58,42 @@ def _norm(s):
 
 def _is_blocked(s):
     return bool(s) and (s.get("session_id") in BLOCKED or s.get("name") in BLOCKED)
+
+
+def _conv_path(conv):
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", conv)[:80] or "default"
+    return os.path.join(CONV_DIR, safe + ".json")
+
+
+def record(conv, role, text, dest=None):
+    """Append a message to a conversation's persisted history (atomic, capped to MAX_HIST)."""
+    if not (text or "").strip():
+        return
+    try:
+        os.makedirs(CONV_DIR, exist_ok=True)
+        p = _conv_path(conv)
+        try:
+            msgs = json.load(open(p)).get("messages", [])
+        except (OSError, ValueError):
+            msgs = []
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        msgs.append({"role": role, "text": text, "t": now, "ts": now, "dest": dest})
+        msgs = msgs[-MAX_HIST:]
+        tmp = p + ".tmp"
+        json.dump({"conversation_id": conv, "messages": msgs}, open(tmp, "w"))
+        os.replace(tmp, p)
+    except Exception:
+        pass            # history is best-effort; never break a turn over it
+
+
+def history(conv, limit):
+    try:
+        msgs = json.load(open(_conv_path(conv))).get("messages", [])
+    except (OSError, ValueError):
+        msgs = []
+    if limit and limit > 0:
+        msgs = msgs[-limit:]
+    return {"conversation_id": conv, "messages": msgs}
 
 
 def audit(action, session, text):
@@ -181,8 +219,17 @@ class H(BaseHTTPRequestHandler):
                                     "default": DEFAULT_TARGET, "sessions": len(rc.list_sessions())})
         if not self._auth():
             return
-        if self.path == "/api/sessions":
+        u = urllib.parse.urlparse(self.path)
+        if u.path == "/api/sessions":
             return self._json(200, {"sessions": rc.list_sessions(include_self="work-42")})
+        if u.path == "/api/history":
+            q = urllib.parse.parse_qs(u.query)
+            conv = (q.get("conv", [""])[0] or "default").strip()
+            try:
+                limit = int(q.get("limit", ["50"])[0])
+            except ValueError:
+                limit = 50
+            return self._json(200, history(conv, limit))
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -212,9 +259,12 @@ class H(BaseHTTPRequestHandler):
                 with _target_lock:
                     _target[cid] = switch
                 audit("switch", s["session_id"], "")
+                ack = "Okay — you're now talking to %s." % switch
+                record(cid, "user", text, switch)
+                record(cid, "assistant", ack, switch)
                 self._sse_open()
                 self._emit({"type": "switched", "name": switch, "topic": s.get("topic")})
-                self._emit({"type": "text", "delta": "Okay — you're now talking to %s." % switch})
+                self._emit({"type": "text", "delta": ack})
                 self._emit({"type": "done", "stopReason": "switch"})
                 return
 
@@ -237,13 +287,15 @@ class H(BaseHTTPRequestHandler):
                 queued = True
             self._keepalive()
         try:
-            self._turn_relay(s, text)
+            self._turn_relay(cid, s, text)
         finally:
             lock.release()
 
-    def _turn_relay(self, s, text):
+    def _turn_relay(self, cid, s, text):
         audit("route", s["session_id"], text)
+        record(cid, "user", text, s["name"])
         self._emit({"type": "routed", "name": s["name"]})
+        reply = []   # accumulate the cleaned reply to persist it
 
         # relay in a worker thread so we can send keepalives during the reply wait
         q = queue.Queue()
@@ -275,13 +327,17 @@ class H(BaseHTTPRequestHandler):
                     continue
                 out = cleaner.feed(ev)
                 if out:
+                    reply.append(out)
                     self._emit({"type": "text", "delta": out})
             tail = cleaner.flush()
             if tail:
+                reply.append(tail)
                 self._emit({"type": "text", "delta": tail})
             self._emit({"type": "done", "stopReason": "end"})
         except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            record(cid, "assistant", "".join(reply).strip(), s["name"])
 
     def _spawn(self, b):
         """Start a new engineering session (used by work-df / spawn_session.sh)."""

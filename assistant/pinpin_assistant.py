@@ -772,7 +772,8 @@ def make_handler(assistant):
                 self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
                 return
             if u.path.startswith("/api/reception/"):
-                return self._proxy_reception("GET", u.path[len("/api/reception/"):], None)
+                # keep the query string (history?conv=&limit=): strip the prefix off the raw path
+                return self._proxy_reception("GET", self.path[len("/api/reception/"):], None)
             self._json(404, {"error": "not found"})
 
         def do_POST(self):
@@ -794,7 +795,7 @@ def make_handler(assistant):
                 if u.path.startswith("/api/reception/"):
                     n = int(self.headers.get("Content-Length", "0") or "0")
                     raw = self.rfile.read(n) if n else b"{}"
-                    return self._proxy_reception("POST", u.path[len("/api/reception/"):], raw)
+                    return self._proxy_reception("POST", self.path[len("/api/reception/"):], raw)
             except Exception as e:
                 return self._json(500, {"error": str(e)})
             self._json(404, {"error": "not found"})

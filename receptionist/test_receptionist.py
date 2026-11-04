@@ -145,6 +145,26 @@ def test_focus_policy():
     check("no playing video -> no action", fc.decide_unseen(70, {"videos": []}) is None)
 
 
+def test_history():
+    d = tempfile.mkdtemp()
+    old = svc.CONV_DIR; svc.CONV_DIR = os.path.join(d, "conv")
+    try:
+        check("unknown conv -> empty", svc.history("nope", 50)["messages"] == [])
+        svc.record("c1", "user", "play jazz", "work-df")
+        svc.record("c1", "assistant", "Okay, playing jazz.", "work-df")
+        svc.record("c1", "", "", "work-df")   # empty ignored
+        h = svc.history("c1", 50)
+        check("records in order", [m["role"] for m in h["messages"]] == ["user", "assistant"])
+        check("message has role/text/t/dest", all(k in h["messages"][0] for k in ("role", "text", "t", "dest")))
+        check("empty message skipped", len(h["messages"]) == 2)
+        for i in range(10):
+            svc.record("c1", "user", "m%d" % i)
+        check("limit returns last N", len(svc.history("c1", 3)["messages"]) == 3)
+        check("last message is newest", svc.history("c1", 1)["messages"][0]["text"] == "m9")
+    finally:
+        svc.CONV_DIR = old; shutil.rmtree(d)
+
+
 def test_block():
     old = svc.BLOCKED; svc.BLOCKED = {"work-df", "deadbeef"}
     try:
@@ -157,7 +177,7 @@ def test_block():
 
 if __name__ == "__main__":
     for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch,
-              test_reply_cleaner, test_focus_policy, test_audit, test_block):
+              test_reply_cleaner, test_focus_policy, test_history, test_audit, test_block):
         print(t.__name__); t()
     print("\n%d passed, %d failed" % (PASS, FAIL))
     sys.exit(1 if FAIL else 0)
