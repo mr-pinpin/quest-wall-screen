@@ -263,7 +263,8 @@ def plugin_restore(name, orig):
 
 
 HOLD_STATUS = '/tmp/pinpin-headset-hold.json'
-OWNER_FILE = pathlib.Path(__file__).resolve().parent / 'headset_owner'
+_SHARED_OWNER = pathlib.Path('/root/work/quest-wall-screen/bench/headset_owner')  # the runtime copy, also from a worktree
+OWNER_FILE = _SHARED_OWNER if _SHARED_OWNER.exists() else pathlib.Path(__file__).resolve().parent / 'headset_owner'
 
 
 def headset_owner():
