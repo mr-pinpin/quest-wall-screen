@@ -94,6 +94,15 @@ int main() {
     CachedWall m = cache["aaaa"]; m.stage.p.x += 0.005f; check(!moved(m, cache["aaaa"]), "5 mm is not a move");
     m.stage.p.x += 0.01f; check(moved(m, cache["aaaa"]), "15 mm is a move");
     check(load("{garbage").empty(), "a corrupt cache is ignored");
+    // STAGE moved: a rigid correction from one wall rebases all cached walls onto the new STAGE.
+    {
+        std::map<std::string, CachedWall> c2 = cache; Pose jumpT{anchors::yawQuat(0.4f), {2.5f, -0.8f, 1.0f}};
+        Pose realA = anchors::compose(jumpT, c2["aaaa"].stage);  // where wall aaaa now is in the new STAGE
+        Pose T = anchors::compose(realA, anchors::inverse(c2["aaaa"].stage));
+        for (auto& [u, cw] : c2) cw.stage = anchors::compose(T, cw.stage);
+        Pose expectB = anchors::compose(jumpT, cache["bbbb"].stage);
+        check(wallfit::len(c2["bbbb"].stage.p - expectB.p) < 0.005f && anchors::angleDeg(c2["bbbb"].stage.q, expectB.q) < 0.3f, "stage moved: all cached walls rebased");
+    }
     printf("placement guard: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;
 }

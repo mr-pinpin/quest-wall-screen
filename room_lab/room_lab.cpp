@@ -1571,8 +1571,8 @@ struct App {
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
         if (assistArmed && dictation.recording && !assistWaiting) {
-            // Pause: words were heard, then 2.5 s of nothing new and a quiet microphone -> stop and send.
-            if (!assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(2500) && dictation.level.load() < 800) { dictation.stop(); event("assist: pause, sending"); }
+            // Pause: words were heard, then 3.5 s of nothing new and a quiet microphone -> stop and send.
+            if (!assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(3500) && dictation.level.load() < 800) { dictation.stop(); event("assist: pause, sending"); }  // 3.5 s: 2.5 split a thought
             // Nothing said for 60 s: close the mic, keep the panel.
             else if (assistBuffer.empty() && tn - assistT0 > std::chrono::seconds(60)) { dictation.stop(); assistArmed = 0; event("assist: 60 s quiet, mic closed"); }
         }
@@ -1739,6 +1739,7 @@ struct App {
     // cache (files/lastwalls.json) under the same uuid, so every screen path draws at its saved spot. Real walls refresh
     // the cache (only when they moved). status "placement" reports per screen where it is drawn from and its STAGE spot.
     json::Value sceneTest; bool sceneTestRead = false;
+    std::set<std::string> stageChecked; long stageMoves = 0; float stageJumpM = 0;
     pguard::Requery pg; std::map<std::string, pguard::CachedWall> wallCache; bool wallCacheLoaded = false;
     std::chrono::steady_clock::time_point wallCacheSaved{};
     XrPosef stageInLocal{{0, 0, 0, 1}, {0, 0, 0}}; bool stageOk = false;
@@ -1769,6 +1770,20 @@ struct App {
             if (!e->standIn) continue;  // a real entity that is not located: leave it (its own pose is the last good one)
             e->r2 = {{c.ox, c.oy}, {c.w, c.h}}; e->pose = xp(pguard::toLocal(wp(stageInLocal), c)); e->located = true;
         }
+        // STAGE moved (2026-11-04: 2.5 m between two sessions after a dark-room relocalisation): the first real wall that
+        // arrives more than 10 cm from its cached spot gives the rigid correction; every cached wall is rebased with it.
+        if (stageOk) for (auto& e : entities) if (!e.standIn && e.located && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
+            stageChecked.insert(e.uuid);
+            pguard::CachedWall& c = wallCache[e.uuid];
+            wallfit::Pose realStage = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose));
+            float jump = wallfit::len(realStage.p - c.stage.p);
+            if (jump > 0.10f) {
+                wallfit::Pose T = anchors::compose(realStage, anchors::inverse(c.stage));
+                for (auto& [u, cw] : wallCache) cw.stage = anchors::compose(T, cw.stage);
+                stageMoves++; stageJumpM = jump; house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
+                event("placement: stage moved " + std::to_string((int)(jump * 100)) + " cm since the cache (wall " + e.uuid.substr(0, 8) + "); cache rebased");
+            }
+        }
         // Cache refresh from real walls, at most every 2 s.
         if (stageOk && std::chrono::steady_clock::now() - wallCacheSaved > std::chrono::seconds(2)) {
             bool dirty = false;
@@ -1783,7 +1798,7 @@ struct App {
     }
     std::string placementJson() {
         std::ostringstream j; j.setf(std::ios::fixed); j.precision(3);
-        j << "{\"stage\":" << (stageOk ? 1 : 0) << ",\"queries\":" << pg.queries << ",\"cached\":" << wallCache.size() << ",\"screens\":[";
+        j << "{\"stage\":" << (stageOk ? 1 : 0) << ",\"stageMoves\":" << stageMoves << ",\"stageJumpM\":" << stageJumpM << ",\"queries\":" << pg.queries << ",\"cached\":" << wallCache.size() << ",\"screens\":[";
         bool first = true;
         auto one = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr;
