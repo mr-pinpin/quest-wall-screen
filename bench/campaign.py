@@ -48,7 +48,7 @@ def run(flags, extra, deadline_s=4 * 3600):  # long: a run waits out a whole hea
 def figures(r):
     a = verdict.atlas(r)
     h = [x for x in (r.get('hero') or {}).values() if x.get('fps')]
-    if h: a['heroFps'] = max(x['fps'] for x in h); a['heroMbps'] = round(sum(x.get('mbps') or 0 for x in h), 1)
+    if h: a['heroFps'] = max(x['fps'] for x in h); a['heroMbps'] = round(sum(x.get('mbps') or 0 for x in h), 1)  # part of mbps (the total)
     g = verdict.game(r)
     if g: a.update({'gameLat99': g['lat99'], 'gameHost': g['host'], 'gameFps': g['fps']})
     return a
@@ -75,6 +75,7 @@ def main():
     # vt is judged by two pre-registered rules (vt-cinema: bandwidth; vt-latency: fps and gap within the 42 Mbit/s
     # budget, added 2026-11-04 before A2); both are reported and vt passes if either does
     pairs += [('vt-latency', on, off) for rule, on, off in pairs if rule == 'vt-cinema' and ('vt-latency', on, off) not in pairs]
+    pairs += [('hero-budget', on, off) for rule, on, off in pairs if rule == 'hero' and ('hero-budget', on, off) not in pairs]
     names = [n for n, _ in configs]
     for rule, on, off in pairs:
         if on not in names or off not in names: sys.exit(f'pair {rule}:{on}:{off} names an unknown config')

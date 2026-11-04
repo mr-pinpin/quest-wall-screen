@@ -102,10 +102,17 @@ def rule(name, off, on):
         why = f"fresh fps {A['fps']} -> {B['fps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms"
         if (B['fps'] or 0) <= (A['fps'] or 0) + 1 or not le(B['gapP99'], A['gapP99'], 1.2): return 'DROP', why
         return ('KEEP' if (B['fps'] or 0) >= (A['fps'] or 0) + 3 and le(B['gapP99'], A['gapP99'], 1.1) else 'RERUN'), why
+    if name == 'hero-budget':  # pre-registered 2026-11-04 (work-df), before block A2: the hero within the 42 Mbit/s budget
+        h = [x for x in (on.get('hero') or {}).values() if x.get('fps')]
+        hf = max((x['fps'] for x in h), default=0); tot = B['mbps'] or 0
+        why = f"hero fps {hf}, total mbps {tot} (budget 42), others' fresh fps {A['fps']} -> {B['fps']}"
+        if not h: return 'DROP', why + ' (no hero stream)'
+        ok = hf >= 55 and tot <= 42 and (B['fps'] or 0) >= 0.9 * (A['fps'] or 0)
+        return ('KEEP' if ok else 'DROP'), why
     if name == 'hero':  # the focused screen on its own stream: at least the atlas's rate, not many more bits
         h = [x for x in (on.get('hero') or {}).values() if x.get('fps')]
-        hf = max((x['fps'] for x in h), default=0); hm = sum(x.get('mbps') or 0 for x in h)
-        tot = (B['mbps'] or 0) + hm
+        hf = max((x['fps'] for x in h), default=0)
+        tot = B['mbps'] or 0  # the stand-in's mbps counts every packet, hero streams included (fixed 2026-11-04: was added twice)
         why = f"hero stream fps {hf} vs atlas fps {A['fps']}, total mbps {A['mbps']} -> {round(tot, 1)}, atlas gap p99 {A['gapP99']} -> {B['gapP99']} ms"
         if not h: return 'DROP', why + ' (no hero stream)'
         if hf < (A['fps'] or 0) - 5 or not le(tot, A['mbps'], 1.3) or not le(B['gapP99'], A['gapP99'], 1.3): return 'DROP', why
@@ -180,9 +187,13 @@ def self_test():
         ('capfast', res(fps=40, gap=50), res(fps=41, gap=50), 'DROP'),
         ('enc-gameyield', dict(res(), encprobe={'fps': 40, 'p50': 270, 'p99': 280}), dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 30}), 'KEEP'),
         ('enc-gameyield', dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 30}), dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 31}), 'DROP'),
-        ('hero', res(mbps=30, fps=48), res(mbps=10, fps=48, hero=(58, 20)), 'KEEP'),
+        ('hero-budget', res(mbps=40.8, fps=62), res(mbps=40.2, fps=62, hero=(60, 30)), 'KEEP'),
+        ('hero-budget', res(mbps=40.8, fps=62), res(mbps=70, fps=62, hero=(60, 30)), 'DROP'),
+        ('hero-budget', res(mbps=40.8, fps=62), res(mbps=40, fps=50, hero=(60, 30)), 'DROP'),
+        ('hero-budget', res(mbps=40.8, fps=62), res(mbps=40, fps=62, hero=(50, 30)), 'DROP'),
+        ('hero', res(mbps=30, fps=48), res(mbps=30, fps=48, hero=(58, 20)), 'KEEP'),
         ('hero', res(mbps=30, fps=48), res(mbps=30, fps=48), 'DROP'),
-        ('hero', res(mbps=30, fps=48), res(mbps=25, fps=48, hero=(58, 25)), 'DROP'),
+        ('hero', res(mbps=30, fps=48), res(mbps=45, fps=48, hero=(58, 25)), 'DROP'),
     ]
     bad = 0
     for name, off, on, want in cases:

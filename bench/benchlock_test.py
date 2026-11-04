@@ -77,6 +77,13 @@ finally:
 check(os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'failed stat moved a live lock')
 bl.release(t3)
 
+# regression: a "who" with shell characters (parentheses, quotes, $, ;) must not break the remote commands
+weird = "work-09 compile check (no deploy) 'x' $HOME; rm -rf /"
+tw = bl.take('exclusive', weird, 60, 5); check(os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'exclusive with a weird who')
+bl.release(tw); check(not os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'released with a weird who')
+ts = bl.take('shared', weird, 60, 5); bl.release(ts)
+check(not os.listdir(os.path.join(D, 'pinpin-bench.shared')), 'shared with a weird who released')
+
 # CLI: runs the command holding the lock, then releases
 out = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'benchlock.py'), 'shared', '--who', 'cli',
                       '--max', '30', '--', 'bash', '-c', f'ls {D}/pinpin-bench.shared | wc -l'], capture_output=True, text=True, timeout=60)

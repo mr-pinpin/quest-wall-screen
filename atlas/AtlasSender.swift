@@ -537,21 +537,49 @@ final class Atlas {
         }
         work.async { self.applyBudget() }
     }
+    // BEGIN budgetSplit (bench/budget_split_test.sh compiles this function alone)
+    /// The atlas's and each hero's bitrate (kbps). With the headset's budget: by gaze priority (heroes their own share,
+    /// the atlas the visible extras'). While hero streams run, atlas + heroes stay within capKbps (the gate's 42 Mbit/s
+    /// atlas budget) whatever the headset's budget is, or when it sends none: the heroes keep their share (that screen
+    /// is the one being watched) and the atlas, whose focused tile the hero replaces, takes the cut.
+    static func budgetSplit(budgetKbps: Int, maxKbps: Int, capKbps: Int, want: [Int: (vis: Bool, pri: Double)], heroes: Set<Int>)
+        -> (atlas: Int, heroes: [Int: Int]) {
+        var atlas = maxKbps, hk: [Int: Int] = [:]
+        if budgetKbps > 0 {
+            let all = want.values.reduce(0.0) { $0 + ($1.vis ? $1.pri : 0) }
+            let extras = want.reduce(0.0) { $0 + ($1.key != 1 && $1.value.vis && !heroes.contains($1.key) ? $1.value.pri : 0) }
+            atlas = all > 0 ? Int(Double(budgetKbps) * extras / all) : 0
+            for id in heroes { hk[id] = all > 0 ? max(4000, min(30000, Int(Double(budgetKbps) * (want[id]?.pri ?? 0) / all))) : 12000 }
+        } else {
+            for id in heroes { hk[id] = 12000 }
+        }
+        atlas = min(maxKbps, max(4000, atlas))
+        if !heroes.isEmpty {
+            var h = hk.values.reduce(0, +)
+            if h > capKbps - 4000 {  // heroes alone would leave the atlas under 4 Mbit/s: scale them down too
+                let scale = Double(capKbps - 4000) / Double(h)
+                for (id, k) in hk { hk[id] = max(2000, Int(Double(k) * scale)) }
+                h = hk.values.reduce(0, +)
+            }
+            atlas = max(1500, min(atlas, capKbps - h))
+        }
+        return (atlas, hk)
+    }
+    // END budgetSplit
     // The extras' share of the headset's budget, by gaze priority; on the work queue.
     func applyBudget(force: Bool = false) {
         guard let e = encoder else { return }
         var kbps = o.bitrate / 1000
         dlock.withLock {
-            guard budgetKbps > 0, Date().timeIntervalSince(wantAt) <= 2 else { return }
-            let all = want.values.reduce(0.0) { $0 + ($1.vis ? $1.pri : 0) }
-            // heroes take their own share of the budget by priority (their encoders read heroKbps); the atlas the rest
+            let fresh = budgetKbps > 0 && Date().timeIntervalSince(wantAt) <= 2
             let hs = heroes
-            let extras = want.reduce(0.0) { $0 + ($1.key != 1 && $1.value.vis && !hs.contains($1.key) ? $1.value.pri : 0) }
-            kbps = all > 0 ? Int(Double(budgetKbps) * extras / all) : 0
-            heroKbps = Dictionary(uniqueKeysWithValues: hs.map { id in
-                (id, all > 0 ? max(4000, min(30000, Int(Double(budgetKbps) * (want[id]?.pri ?? 0) / all))) : 12000) })
+            guard fresh || !hs.isEmpty else { return }
+            // heroes take their own share of the budget by priority (their encoders read heroKbps); the atlas the rest
+            let split = Atlas.budgetSplit(budgetKbps: fresh ? budgetKbps : 0, maxKbps: o.bitrate / 1000, capKbps: 42000,
+                                                want: want.mapValues { (vis: $0.vis, pri: $0.pri) }, heroes: hs)
+            kbps = split.atlas; heroKbps = split.heroes
         }
-        kbps = min(o.bitrate / 1000, max(4000, kbps))
+        kbps = min(o.bitrate / 1000, max(1500, kbps))
         if bpScale < 1 { kbps = max(1500, Int(Double(kbps) * bpScale)) }
         if appliedKbps == 0 || (force && kbps != appliedKbps) || abs(kbps - appliedKbps) * 100 > appliedKbps * 15 {
             appliedKbps = kbps

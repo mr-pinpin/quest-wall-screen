@@ -23,7 +23,7 @@ both get in. Expired markers (a crashed holder) are removed by whoever looks nex
 STALE_S is moved aside as before (stress.py's rule).
 Set BENCHLOCK_LOCAL=/some/dir to run against a local directory instead of the Air (the tests do).
 """
-import argparse, hashlib, os, shlex, subprocess, sys, time
+import argparse, hashlib, os, re, shlex, subprocess, sys, time
 
 STALE_S = 1800        # an exclusive lock older than this is stale (stress.py LOCK_STALE_S)
 WANT_TTL = 60         # an exclusive intent lives this long unless refreshed (each poll refreshes it)
@@ -34,8 +34,17 @@ def _run(script):
     local = os.environ.get('BENCHLOCK_LOCAL')
     if local:
         return subprocess.run(['bash', '-c', f'D={shlex.quote(local)}\n' + script], capture_output=True, text=True, timeout=60).stdout
-    return subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'pinpin-air', 'bash -s'],
-                          input='D=~/.local/share\n' + script, capture_output=True, text=True, timeout=60).stdout
+    err = ''
+    for attempt in range(3):  # a loaded Air drops some ssh connections (2026-11-04 05:00, load 8-9): retry before giving up
+        try:
+            p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'pinpin-air', 'bash -s'],
+                               input='D=~/.local/share\n' + script, capture_output=True, text=True, timeout=60)
+            if p.stdout.strip() or p.returncode == 0: return p.stdout
+            err = p.stderr.strip().splitlines()[-1] if p.stderr.strip() else f'ssh exit {p.returncode}'
+        except subprocess.TimeoutExpired:
+            err = 'ssh timed out'
+        time.sleep(2 * (attempt + 1))
+    return f'busy unreachable ({err})\n'
 
 
 # shell helpers: expire old markers; count live ones; is the exclusive lock held (dropping a stale one)
@@ -58,7 +67,8 @@ def _pre():
 
 
 def _id(mode, who):
-    return f'{mode[0]}-{who}-{os.getpid()}-{hashlib.sha1(os.urandom(8)).hexdigest()[:6]}'.replace('/', '_').replace(' ', '_')
+    # the token goes into remote shell commands and file names: only [A-Za-z0-9_.-] (a "who" with parentheses broke it)
+    return re.sub(r'[^A-Za-z0-9_.-]', '_', f'{mode[0]}-{who}-{os.getpid()}-{hashlib.sha1(os.urandom(8)).hexdigest()[:6]}')[:120]
 
 
 def try_shared(tid, who, max_s):
