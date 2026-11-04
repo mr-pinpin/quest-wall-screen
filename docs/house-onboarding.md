@@ -53,7 +53,7 @@ The steps:
 4. Circle: centre plus radius, dashed preview, then confirm. Also "fill": a disc on the wall.
 5. Edit: select a shape by ray, move its points, delete it. All saves go through the house file (section 4).
 
-The geometry is GL-free in `room_lab/shapes.h`, with desktop tests: snap to plane, dashed segmentation, extrusion mesh,
+The geometry is GL-free in `room_lab/wallshape.h`, with desktop tests: snap to plane, dashed segmentation, extrusion mesh,
 hit-testing.
 
 ## 3. Geometry and relocalisation (flag HOUSE)

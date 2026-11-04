@@ -4,7 +4,8 @@
 #   bash bench/run_offline_tests.sh
 cd "$(dirname "$0")/.."
 T=$(mktemp -d); fail=0
-run() { local name=$1; shift; if out=$("$@" 2>&1); then echo "ok    $name: $(echo "$out" | tail -1)"; else echo "FAIL  $name"; echo "$out" | tail -20 | sed 's/^/      /'; fail=1; fi; }
+# every test under a memory and time cap: a runaway test must fail, not OOM-kill the VPS's sessions (2026-11-04)
+run() { local name=$1; shift; if out=$( (ulimit -v 4000000; timeout 600 "$@") 2>&1); then echo "ok    $name: $(echo "$out" | tail -1)"; else echo "FAIL  $name"; echo "$out" | tail -20 | sed 's/^/      /'; fail=1; fi; }
 LAYOUTS=$(ls bench/results/*layouts*.jsonl 2>/dev/null | tr "\n" " ")
 ASSETS=$(ls -d /root/.cache/pinpin-assets/out/DamagedHelmet-* 2>/dev/null | grep -v old | tr "\n" " ")  # converted models, when present
 run "budget arbiter (room_lab/budget.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/budget_test.cpp -o $T/budget && $T/budget"
@@ -25,6 +26,7 @@ run "house client vs house/server.py (room_lab/house.h)" bash bench/house_client
 run "room frame from our anchors (room_lab/anchors.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/anchors_test.cpp -o $T/anch && $T/anch"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
+run "wall tools (room_lab/wallshape.h) + shapes valid in house/schema.py" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/wallshape_test.cpp -o $T/wallshape && (ulimit -v 1500000; timeout 60 $T/wallshape $T/shapes.json) && python3 house/check_fragment.py $T/shapes.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py
 run "verdict.py self-test (pass/drop rules)" python3 bench/verdict.py --self-test
 run "video LOD ladder along pose paths (bench/ladder_sim.cpp)" bash -c "g++ -std=c++17 -O1 -I room_lab bench/ladder_sim.cpp -o $T/ladder && $T/ladder"

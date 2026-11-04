@@ -153,8 +153,14 @@ def validate(doc, blobs=None):
         else:
             if not _pts(s.get('pts'), 2): e.append(f'{p}.pts: needs >= 2 [x,y] points')
         if t == 'skin' and not (_num(s.get('depth')) and s.get('depth') >= 0): e.append(f'{p}.depth: a skin needs depth >= 0')
-        for k in ('dashed', 'closed'):
+        for k in ('dashed', 'closed', 'fill'):
             if k in s and not isinstance(s[k], bool): e.append(f'{p}.{k}: not a boolean')
+        # wall tool extras (room_lab/wallshape.h), all optional: a corner-bent line's pieces share a group; dash/gap/width
+        # in metres; thick turns a skin's quad into a box
+        if 'group' in s and not (isinstance(s['group'], str) and ID.match(s['group'])): e.append(f'{p}.group: not a valid id')
+        for k in ('dash', 'gap', 'width'):
+            if k in s and not (_num(s[k]) and s[k] > 0): e.append(f'{p}.{k}: not a positive number')
+        if 'thick' in s and not (_num(s['thick']) and s['thick'] >= 0): e.append(f'{p}.thick: not >= 0')
         if 'color' in s and not (isinstance(s['color'], str) and COLOR.match(s['color'])): e.append(f'{p}.color: not #rrggbb')
 
     mains = 0
