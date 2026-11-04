@@ -30,6 +30,8 @@ def stage(doc):
     plan = C.consolidate(json.loads(json.dumps(doc)))
     return {'walls': [{k: w.get(k) for k in ('id', 'pose', 'w', 'h', 'room', 'src', 'from', 'offAxis')} for w in plan['walls']],
             'rooms': [{k: r.get(k) for k in ('id', 'floor', 'area', 'floorY', 'ceilingY', 'closed', 'closure', 'perimeter', 'openM', 'doors')} for r in plan['rooms']],
+            'score': {'verdict': plan['score']['verdict'], 'reasons': plan['score']['reasons'], 'duplicates': plan['score']['duplicates'],
+                      'explained': plan['score']['explained'], 'sceneFit': plan['score']['sceneFit']},
             'th': th, 'share': share, 'needsRooms': needs,
             'segs': [{'k': s['k'], 'off': s['off'], 't0': s['t0'], 't1': s['t1'], 'y0': s['y0'], 'y1': s['y1'],
                       'ids': [m['id'] for m in s['members']]} for s in segs],

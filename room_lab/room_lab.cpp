@@ -1857,15 +1857,16 @@ struct App {
     // against Meta) are left out, as work-34's consolidate/2 will. Committing the clean walls as the placement targets is
     // the next step (work-c4). status.json "clean".
     struct CleanWall { V3 c, r, u, n; float w = 0, h = 0; bool scene = false; std::vector<std::string> members; };
-    std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::vector<std::vector<V3>> cleanFloors; int cleanRooms = 0; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
+    std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::vector<std::vector<V3>> cleanFloors; int cleanRooms = 0;
+    std::string cleanHint; bool cleanGood = false; std::vector<std::string> cleanReasons; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
     long cleanRuns = 0; double cleanUs = 0; int cleanDropped = 0, cleanInput = 0; bool cleanNeedsRooms = false; double cleanTh = 0;
     void updateCleanLive() {
         if (!cleanLiveMenu || !scanning() || !houseFrame.ok || cleanBusy || now() - cleanAt < 0.5f) return;
         cleanAt = now(); cleanBusy = true;
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
         std::vector<wallfit::Wall> live; { std::lock_guard<std::mutex> g(gapLock); live = gapWalls; }
-        wallfit::Pose roomInLocal = houseFrame.roomInLocal;
-        std::thread([this, d, live, roomInLocal] {
+        wallfit::Pose roomInLocal = houseFrame.roomInLocal, headLocal = wp(head);
+        std::thread([this, d, live, roomInLocal, headLocal] {
             json::Value doc = house::obj(); doc.o["walls"] = house::arr();
             if (d) for (auto& w : (*d)["walls"].a) if (!(w["source"].str() == "depth" && !w.has("frame"))) doc.o["walls"].a.push_back(w);
             for (auto& w : live) {
@@ -1887,18 +1888,25 @@ struct App {
                 c.w = (float)pw.w; c.h = (float)pw.h; c.scene = pw.src != "depth"; c.members = pw.from;
                 out.push_back(c);
             }
+            // The live hint (consolidate::hint): the verdict as a line that says where to look, from the head in the room frame.
+            wallfit::Pose hr = roomframe::toRoom(roomInLocal, headLocal); wallfit::V3 fwd = wallfit::rotate(hr.q, {0, 0, -1});
+            consolidate::Hint hint = consolidate::hint(R, hr.p.x, hr.p.z, fwd.x, fwd.z);
             for (auto& rm : R.rooms) if (rm.haveFloor) {  // each room's outline on its floor
                 std::vector<V3> f;
                 for (auto& [x, z] : rm.floor) { XrPosef q = xp(anchors::compose(roomInLocal, wallfit::Pose{{0, 0, 0, 1}, {(float)x, (float)rm.floorY + 0.01f, (float)z}})); f.push_back(v3(q.position)); }
                 floors.push_back(f);
             }
             std::lock_guard<std::mutex> g(cleanLock);
-            cleanWalls.swap(out); cleanFloors.swap(floors); cleanRooms = (int)R.rooms.size(); cleanUs = us; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
+            cleanWalls.swap(out); cleanFloors.swap(floors); cleanRooms = (int)R.rooms.size(); cleanUs = us;
+            cleanHint = hint.text; cleanGood = hint.good; cleanReasons = R.score.reasons; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
             cleanBusy = false;
         }).detach();
     }
     void drawClean(Batch& b) {
         if (!cleanLiveMenu || !scanning()) return;
+        {   std::string h; bool good; { std::lock_guard<std::mutex> g(cleanLock); h = cleanHint; good = cleanGood; }  // the scan hint, head-locked
+            const float green[4] = {0.3f, 1.0f, 0.5f, 1}, amber[4] = {1.0f, 0.75f, 0.2f, 1};
+            if (!h.empty()) toast("cleanhint", h, good ? green : amber, 1.5f); }
         std::vector<CleanWall> ws; std::vector<std::vector<V3>> fl; { std::lock_guard<std::mutex> g(cleanLock); ws = cleanWalls; fl = cleanFloors; }
         const float floorCol[4] = {0.35f, 0.85f, 1.0f, 0.8f};
         for (auto& f : fl) for (size_t i = 0; i < f.size(); i++) b.line(f[i], f[(i + 1) % f.size()], {0, 1, 0}, 0.015f, floorCol);
@@ -5109,7 +5117,10 @@ void main(){
         j << ",\"frameCost\":" << frameCostJson();
         { std::lock_guard<std::mutex> g(cleanLock);
           j << ",\"clean\":{\"on\":" << (cleanLiveMenu ? 1 : 0) << ",\"algo\":\"" << consolidate::kAlgo << "\",\"runs\":" << cleanRuns << ",\"us\":" << (long)cleanUs << ",\"input\":" << cleanInput
-            << ",\"walls\":" << cleanWalls.size() << ",\"rooms\":" << cleanRooms << ",\"dropped\":" << cleanDropped << ",\"needsRooms\":" << (cleanNeedsRooms ? 1 : 0) << ",\"axisDeg\":" << cleanTh << "}"; }
+            << ",\"walls\":" << cleanWalls.size() << ",\"rooms\":" << cleanRooms << ",\"dropped\":" << cleanDropped << ",\"needsRooms\":" << (cleanNeedsRooms ? 1 : 0) << ",\"axisDeg\":" << cleanTh
+            << ",\"verdict\":\"" << (cleanGood ? "satisfactory" : "not yet") << "\",\"hint\":\"" << jsonEscape(cleanHint) << "\",\"reasons\":[";
+          for (size_t i = 0; i < cleanReasons.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(cleanReasons[i]) << "\"";
+          j << "]}"; }
         j << ",\"marks\":{\"on\":" << (marksMenu ? 1 : 0) << ",\"listed\":" << (markList.size() + markDemo.size()) << ",\"shown\":" << marksShown << ",\"unresolved\":" << marksUnresolved << "}";
         { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }

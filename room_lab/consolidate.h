@@ -5,12 +5,14 @@
 // functions and bench/consolidate_test.cpp compares, in the offline gate (a change to the Python that is not mirrored
 // here fails there). Phase 2 (planWalls / planRooms): the floor plan by rays (rooms()), each room's outline, support
 // (doors, holes, open sides, closure), floor and ceiling heights, and the plan walls with their room's heights, as
-// consolidate() returns them. Not ported: the score. The one difference by construction: a room outline's first
+// consolidate() returns them, and the score. The one difference by construction: a room outline's first
 // vertex follows CPython's set order there, so outlines compare up to rotation. Input: house.json walls (the same
-// fields the Python reads); room_lab feeds the house's walls plus the live SCAN fits as one batch. GL-free.
+// fields the Python reads); room_lab feeds the house's walls plus the live SCAN fits as one batch. score(): the verdict
+// and its reasons, word for word as consolidate.py's score (the live SCAN hint is built from them). GL-free.
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <cstdio>
 #include <deque>
 #include <map>
@@ -57,7 +59,14 @@ inline void segLine(int k, int& oi, int& ti) { if (k % 2 == 0) { oi = 1; ti = 0;
 using PT = std::pair<double, double>;   // (A, B) in the axis frame
 using Loop = std::vector<PT>;
 struct RoomF { std::vector<Loop> loops; double area = 0; bool open = false, meta = false; std::vector<std::string> metaIds; };
-struct PlanRoom { std::string id; Loop floor; std::vector<Loop> holes; double area = 0, closure = 0, perimeter = 0, openM = 0; bool closed = false, haveFloor = false, haveCeil = false; double floorY = 0, ceilingY = 0; int doors = 0; };
+struct PlanRoom { std::string id; Loop floor; std::vector<Loop> holes; double area = 0, closure = 0, perimeter = 0, openM = 0; bool closed = false, haveFloor = false, haveCeil = false; double floorY = 0, ceilingY = 0; int doors = 0;
+                  std::vector<std::pair<PT, PT>> opens; };  // open stretches (x, z) ends: where the room is not walled yet
+struct B2B { std::string depth, meta; double thickness; };
+struct Score {
+    bool ok = false; std::vector<std::string> reasons;
+    int dupRaw = 0, dupPlan = 0; bool haveExplained = false; double explained = 0;
+    int pairs = 0; bool haveMedian = false; double median = 0; std::vector<B2B> b2b; std::vector<std::string> lone; int badFrames = 0;
+};
 struct PlanWall { std::string id, room, src; double x = 0, y = 0, z = 0, yaw = 0, w = 0, h = 0; bool offAxis = false; std::vector<std::string> from; };
 struct Result {
     double th = 0, share = 0; bool needsRooms = false;   // needsRooms: Meta's walls form no closed chain (rooms by rays then)
@@ -65,6 +74,9 @@ struct Result {
     std::vector<Seg> segs; std::vector<Surf*> offaxis; std::vector<Dropped> dropped;
     std::vector<RoomF> metaRooms;                            // Meta's rooms (closed chains, else by rays from Meta's walls)
     std::vector<PlanRoom> rooms; std::vector<PlanWall> walls;  // phase 2: the floor plan, as consolidate() returns it
+    std::vector<Surf> rawVert;                                 // vertical surfaces as read (before frames() moved any)
+    std::vector<std::pair<std::string, std::string>> batches;  // frames(): batch -> status, in key order
+    Score score;
     std::deque<Surf> pool;  // the surfaces the segments point at
     // A plan wall from a segment (room frame): centre, yaw (pose +z = normal into the room), width, y range.
     void wall(const Seg& s, double& x, double& z, double& yaw, double& w) const {
@@ -190,6 +202,7 @@ inline std::vector<Surf*> frames(std::vector<Surf*> surfs, const Params& P, Resu
             }
         }
         if (status.rfind("dropped", 0) == 0) for (auto* s : ss) s->drop = "frame: commit " + status.substr(9);
+        R.batches.push_back({b, status});
     }
     std::vector<Surf*> keep;
     for (auto* s : surfs) { if (!s->drop.empty()) R.dropped.push_back({s->id, s->drop}); else keep.push_back(s); }
@@ -634,6 +647,7 @@ inline void roomsAndWalls(Result& R, const Frame2& F, const Params& P) {
         pr.area = r.area; pr.closed = !r.open && sp.opens.empty(); pr.closure = sp.closure; pr.perimeter = sp.perimeter;
         for (auto& g : sp.opens) pr.openM += g.w;
         pr.doors = (int)sp.doors.size();
+        for (auto& g : sp.opens) { double ax, az, bx, bz; F.back(g.a.first, g.a.second, ax, az); F.back(g.b.first, g.b.second, bx, bz); pr.opens.push_back({{ax, az}, {bx, bz}}); }
         R.rooms.push_back(pr);
     }
     std::set<std::string> used;
@@ -660,10 +674,121 @@ inline void roomsAndWalls(Result& R, const Frame2& F, const Params& P) {
     }
 }
 
-// Phases 0-3 on a house document; withPlan: phase 2 too (the floor plan: rooms and plan walls).
+// consolidate.py's score: duplicates, closure, the depth evidence explained, Meta-vs-depth distance, back-to-back
+// walls, lone walls, frames dropped -> the verdict and its reasons (the same strings).
+inline double r3(double v) { return std::round(v * 1000.0) / 1000.0; }
+inline int duplicates(const std::vector<std::array<double, 7>>& v) {  // p.x, p.z, n.x, n.z, r.x, r.z, w
+    int n = 0; double c10 = std::cos(rad(10));
+    for (size_t i = 0; i < v.size(); i++) for (size_t j = i + 1; j < v.size(); j++) {
+        const auto &a = v[i], &b = v[j];
+        if (a[2] * b[2] + a[3] * b[3] < c10) continue;
+        double dist = std::fabs((b[0] - a[0]) * a[2] + (b[1] - a[1]) * a[3]); if (dist > 0.35) continue;
+        double ta = a[0] * a[4] + a[1] * a[5], tb = b[0] * a[4] + b[1] * a[5];
+        double ov = std::min(ta + a[6] / 2, tb + b[6] / 2) - std::max(ta - a[6] / 2, tb - b[6] / 2);
+        if (ov >= 0.5 * std::min(a[6], b[6])) n++;
+    }
+    return n;
+}
+inline void score(Result& R, const Params& P) {
+    Score& S = R.score; S = Score{};
+    const double okClosure = 0.9, okExplained = 0.6, okSceneFit = 0.05;
+    long depthTotal = 0; std::set<std::string> kept;
+    for (auto& s : R.segs) for (auto* m : s.members) kept.insert(m->id);
+    long expl = 0; for (auto& s : R.rawVert) if (s.src == "depth") { depthTotal += s.samples; if (kept.count(s.id)) expl += s.samples; }
+    if (depthTotal) { S.haveExplained = true; S.explained = (double)expl / depthTotal; }
+    std::vector<double> fits; double cs = std::cos(rad(P.snapDeg));
+    for (auto* m : R.surfs) {
+        if (m->orient != 0 || m->src == "depth") continue;
+        bool have = false; double best = 0;
+        for (auto* s : R.surfs) {
+            if (s->orient != 0 || s->src != "depth" || !s->drop.empty()) continue;
+            if (m->n[0] * s->n[0] + m->n[2] * s->n[2] < cs) continue;
+            double dist = std::fabs((s->p[0] - m->p[0]) * m->n[0] + (s->p[2] - m->p[2]) * m->n[2]);
+            double ta = m->p[0] * m->r[0] + m->p[2] * m->r[2], tb = s->p[0] * m->r[0] + s->p[2] * m->r[2];
+            double ov = std::min(ta + m->w / 2, tb + s->w / 2) - std::max(ta - m->w / 2, tb - s->w / 2);
+            if (dist <= P.stackOff && ov >= 0.3 && (!have || dist < best)) { best = dist; have = true; }
+        }
+        if (have) fits.push_back(best);
+    }
+    std::sort(fits.begin(), fits.end()); S.pairs = (int)fits.size();
+    if (!fits.empty()) { S.haveMedian = true; S.median = r3(fits[fits.size() / 2]); }
+    std::vector<std::array<double, 7>> rawV, planV;
+    for (auto& s : R.rawVert) rawV.push_back({s.p[0], s.p[2], s.n[0], s.n[2], s.r[0], s.r[2], s.w});
+    for (auto& w : R.walls) {
+        if (w.offAxis) { for (auto* s : R.offaxis) if ("p-" + (s->id.size() > 2 ? s->id.substr(2) : std::string()) == w.id) { planV.push_back({s->p[0], s->p[2], s->n[0], s->n[2], s->r[0], s->r[2], s->w}); break; } }
+        else planV.push_back({w.x, w.z, std::sin(w.yaw), std::cos(w.yaw), std::cos(w.yaw), -std::sin(w.yaw), w.w});
+    }
+    S.dupRaw = duplicates(rawV); S.dupPlan = duplicates(planV);
+    bool ok = true; auto& rs = S.reasons; char b[512];
+    if (R.rooms.empty()) { ok = false; rs.push_back("no closed room: walls do not enclose any floor yet"); }
+    for (auto& r : R.rooms) {
+        double closure = r3(r.closure), per = r3(r.perimeter), openM = r3(r.openM);
+        if (!r.closed && closure >= okClosure) { ok = false; rs.push_back(r.id + ": not closed (seen from inside, a side has no wall: scan the rest of it)"); }
+        if (closure < okClosure) { ok = false; snprintf(b, sizeof b, ": open %.1f m of %.1f m (closure %.2f < %g)", openM, per, closure, okClosure); rs.push_back(r.id + b); }
+    }
+    if (S.dupPlan) { ok = false; rs.push_back(std::to_string(S.dupPlan) + " duplicate wall pairs left"); }
+    if (S.haveExplained && S.explained < okExplained) { ok = false; snprintf(b, sizeof b, "the plan explains %.0f%% of the depth evidence (< %.0f%%)", S.explained * 100, okExplained * 100); rs.push_back(b); }
+    if (S.haveMedian && S.median > okSceneFit) { ok = false; snprintf(b, sizeof b, "depth walls sit %.0f cm from the Meta walls (median, > %.0f cm)", S.median * 100, okSceneFit * 100); rs.push_back(b); }
+    for (auto& s : R.segs) {
+        if (hasScene(s)) continue;
+        for (auto& t : R.segs) if (hasScene(t) && t.k == (s.k + 2) % 4 && overlap(s, t) >= 0.5) {
+            double gap = SIGN[s.k] * (s.off - t.off);
+            if (-0.05 <= gap && gap <= 0.3) { std::string meta; for (auto* m : t.members) if (m->src != "depth") { meta = m->id; break; } S.b2b.push_back({s.members[0]->id, meta, r3(gap)}); }
+        }
+    }
+    bool anyD = false, anyM = false; for (auto& s : R.rawVert) (s.src == "depth" ? anyD : anyM) = true;
+    if (anyD && anyM && fits.empty() && S.b2b.empty()) { ok = false; rs.push_back("no depth wall meets a Meta wall (same face or back to back): the two cannot be cross-checked (another frame?)"); }
+    std::string thin;
+    for (auto& x : S.b2b) if (x.thickness < 0.06) { snprintf(b, sizeof b, "%s is %.0f cm behind Meta %s", x.depth.c_str(), x.thickness * 100, x.meta.c_str()); thin += (thin.empty() ? "" : "; ") + std::string(b); }
+    if (!thin.empty()) { ok = false; rs.push_back(thin + ": thinner than a real wall (6+ cm), so the scan and Meta disagree by a few cm (frame offset?)"); }
+    for (auto& w : R.walls) if (w.room.empty() && !w.offAxis && r3(w.w) >= 1.0) S.lone.push_back(w.id);
+    if (!S.lone.empty()) {
+        ok = false; std::string l; for (auto& id : S.lone) l += (l.empty() ? "" : ", ") + id;
+        rs.push_back(std::to_string(S.lone.size()) + " wall(s) of 1 m or more bound no closed room (a room is open or unscanned): " + l);
+    }
+    std::string bad; int nb = 0;
+    for (auto& [bt, st] : R.batches) if (st.rfind("dropped", 0) == 0) { bad += (nb ? "; " : "") + bt + ": " + st; nb++; }
+    S.badFrames = nb;
+    if (nb) { ok = false; rs.push_back(std::to_string(nb) + " scan commit(s) in another frame: " + bad); }
+    S.ok = ok;
+}
+
+// The live SCAN hint (work-df: guided capture): the verdict as one short line that says where to look, from the head
+// (room frame: position and forward). "ROOM: GOOD", or "NOT YET: ..." from the first reason that applies, in the
+// order a user can fix them: no room at all, an open side (a door-sized gap: "DOORWAY ... UNCLEAR", else "WALL ...
+// UNSEEN"), a wall bounding no room, double walls, mostly furniture, scan vs Meta, an old scan in another frame.
+inline std::string where(double hx, double hz, double fx, double fz, double tx, double tz) {
+    double dx = tx - hx, dz = tz - hz, ahead = dx * fx + dz * fz, right = dx * -fz + dz * fx;
+    double a = deg(std::atan2(right, ahead));
+    return std::fabs(a) <= 45 ? "AHEAD" : std::fabs(a) >= 135 ? "BEHIND YOU" : a > 0 ? "TO YOUR RIGHT" : "TO YOUR LEFT";
+}
+struct Hint { bool good = false; std::string text; };
+inline Hint hint(const Result& R, double hx, double hz, double fx, double fz, const Params& P = {}) {
+    Hint h; const Score& S = R.score;
+    if (S.ok) { h.good = true; h.text = "ROOM: GOOD"; return h; }
+    if (R.rooms.empty()) { h.text = "NOT YET: LOOK AROUND, NO ROOM IS CLOSED YET"; return h; }
+    // The room with the most open length: a missing wall comes as several short stretches along the cell outline, so
+    // their total says doorway (up to doorMax + 0.5 m) or wall, and their length-weighted centre says where.
+    const PlanRoom* worst = nullptr; double worstOpen = 0;
+    for (auto& r : R.rooms) { double o = 0; for (auto& [a, b] : r.opens) o += std::hypot(b.first - a.first, b.second - a.second); if (o > worstOpen) { worstOpen = o; worst = &r; } }
+    if (worst) {
+        double cx = 0, cz = 0;
+        for (auto& [a, b] : worst->opens) { double w = std::hypot(b.first - a.first, b.second - a.second); cx += w * (a.first + b.first) / 2; cz += w * (a.second + b.second) / 2; }
+        std::string dir = where(hx, hz, fx, fz, cx / worstOpen, cz / worstOpen);
+        h.text = worstOpen <= P.doorMax + 0.5 ? "NOT YET: DOORWAY " + dir + " UNCLEAR" : "NOT YET: WALL " + dir + " UNSEEN"; return h;
+    }
+    if (!S.lone.empty()) for (auto& w : R.walls) if (w.id == S.lone[0]) { h.text = "NOT YET: THE WALL " + where(hx, hz, fx, fz, w.x, w.z) + " CLOSES NO ROOM, LOOK PAST IT"; return h; }
+    if (S.dupPlan) { h.text = "NOT YET: DOUBLE WALLS, SWEEP THEM AGAIN SLOWLY"; return h; }
+    if (S.haveExplained && S.explained < 0.6) { h.text = "NOT YET: MOSTLY FURNITURE, AIM AT THE WALLS"; return h; }
+    if (S.badFrames) { h.text = "NOT YET: AN OLD SCAN IS IN ANOTHER FRAME"; return h; }
+    h.text = "NOT YET: SCAN AND ROOM SETUP DISAGREE"; return h;
+}
+
+// Phases 0-3 on a house document; withPlan: phase 2 too (the floor plan: rooms and plan walls) and the score.
 inline void run(const json::Value& doc, Result& R, const Params& P = {}, bool withPlan = false) {
     R = Result{};
     std::vector<Surf*> raw; surfaces(doc, R, raw);
+    for (auto* s : raw) if (s->orient == 0) R.rawVert.push_back(*s);
     std::vector<Surf*> surfs = frames(raw, P, R); R.surfs = surfs;
     axesPeak(surfs, P, R.th, R.share);
     Frame2 F(R.th);
@@ -672,7 +797,7 @@ inline void run(const json::Value& doc, Result& R, const Params& P = {}, bool wi
     segs = suppressStacks(segs, P, R);
     segs = clipCorners(segs, P, R);
     R.segs = outsideSceneRooms(segs, F, P, R);
-    if (withPlan) roomsAndWalls(R, F, P);
+    if (withPlan) { roomsAndWalls(R, F, P); score(R, P); }
 }
 
 }  // namespace consolidate
