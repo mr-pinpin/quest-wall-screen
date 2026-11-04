@@ -1,6 +1,6 @@
 {
- "rev": 54,
- "next": 23,
+ "rev": 61,
+ "next": 24,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -13,13 +13,18 @@
    ],
    "id": "K1",
    "created": "2026-11-04T09:55:17Z",
-   "updated": "2026-11-04T09:59:11Z",
+   "updated": "2026-11-04T11:22:41Z",
    "by": "work-ad",
    "comments": [
     {
      "at": "2026-11-04T09:59:11Z",
      "by": "work-df",
      "text": "select_outline.h done by work-0e (4626f40); render integration by c4; room.sh select writes house.selected (42)"
+    },
+    {
+     "at": "2026-11-04T11:22:41Z",
+     "by": "work-df",
+     "text": "select outline shipped in v0.68; draw primitive (house.marks) → work-0e"
     }
    ],
    "history": [
@@ -31,6 +36,11 @@
     },
     {
      "at": "2026-11-04T09:59:11Z",
+     "by": "work-df",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T11:22:41Z",
      "by": "work-df",
      "what": "commented"
     }
@@ -721,34 +731,70 @@
   {
    "title": "Static wallpaper on the Air (aerial + colorsync ~1.3 cores) — proposal, later",
    "details": "user: low priority; the CLI routes failed; options: user picks it in Settings, or a privileged helper later",
-   "column": "backlog",
-   "owner": "",
+   "column": "done",
+   "owner": "work-ad",
    "area": "perf",
    "links": [],
    "id": "K21",
    "created": "2026-11-04T10:47:47Z",
-   "updated": "2026-11-04T10:47:47Z",
+   "updated": "2026-11-04T11:24:54Z",
    "by": "work-df",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T11:24:35Z",
+     "by": "work-ad",
+     "text": "Read-only check at 11:35 UTC, 13 min after the reboot; the user is on the Mac, so nothing was changed. (1) The wallpaper is ALREADY STATIC: Index.plist provider com.apple.wallpaper.choice.image = Solid Colors/Gold 2.png. No aerial process is running, and WallpaperAgent and WallpaperImageExtension are at 0%. The idle screen saver is still an aerial (provider .screen-saver), which only matters when it starts. (2) colorsync is still busy WITHOUT any video wallpaper: colorsyncd + colorsync.displayservices sampled 1/s for 20 s gave 12 29 74 1 6 47 35 42 3 56 15 39 2 56 11 48 1 78 6 51 % (bursty, mean ~33% of one core; before the reboot it was ~100%). So the wallpaper was not the driver. The bursts look like display-profile work, i.e. virtual displays being configured or captured (pinpin-displays, atlas, sunshine): a question for whoever owns displays and atlas, not a wallpaper fix. Proposal: close K21 as done by the user. If colorsync keeps hurting air_smoke, open a card to correlate its bursts with pinpin-displays and atlas events (read-only log show). air_smoke not re-run: it needs EXCLUSIVE, and the laptop is read-only for now."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T10:47:47Z",
      "by": "work-df",
      "what": "created",
      "column": "backlog"
+    },
+    {
+     "at": "2026-11-04T11:24:31Z",
+     "by": "work-ad",
+     "what": "updated",
+     "fields": [
+      "owner"
+     ],
+     "old_owner": ""
+    },
+    {
+     "at": "2026-11-04T11:24:35Z",
+     "by": "work-ad",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T11:24:38Z",
+     "by": "work-ad",
+     "what": "moved",
+     "from": "backlog",
+     "to": "review",
+     "note": "wallpaper already static; colorsync ~33% bursty remains, not wallpaper-driven"
+    },
+    {
+     "at": "2026-11-04T11:24:54Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "user set a solid colour; colorsync still ~33% bursty after reboot (not wallpaper)"
     }
    ]
   },
   {
    "title": "Headset fps: batch mesh draws, cheaper VT bezel, frameCost instrumentation",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "perf",
    "links": [],
    "id": "K22",
    "created": "2026-11-04T11:06:02Z",
-   "updated": "2026-11-04T11:06:02Z",
+   "updated": "2026-11-04T11:22:37Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -757,9 +803,38 @@
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T11:22:37Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "k5-mesh 4568da5: MESHBATCH (off, A/B), BEZELFEW on, frameCost counts mesh draws"
+    }
+   ]
+  },
+  {
+   "title": "colorsync bursts (~33% avg) — correlate with pinpin-displays/atlas events",
+   "details": "read-only first: log colorsync CPU vs display create/capture events; propose a fix",
+   "column": "doing",
+   "owner": "work-ad",
+   "area": "perf",
+   "links": [],
+   "id": "K23",
+   "created": "2026-11-04T11:24:58Z",
+   "updated": "2026-11-04T11:24:58Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:24:58Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
     }
    ]
   }
  ],
- "updated": "2026-11-04T11:08:40Z"
+ "updated": "2026-11-04T11:24:58Z"
 }
