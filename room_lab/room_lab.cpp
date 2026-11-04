@@ -1851,12 +1851,13 @@ struct App {
     // sweep line crossing it. Drawn in the occluded batch, so real things in front hide it like the room itself.
     // ---- CLEANLIVE (kanban K27, room_lab/consolidate.h, a port of work-34's house/consolidate.py "consolidate/1"):
     // while SCAN runs, the house's walls plus the live fits (one batch "live", in the house frame) are consolidated on a
-    // worker at most twice a second, and the clean walls (Manhattan-snapped, merged, cut at the corners, furniture faces
-    // and junk dropped) are drawn over the raw fits. Depth walls in the house without a "frame" field (pre-v0.65, drifted
+    // worker at most twice a second, floor plan included (~0.3 ms), and the clean walls (Manhattan-snapped, merged, cut
+    // at the corners, furniture faces and junk dropped, floor to ceiling of their room) are drawn over the raw fits, with
+    // each room's outline on its floor. Depth walls in the house without a "frame" field (pre-v0.65, drifted
     // against Meta) are left out, as work-34's consolidate/2 will. Committing the clean walls as the placement targets is
     // the next step (work-c4). status.json "clean".
     struct CleanWall { V3 c, r, u, n; float w = 0, h = 0; bool scene = false; std::vector<std::string> members; };
-    std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
+    std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::vector<std::vector<V3>> cleanFloors; int cleanRooms = 0; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
     long cleanRuns = 0; double cleanUs = 0; int cleanDropped = 0, cleanInput = 0; bool cleanNeedsRooms = false; double cleanTh = 0;
     void updateCleanLive() {
         if (!cleanLiveMenu || !scanning() || !houseFrame.ok || cleanBusy || now() - cleanAt < 0.5f) return;
@@ -1876,27 +1877,31 @@ struct App {
                 doc.o["walls"].a.push_back(o);
             }
             auto t0 = std::chrono::steady_clock::now();
-            consolidate::Result R; consolidate::run(doc, R);
+            consolidate::Result R; consolidate::run(doc, R, {}, true);   // with the floor plan: walls get their room's heights
             double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
-            std::vector<CleanWall> out;
-            for (auto& sg : R.segs) {
-                double x, z, yaw, w; R.wall(sg, x, z, yaw, w);
-                wallfit::Pose pr{{0, (float)std::sin(yaw / 2), 0, (float)std::cos(yaw / 2)}, {(float)x, (float)((sg.y0 + sg.y1) / 2), (float)z}};
-                wallfit::Pose pl = anchors::compose(roomInLocal, pr);
-                XrPosef xpL = xp(pl); CleanWall c; c.c = v3(xpL.position);
+            std::vector<CleanWall> out; std::vector<std::vector<V3>> floors;
+            for (auto& pw : R.walls) {
+                wallfit::Pose pr{{0, (float)std::sin(pw.yaw / 2), 0, (float)std::cos(pw.yaw / 2)}, {(float)pw.x, (float)pw.y, (float)pw.z}};
+                XrPosef xpL = xp(anchors::compose(roomInLocal, pr)); CleanWall c; c.c = v3(xpL.position);
                 c.r = rot(xpL.orientation, {1, 0, 0}); c.u = rot(xpL.orientation, {0, 1, 0}); c.n = rot(xpL.orientation, {0, 0, 1});
-                c.w = (float)w; c.h = (float)(sg.y1 - sg.y0); c.scene = consolidate::hasScene(sg);
-                for (auto* m : sg.members) c.members.push_back(m->id);
+                c.w = (float)pw.w; c.h = (float)pw.h; c.scene = pw.src != "depth"; c.members = pw.from;
                 out.push_back(c);
             }
+            for (auto& rm : R.rooms) if (rm.haveFloor) {  // each room's outline on its floor
+                std::vector<V3> f;
+                for (auto& [x, z] : rm.floor) { XrPosef q = xp(anchors::compose(roomInLocal, wallfit::Pose{{0, 0, 0, 1}, {(float)x, (float)rm.floorY + 0.01f, (float)z}})); f.push_back(v3(q.position)); }
+                floors.push_back(f);
+            }
             std::lock_guard<std::mutex> g(cleanLock);
-            cleanWalls.swap(out); cleanUs = us; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
+            cleanWalls.swap(out); cleanFloors.swap(floors); cleanRooms = (int)R.rooms.size(); cleanUs = us; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
             cleanBusy = false;
         }).detach();
     }
     void drawClean(Batch& b) {
         if (!cleanLiveMenu || !scanning()) return;
-        std::vector<CleanWall> ws; { std::lock_guard<std::mutex> g(cleanLock); ws = cleanWalls; }
+        std::vector<CleanWall> ws; std::vector<std::vector<V3>> fl; { std::lock_guard<std::mutex> g(cleanLock); ws = cleanWalls; fl = cleanFloors; }
+        const float floorCol[4] = {0.35f, 0.85f, 1.0f, 0.8f};
+        for (auto& f : fl) for (size_t i = 0; i < f.size(); i++) b.line(f[i], f[(i + 1) % f.size()], {0, 1, 0}, 0.015f, floorCol);
         for (auto& w : ws) {
             auto W = [&](float x, float y) { return w.c + w.r * x + w.u * y + w.n * 0.02f; };
             const float meta[4] = {1.0f, 0.8f, 0.25f, 0.9f}, depth[4] = {0.3f, 1.0f, 0.55f, 0.9f}, fillM[4] = {1.0f, 0.8f, 0.25f, 0.10f}, fillD[4] = {0.3f, 1.0f, 0.55f, 0.12f};
@@ -5104,7 +5109,7 @@ void main(){
         j << ",\"frameCost\":" << frameCostJson();
         { std::lock_guard<std::mutex> g(cleanLock);
           j << ",\"clean\":{\"on\":" << (cleanLiveMenu ? 1 : 0) << ",\"algo\":\"" << consolidate::kAlgo << "\",\"runs\":" << cleanRuns << ",\"us\":" << (long)cleanUs << ",\"input\":" << cleanInput
-            << ",\"walls\":" << cleanWalls.size() << ",\"dropped\":" << cleanDropped << ",\"needsRooms\":" << (cleanNeedsRooms ? 1 : 0) << ",\"axisDeg\":" << cleanTh << "}"; }
+            << ",\"walls\":" << cleanWalls.size() << ",\"rooms\":" << cleanRooms << ",\"dropped\":" << cleanDropped << ",\"needsRooms\":" << (cleanNeedsRooms ? 1 : 0) << ",\"axisDeg\":" << cleanTh << "}"; }
         j << ",\"marks\":{\"on\":" << (marksMenu ? 1 : 0) << ",\"listed\":" << (markList.size() + markDemo.size()) << ",\"shown\":" << marksShown << ",\"unresolved\":" << marksUnresolved << "}";
         { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }

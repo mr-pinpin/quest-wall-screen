@@ -890,7 +890,7 @@ inline const char* kFlagsJson = R"FJ({
       "default": false,
       "state": "off",
       "category": "experimental",
-      "reason": "While SCAN runs, the house walls plus the live fits are consolidated on the headset (room_lab/consolidate.h, a port of work-34's house/consolidate.py consolidate/1 that matches it exactly on 12 fixtures, about 0.1 ms) and the clean walls are drawn over the raw fits. Off until seen on the headset.",
+      "reason": "While SCAN runs, the house walls plus the live fits are consolidated on the headset (room_lab/consolidate.h, a port of work-34's house/consolidate.py consolidate/1 that matches it exactly on 12 fixtures, about 0.3 ms with the floor plan) and the clean walls (room heights) and room outlines are drawn over the raw fits; with CLEANLIVE the SCAN commit keeps the clean depth walls as the placement targets (room_lab/cleanplace.h). Off until seen on the headset.",
       "evidence": [
         {
           "commit": "9651dbb"

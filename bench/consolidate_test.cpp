@@ -15,10 +15,10 @@ static json::Value load(const std::string& p) { std::ifstream f(p); std::strings
 int main(int argc, char** argv) {
     std::string dir = argc > 1 ? argv[1] : "/tmp/cx";
     std::ifstream cf(dir + "/cases.txt"); std::string name; int cases = 0; double worstMm = 0, worstDeg = 0;
-    double bestUs = 1e18; std::string slowCase;
+    double bestUs = 1e18, planUs = 0; std::string slowCase; size_t planWalls = 0, planRooms = 0;
     while (cf >> name) {
         json::Value doc = load(dir + "/" + name + ".doc.json"), want = load(dir + "/" + name + ".want.json");
-        consolidate::Result R; consolidate::run(doc, R); cases++;
+        consolidate::Result R; consolidate::run(doc, R, {}, true); cases++;
         double dth = std::fabs(consolidate::wrap(consolidate::deg(R.th - want["th"].n), 90));
         worstDeg = std::max(worstDeg, dth);
         check(dth < 0.01, name + ": room direction");
@@ -42,14 +42,50 @@ int main(int argc, char** argv) {
             printf("    dropped %zu: c++ [%s] %s | py [%s] %s\n", i, i < R.dropped.size() ? R.dropped[i].id.c_str() : "-", i < R.dropped.size() ? R.dropped[i].why.c_str() : "",
                    want["dropped"][i][0].str().c_str(), want["dropped"][i][1].str().c_str());
         check(dr, name + ": dropped walls and reasons");
+        // phase 2: the plan's walls and rooms, as consolidate() returns them (rounded to mm there)
+        auto near = [](double a, double b) { return std::fabs(a - b) <= 0.0015; };
+        const auto& pw = want["walls"].a;
+        check(R.walls.size() == pw.size(), name + ": " + std::to_string(R.walls.size()) + " plan walls, the Python has " + std::to_string(pw.size()));
+        for (size_t i = 0; i < std::min(R.walls.size(), pw.size()); i++) {
+            const auto& w = R.walls[i]; const auto& v = pw[i];
+            double qy = v["pose"]["q"][1].n, qw = v["pose"]["q"][3].n, yaw = 2 * std::atan2(qy, qw);
+            double dyaw = std::fabs(consolidate::wrap(consolidate::deg(w.yaw - yaw), 360));
+            bool from = w.from.size() == v["from"].a.size(); for (size_t m = 0; from && m < w.from.size(); m++) from = w.from[m] == v["from"][m].str();
+            std::string room = v["room"].type == json::Value::Str ? v["room"].str() : "";
+            bool ok = w.id == v["id"].str() && near(w.x, v["pose"]["p"][0].n) && near(w.y, v["pose"]["p"][1].n) && near(w.z, v["pose"]["p"][2].n) && dyaw < 0.01 &&
+                      near(w.w, v["w"].n) && near(w.h, v["h"].n) && w.room == room && w.src == v["src"].str() && from;
+            if (!ok) printf("    wall %zu: c++ %s %.3f %.3f %.3f w %.3f h %.3f room %s | py %s %.3f %.3f %.3f w %.3f h %.3f room %s\n", i, w.id.c_str(), w.x, w.y, w.z, w.w, w.h, w.room.c_str(),
+                            v["id"].str().c_str(), v["pose"]["p"][0].n, v["pose"]["p"][1].n, v["pose"]["p"][2].n, v["w"].n, v["h"].n, room.c_str());
+            check(ok, name + ": plan wall " + std::to_string(i));
+        }
+        const auto& pr = want["rooms"].a;
+        check(R.rooms.size() == pr.size(), name + ": " + std::to_string(R.rooms.size()) + " rooms, the Python has " + std::to_string(pr.size()));
+        for (size_t i = 0; i < std::min(R.rooms.size(), pr.size()); i++) {
+            const auto& r = R.rooms[i]; const auto& v = pr[i];
+            auto optEq = [&](bool have, double val, const json::Value& j) { return j.type == json::Value::Null ? !have : have && near(val, j.n); };
+            // the outline up to rotation (its first vertex follows CPython's set order)
+            const auto& fl = v["floor"].a; bool poly = r.floor.size() == fl.size();
+            if (poly) { bool any = false;
+                for (size_t sft = 0; sft < fl.size() && !any; sft++) { bool all = true; for (size_t k = 0; k < fl.size() && all; k++) all = near(r.floor[(k + sft) % fl.size()].first, fl[k][0].n) && near(r.floor[(k + sft) % fl.size()].second, fl[k][1].n); any = all; }
+                poly = any; }
+            bool ok = r.id == v["id"].str() && near(r.area, v["area"].n) && optEq(r.haveFloor, r.floorY, v["floorY"]) && optEq(r.haveCeil, r.ceilingY, v["ceilingY"]) &&
+                      r.closed == v["closed"].b && near(r.closure, v["closure"].n) && near(r.perimeter, v["perimeter"].n) && near(r.openM, v["openM"].n) && r.doors == (int)v["doors"].a.size() && poly;
+            if (!ok) printf("    room %zu: c++ %s area %.3f closed %d closure %.3f per %.3f doors %d verts %zu | py %s area %.3f closed %d closure %.3f per %.3f doors %zu verts %zu\n", i, r.id.c_str(), r.area, r.closed, r.closure, r.perimeter, r.doors, r.floor.size(),
+                            v["id"].str().c_str(), v["area"].n, v["closed"].b, v["closure"].n, v["perimeter"].n, v["doors"].a.size(), fl.size());
+            check(ok, name + ": room " + std::to_string(i));
+        }
+        planWalls += R.walls.size(); planRooms += R.rooms.size();
         // budget: best of 20 runs (a worker thread, but not slower than 2 ms)
         double best = 1e18;
         for (int r = 0; r < 20; r++) { auto t0 = std::chrono::steady_clock::now(); consolidate::Result Q; consolidate::run(doc, Q); best = std::min(best, std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count()); }
-        if (name == "house-rev25") { bestUs = best; slowCase = name; }
+        if (name == "house-rev25") { bestUs = best; slowCase = name;
+            double bp = 1e18; for (int r = 0; r < 10; r++) { auto t0 = std::chrono::steady_clock::now(); consolidate::Result Q; consolidate::run(doc, Q, {}, true); bp = std::min(bp, std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count()); }
+            planUs = bp; }
     }
-    printf("  %d cases match the Python: worst %.4f mm, %.5f deg; house-rev25 (44 walls) in %.0f us\n", cases, worstMm, worstDeg, bestUs);
+    printf("  %d cases match the Python: worst %.4f mm, %.5f deg; %zu plan walls, %zu rooms; house-rev25 (44 walls) in %.0f us, with the floor plan %.0f us\n", cases, worstMm, worstDeg, planWalls, planRooms, bestUs, planUs);
     check(cases >= 10, "fixtures present");
     check(bestUs < 2000, "under 2 ms on house-rev25");
+    check(planUs < 20000, "the floor plan under 20 ms on house-rev25 (it runs at ~1 Hz on a worker)");
     printf("consolidate: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;
 }

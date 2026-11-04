@@ -2,17 +2,19 @@
 // the same PARAMS), steps 0-3 and Meta's room chains, so SCAN can show clean walls live and use them as placement
 // targets instead of raw fits. Stage for stage the same rules and the same arithmetic (doubles, Python's floor modulo
 // and round-half-even), so the output matches the Python on the same input: bench/consolidate_xcheck.py runs the Python
-// functions to the same stage and bench/consolidate_test.cpp compares, in the offline gate (a change to the Python that
-// is not mirrored here fails there). Not ported yet (phase 2): rooms() by rays (used only when Meta's walls form no
-// closed chain: Result.needsRooms says so and the depth walls are then not cut by Meta's rooms), the floor plan and the
-// score. Input: house.json walls (same fields as the Python reads); room_lab feeds the house's walls plus the live SCAN
-// fits as one batch. GL-free.
+// functions and bench/consolidate_test.cpp compares, in the offline gate (a change to the Python that is not mirrored
+// here fails there). Phase 2 (planWalls / planRooms): the floor plan by rays (rooms()), each room's outline, support
+// (doors, holes, open sides, closure), floor and ceiling heights, and the plan walls with their room's heights, as
+// consolidate() returns them. Not ported: the score. The one difference by construction: a room outline's first
+// vertex follows CPython's set order there, so outlines compare up to rotation. Input: house.json walls (the same
+// fields the Python reads); room_lab feeds the house's walls plus the live SCAN fits as one batch. GL-free.
 #pragma once
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <deque>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include "json.h"
@@ -52,9 +54,17 @@ struct Frame2 {
 constexpr int SIGN[4] = {1, 1, -1, -1};
 inline void segLine(int k, int& oi, int& ti) { if (k % 2 == 0) { oi = 1; ti = 0; } else { oi = 0; ti = 1; } }
 
+using PT = std::pair<double, double>;   // (A, B) in the axis frame
+using Loop = std::vector<PT>;
+struct RoomF { std::vector<Loop> loops; double area = 0; bool open = false, meta = false; std::vector<std::string> metaIds; };
+struct PlanRoom { std::string id; Loop floor; std::vector<Loop> holes; double area = 0, closure = 0, perimeter = 0, openM = 0; bool closed = false, haveFloor = false, haveCeil = false; double floorY = 0, ceilingY = 0; int doors = 0; };
+struct PlanWall { std::string id, room, src; double x = 0, y = 0, z = 0, yaw = 0, w = 0, h = 0; bool offAxis = false; std::vector<std::string> from; };
 struct Result {
-    double th = 0, share = 0; bool needsRooms = false;
+    double th = 0, share = 0; bool needsRooms = false;   // needsRooms: Meta's walls form no closed chain (rooms by rays then)
+    bool haveFloor = false, haveCeil = false; double refFloor = 0, refCeil = 0; std::vector<Surf*> surfs;  // after frames()
     std::vector<Seg> segs; std::vector<Surf*> offaxis; std::vector<Dropped> dropped;
+    std::vector<RoomF> metaRooms;                            // Meta's rooms (closed chains, else by rays from Meta's walls)
+    std::vector<PlanRoom> rooms; std::vector<PlanWall> walls;  // phase 2: the floor plan, as consolidate() returns it
     std::deque<Surf> pool;  // the surfaces the segments point at
     // A plan wall from a segment (room frame): centre, yaw (pose +z = normal into the room), width, y range.
     void wall(const Seg& s, double& x, double& z, double& yaw, double& w) const {
@@ -159,6 +169,7 @@ inline std::vector<Surf*> frames(std::vector<Surf*> surfs, const Params& P, Resu
         if (!bu.empty()) { refFloor = lowest(bu); refFrom = "floor of commit " + best; haveFloor = true; }
     }
     bool haveCeil = !sceneDn.empty(); double refCeil = -1e300; for (auto* s : sceneDn) refCeil = std::max(refCeil, s->p[1]);
+    R.haveFloor = haveFloor; R.refFloor = refFloor; R.haveCeil = haveCeil; R.refCeil = refCeil;
     double th0, sh0; axesPeak(surfs, P, th0, sh0);
     for (auto& [b, ss] : batches) {
         std::string status = "ok";
@@ -326,7 +337,7 @@ inline std::vector<Seg> clipCorners(std::vector<Seg> segs, const Params& P, Resu
 }
 
 // Meta's rooms: closed chains of Meta walls, end to end.
-struct Cycle { std::vector<std::pair<double, double>> poly; };
+struct Cycle { std::vector<std::pair<double, double>> poly; std::vector<std::string> ids; };
 inline std::vector<Cycle> metaCycles(const std::vector<Surf*>& all, double tol = 0.15) {
     std::vector<Surf*> S; for (auto* s : all) if (s->orient == 0 && s->src != "depth") S.push_back(s);
     std::vector<std::pair<double, double>> pos; std::vector<std::pair<int, int>> node;
@@ -361,7 +372,7 @@ inline std::vector<Cycle> metaCycles(const std::vector<Surf*>& all, double tol =
             loop.push_back(v); cur = v;
         }
         for (int v : loop) used[v] = true;
-        if (ok && walls.size() >= 3) { Cycle c; for (int i : loop) c.poly.push_back(pos[i]); out.push_back(c); }
+        if (ok && walls.size() >= 3) { Cycle c; for (int i : loop) c.poly.push_back(pos[i]); for (int w : walls) c.ids.push_back(S[w]->id); out.push_back(c); }
     }
     return out;
 }
@@ -373,13 +384,185 @@ inline bool inside(double x, double z, const std::vector<std::pair<double, doubl
     }
     return in;
 }
+// ---- phase 2: rooms by rays (consolidate.py rooms(), _segments2d, _ray, _crosses, _outline, support)
+struct Seg2 { PT p, q, n; double u0, u1; bool meta; };
+inline std::vector<double> cluster(std::vector<double> v, double eps) {
+    std::sort(v.begin(), v.end()); std::vector<double> out, cur;
+    for (double x : v) { if (!cur.empty() && x - cur[0] > eps) { out.push_back(cur[cur.size() / 2]); cur.clear(); } cur.push_back(x); }
+    if (!cur.empty()) out.push_back(cur[cur.size() / 2]);
+    return out;
+}
+inline std::vector<Seg2> segments2d(const std::vector<Seg>& segs, const std::vector<Surf*>& offaxis, const Frame2& F, double ext) {
+    std::vector<Seg2> out;
+    for (auto& s : segs) {
+        int oi, ti; segLine(s.k, oi, ti); double a[2], b[2], n[2] = {0, 0};
+        a[oi] = b[oi] = s.off; a[ti] = s.t0 - ext; b[ti] = s.t1 + ext; n[oi] = SIGN[s.k];
+        double L = s.t1 - s.t0 + 2 * ext;
+        out.push_back({{a[0], a[1]}, {b[0], b[1]}, {n[0], n[1]}, ext / L, 1 - ext / L, hasScene(s)});
+    }
+    for (auto* s : offaxis) {
+        double c[2], r[2], n[2]; F.to(s->p[0], s->p[2], c[0], c[1]); F.to(s->r[0], s->r[2], r[0], r[1]); F.to(s->n[0], s->n[2], n[0], n[1]);
+        double hw = s->w / 2 + ext;
+        out.push_back({{c[0] - r[0] * hw, c[1] - r[1] * hw}, {c[0] + r[0] * hw, c[1] + r[1] * hw}, {n[0], n[1]}, ext / (2 * hw), 1 - ext / (2 * hw), true});
+    }
+    return out;
+}
+struct Hit { bool hit = false; double t = 0; bool facing = false, metaBack = false; };
+inline Hit ray(PT c, PT d, const std::vector<Seg2>& walls) {
+    Hit best;
+    for (auto& w : walls) {
+        double ex = w.q.first - w.p.first, ey = w.q.second - w.p.second, den = d.first * ey - d.second * ex;
+        if (std::fabs(den) < 1e-12) continue;
+        double wx = w.p.first - c.first, wy = w.p.second - c.second, t = (wx * ey - wy * ex) / den, u = (wx * d.second - wy * d.first) / den;
+        if (t > 1e-6 && -1e-9 <= u && u <= 1 + 1e-9 && (!best.hit || t < best.t)) {
+            bool facing = w.n.first * d.first + w.n.second * d.second < 0;
+            if (!facing && !(w.u0 <= u && u <= w.u1)) continue;
+            best = {true, t, facing, w.meta && !facing && w.u0 <= u && u <= w.u1};
+        }
+    }
+    return best;
+}
+inline bool crosses(PT c1, PT c2, const std::vector<Seg2>& walls) {
+    for (auto& w : walls) {
+        auto [px, py] = w.p; auto [qx, qy] = w.q;
+        double d1 = (qx - px) * (c1.second - py) - (qy - py) * (c1.first - px), d2 = (qx - px) * (c2.second - py) - (qy - py) * (c2.first - px);
+        double d3 = (c2.first - c1.first) * (py - c1.second) - (c2.second - c1.second) * (px - c1.first), d4 = (c2.first - c1.first) * (qy - c1.second) - (c2.second - c1.second) * (qx - c1.first);
+        if (d1 * d2 < 0 && d3 * d4 <= 0) return true;
+    }
+    return false;
+}
+inline double loopArea(const Loop& L) { double a = 0; for (size_t i = 0; i < L.size(); i++) a += L[i].first * L[(i + 1) % L.size()].second - L[(i + 1) % L.size()].first * L[i].second; return a / 2; }
+inline bool insideAB(PT c, const Loop& poly) { std::vector<std::pair<double, double>> p(poly.begin(), poly.end()); return inside(c.first, c.second, p); }
+inline std::vector<Loop> outline(const std::set<std::pair<int, int>>& cells, const std::vector<double>& xs, const std::vector<double>& ys) {
+    std::vector<PT> order; std::map<PT, std::vector<PT>> edges;
+    for (auto [i, j] : cells) {
+        double x0 = xs[i], x1 = xs[i + 1], y0 = ys[j], y1 = ys[j + 1];
+        std::pair<int, int> nb[4] = {{i, j - 1}, {i + 1, j}, {i, j + 1}, {i - 1, j}}; PT a[4] = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}, b[4] = {{x1, y0}, {x1, y1}, {x0, y1}, {x0, y0}};
+        for (int e = 0; e < 4; e++) if (!cells.count(nb[e])) { if (!edges.count(a[e])) order.push_back(a[e]); edges[a[e]].push_back(b[e]); }
+    }
+    std::vector<Loop> loops;
+    for (;;) {
+        PT start; bool found = false; for (auto& k : order) if (edges.count(k)) { start = k; found = true; break; }
+        if (!found) break;
+        Loop loop = {start}; PT cur = start;
+        for (;;) {
+            PT nxt = edges[cur].back(); edges[cur].pop_back();
+            if (edges[cur].empty()) edges.erase(cur);
+            if (nxt == start) break;
+            loop.push_back(nxt); cur = nxt;
+            if (!edges.count(cur)) break;
+        }
+        Loop clean;
+        for (size_t idx = 0; idx < loop.size(); idx++) {
+            PT v = loop[idx], a = loop[(idx + loop.size() - 1) % loop.size()], b = loop[(idx + 1) % loop.size()];
+            if (std::fabs((v.first - a.first) * (b.second - v.second) - (v.second - a.second) * (b.first - v.first)) > 1e-12) clean.push_back(v);
+        }
+        if (clean.size() >= 3) loops.push_back(clean);
+    }
+    std::stable_sort(loops.begin(), loops.end(), [](const Loop& a, const Loop& b) { return std::fabs(loopArea(a)) > std::fabs(loopArea(b)); });
+    return loops;
+}
+inline std::vector<RoomF> roomsByRays(const std::vector<Seg>& segs, const std::vector<Surf*>& offaxis, const Frame2& F, const Params& P, const std::vector<Loop>& exclude = {}) {
+    if (segs.empty()) return {};
+    std::vector<double> A, B;
+    for (auto& s : segs) {
+        int oi, ti; segLine(s.k, oi, ti); (oi == 0 ? A : B).push_back(s.off);
+        double e = P.doorMax / 2; auto& T = oi == 0 ? B : A; T.push_back(s.t0); T.push_back(s.t1); T.push_back(s.t0 - e); T.push_back(s.t1 + e);
+    }
+    for (auto* s : offaxis) {
+        double c[2], r[2]; F.to(s->p[0], s->p[2], c[0], c[1]); F.to(s->r[0], s->r[2], r[0], r[1]); double hw = s->w / 2;
+        for (int e : {-1, 1}) { A.push_back(c[0] + r[0] * hw * e); B.push_back(c[1] + r[1] * hw * e); }
+    }
+    std::vector<double> xs = cluster(A, P.cellMerge), ys = cluster(B, P.cellMerge); const double m = 0.5;
+    xs.insert(xs.begin(), xs.front() - m); xs.push_back(xs.back() + m); ys.insert(ys.begin(), ys.front() - m); ys.push_back(ys.back() + m);
+    std::vector<Seg2> closed = segments2d(segs, offaxis, F, P.doorMax / 2);
+    std::vector<std::pair<int, int>> order; std::map<std::pair<int, int>, int> status;
+    for (int i = 0; i + 1 < (int)xs.size(); i++) for (int j = 0; j + 1 < (int)ys.size(); j++) {
+        PT c{(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2};
+        bool ex = false; for (auto& poly : exclude) if (insideAB(c, poly)) { ex = true; break; }
+        if (ex) continue;
+        Hit h[4] = {ray(c, {1, 0}, closed), ray(c, {-1, 0}, closed), ray(c, {0, 1}, closed), ray(c, {0, -1}, closed)};
+        bool back = false; int n = 0, front = 0;
+        for (auto& x : h) { if (x.hit && !x.facing && !x.metaBack) back = true; if (x.hit) n++; if (x.hit && x.facing) front++; }
+        if (back) continue;
+        if ((n == 4 && front >= 2) || (n == 3 && front == 3)) { status[{i, j}] = n; order.push_back({i, j}); }
+    }
+    auto centre = [&](int i, int j) { return PT{(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2}; };
+    std::vector<RoomF> out; std::set<std::pair<int, int>> seen;
+    for (auto cell : order) {
+        if (seen.count(cell)) continue;
+        std::set<std::pair<int, int>> comp; std::vector<std::pair<int, int>> todo = {cell}; seen.insert(cell);
+        while (!todo.empty()) {
+            auto [i, j] = todo.back(); todo.pop_back(); comp.insert({i, j});
+            for (std::pair<int, int> nb : {std::pair<int, int>{i + 1, j}, {i - 1, j}, {i, j + 1}, {i, j - 1}})
+                if (status.count(nb) && !seen.count(nb) && !crosses(centre(i, j), centre(nb.first, nb.second), closed)) { seen.insert(nb); todo.push_back(nb); }
+        }
+        double cellarea = 0, full = 0;
+        for (auto [i, j] : comp) { double a = (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]); cellarea += a; if (status[{i, j}] == 4) full += a; }
+        if (cellarea < P.minRoomArea || full < 0.3 * cellarea) continue;
+        RoomF r; r.loops = outline(comp, xs, ys); r.area = cellarea; r.open = full < cellarea - 1e-6; out.push_back(r);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const RoomF& a, const RoomF& b) { return a.area > b.area; });
+    return out;
+}
+struct Gap { PT a, b; double w; };
+struct Support { double perimeter = 0, supported = 0, closure = 0; std::vector<Gap> doors, holes, opens; std::set<int> bounding; };  // bounding: seg indices
+inline bool atWallEnd(PT p, const std::vector<PT>& ends, double tol = 0.15) { for (auto& e : ends) if (std::fabs(p.first - e.first) <= tol && std::fabs(p.second - e.second) <= tol) return true; return false; }
+inline Support support(const RoomF& room, const std::vector<Seg>& segs, const Params& P) {
+    Support S; std::vector<PT> ends;
+    struct Real { int i, oi, ti; double t0, t1; }; std::vector<Real> real;
+    for (int i = 0; i < (int)segs.size(); i++) { int oi, ti; segLine(segs[i].k, oi, ti); real.push_back({i, oi, ti, segs[i].t0 + segs[i].ext[0], segs[i].t1 - segs[i].ext[1]}); }
+    for (auto& r : real) for (double t : {r.t0, r.t1}) { double e[2]; e[r.oi] = segs[r.i].off; e[r.ti] = t; ends.push_back({e[0], e[1]}); }
+    for (auto& L : room.loops) for (size_t idx = 0; idx < L.size(); idx++) {
+        PT a = L[idx], b = L[(idx + 1) % L.size()];
+        bool horiz = std::fabs(a.second - b.second) < 1e-9; int oi = horiz ? 1 : 0, ti = horiz ? 0 : 1;
+        double av[2] = {a.first, a.second}, bv[2] = {b.first, b.second};
+        double lo = std::min(av[ti], bv[ti]), hi = std::max(av[ti], bv[ti]); S.perimeter += hi - lo;
+        double d[2] = {bv[0] - av[0], bv[1] - av[1]}, inward[2] = {-d[1], d[0]};
+        std::vector<std::pair<double, double>> iv;
+        for (auto& r : real) {
+            const Seg& s = segs[r.i];
+            if (r.oi != oi || std::fabs(s.off - av[oi]) > 0.08) continue;
+            double nrm[2] = {0, 0}; nrm[r.oi] = SIGN[s.k];
+            if (nrm[0] * inward[0] + nrm[1] * inward[1] <= 0 && !hasScene(s)) continue;
+            double x0 = std::max(lo, r.t0), x1 = std::min(hi, r.t1);
+            if (x1 > x0) { iv.push_back({x0, x1}); S.bounding.insert(r.i); }
+        }
+        std::sort(iv.begin(), iv.end()); std::vector<std::pair<double, double>> merged;
+        for (auto& [x0, x1] : iv) { if (!merged.empty() && x0 <= merged.back().second + 1e-6) merged.back().second = std::max(merged.back().second, x1); else merged.push_back({x0, x1}); }
+        for (auto& [x0, x1] : merged) S.supported += x1 - x0;
+        double cur = lo; merged.push_back({hi, hi});
+        for (auto& [x0, x1] : merged) {
+            if (x0 - cur > 1e-6) {
+                double g0 = cur, g1 = x0, gl = g1 - g0; double p0[2], p1[2]; p0[oi] = p1[oi] = av[oi]; p0[ti] = g0; p1[ti] = g1;
+                Gap g{{p0[0], p0[1]}, {p1[0], p1[1]}, gl};
+                if (P.doorMin <= gl && gl <= P.doorMax + 0.02 && atWallEnd(g.a, ends) && atWallEnd(g.b, ends)) S.doors.push_back(g);
+                else if (gl < P.doorMin) S.holes.push_back(g);
+                else S.opens.push_back(g);
+            }
+            cur = std::max(cur, x1);
+        }
+    }
+    double openLen = 0; for (auto& g : S.opens) openLen += g.w;
+    S.closure = S.perimeter ? 1.0 - openLen / S.perimeter : 0.0;
+    return S;
+}
+
 inline std::vector<Seg> outsideSceneRooms(const std::vector<Seg>& segs, const Frame2& F, const Params& P, Result& R) {
     std::vector<const Seg*> scene; for (auto& s : segs) if (hasScene(s)) scene.push_back(&s);
     std::vector<Surf*> surfs; for (auto* s : scene) for (auto* m : s->members) surfs.push_back(m);
     for (auto* s : R.offaxis) surfs.push_back(s);
-    std::vector<std::vector<std::pair<double, double>>> inner;
-    for (auto& c : metaCycles(surfs)) inner.push_back(c.poly);  // (x, z) already; the Python's F.to / reverse / F.back round-trips them
-    if (inner.empty() && !scene.empty()) { R.needsRooms = true; return segs; }  // phase 2: rooms() by rays
+    std::vector<std::vector<std::pair<double, double>>> inner; R.metaRooms.clear();
+    for (auto& c : metaCycles(surfs)) {
+        Loop loop; for (auto& [x, z] : c.poly) { double a, b; F.to(x, z, a, b); loop.push_back({a, b}); }
+        double ar = loopArea(loop); if (ar < 0) std::reverse(loop.begin(), loop.end());
+        RoomF r; r.loops = {loop}; r.area = std::fabs(ar); r.meta = true; r.metaIds = c.ids; R.metaRooms.push_back(r);
+    }
+    if (R.metaRooms.empty() && !scene.empty()) {  // no closed chain: Meta's rooms from its walls by the rays
+        R.needsRooms = true; std::vector<Seg> sc; for (auto* s : scene) sc.push_back(*s);
+        R.metaRooms = roomsByRays(sc, R.offaxis, F, P);
+    }
+    for (auto& r : R.metaRooms) { std::vector<std::pair<double, double>> poly; for (auto& [a, b] : r.loops[0]) { double x, z; F.back(a, b, x, z); poly.push_back({x, z}); } inner.push_back(poly); }
     if (inner.empty() || scene.size() == segs.size()) return segs;
     auto isIn = [&](double a, double b) { double x, z; F.back(a, b, x, z); for (auto& p : inner) if (inside(x, z, p)) return true; return false; };
     std::vector<Seg> out;
@@ -410,11 +593,78 @@ inline std::vector<Seg> outsideSceneRooms(const std::vector<Seg>& segs, const Fr
     return out;
 }
 
-// The whole of phases 0-3 on a house document.
-inline void run(const json::Value& doc, Result& R, const Params& P = {}) {
+// consolidate.py _rooms_and_walls: Meta's rooms plus the rooms the depth walls make outside them, each with its support,
+// floor and ceiling (horizontal surfaces inside, else the house's), and the plan walls with their room's heights.
+inline double wmedian(std::vector<std::pair<double, double>> v) {
+    std::sort(v.begin(), v.end()); double tot = 0; for (auto& x : v) tot += x.second;
+    double acc = 0; for (auto& x : v) { acc += x.second; if (acc >= tot / 2) return x.first; }
+    return v.empty() ? 0.0 : v.back().first;
+}
+inline void roomsAndWalls(Result& R, const Frame2& F, const Params& P) {
+    std::vector<Loop> excl; for (auto& r : R.metaRooms) excl.push_back(r.loops[0]);
+    std::vector<RoomF> found = R.metaRooms; for (auto& r : roomsByRays(R.segs, R.offaxis, F, P, excl)) found.push_back(r);
+    std::stable_sort(found.begin(), found.end(), [](const RoomF& a, const RoomF& b) { return a.area > b.area; });
+    std::map<int, std::string> owner;   // seg index, or -1 - offaxis index -> room id
+    R.rooms.clear(); R.walls.clear();
+    for (size_t n = 0; n < found.size(); n++) {
+        const RoomF& r = found[n]; Support sp; std::set<int> bounding;
+        if (r.meta) {
+            const Loop& L = r.loops[0]; double per = 0;
+            for (size_t i = 0; i < L.size(); i++) { const PT& a = L[(i + L.size() - 1) % L.size()]; per += std::hypot(L[i].first - a.first, L[i].second - a.second); }
+            sp.perimeter = sp.supported = per; sp.closure = 1.0;
+            for (int i = 0; i < (int)R.segs.size(); i++) for (auto* m : R.segs[i].members) if (std::find(r.metaIds.begin(), r.metaIds.end(), m->id) != r.metaIds.end()) { bounding.insert(i); break; }
+            for (int j = 0; j < (int)R.offaxis.size(); j++) if (std::find(r.metaIds.begin(), r.metaIds.end(), R.offaxis[j]->id) != r.metaIds.end()) bounding.insert(-1 - j);
+        } else { sp = support(r, R.segs, P); bounding = sp.bounding; }
+        std::vector<Loop> polys; for (auto& L : r.loops) { Loop q; for (auto& [a, b] : L) { double x, z; F.back(a, b, x, z); q.push_back({x, z}); } polys.push_back(q); }
+        std::vector<std::pair<double, double>> poly(polys[0].begin(), polys[0].end());
+        std::vector<Surf*> ups, dns;
+        for (auto* s : R.surfs) if ((s->orient == 1 || s->orient == 2) && inside(s->p[0], s->p[2], poly)) (s->orient == 1 ? ups : dns).push_back(s);
+        PlanRoom pr; pr.id = "pr" + std::to_string(n + 1);
+        if (!ups.empty()) {
+            double lo = 1e300; for (auto* s : ups) lo = std::min(lo, s->p[1]);
+            std::vector<std::pair<double, double>> v; for (auto* s : ups) if (s->p[1] <= lo + 0.08) v.push_back({s->p[1], s->w * s->h});
+            pr.floorY = wmedian(v); pr.haveFloor = true;
+        } else if (R.haveFloor) { pr.floorY = R.refFloor; pr.haveFloor = true; }
+        if (!dns.empty()) { double m = -1e300; for (auto* s : dns) m = std::max(m, s->p[1]); pr.ceilingY = m; pr.haveCeil = true; }
+        else if (R.haveCeil) { pr.ceilingY = R.refCeil; pr.haveCeil = true; }
+        // owner.setdefault in segs + offaxis order
+        for (int i = 0; i < (int)R.segs.size(); i++) if (bounding.count(i) && !owner.count(i)) owner[i] = pr.id;
+        for (int j = 0; j < (int)R.offaxis.size(); j++) if (bounding.count(-1 - j) && !owner.count(-1 - j)) owner[-1 - j] = pr.id;
+        pr.floor = polys[0]; for (size_t i = 1; i < polys.size(); i++) pr.holes.push_back(polys[i]);
+        pr.area = r.area; pr.closed = !r.open && sp.opens.empty(); pr.closure = sp.closure; pr.perimeter = sp.perimeter;
+        for (auto& g : sp.opens) pr.openM += g.w;
+        pr.doors = (int)sp.doors.size();
+        R.rooms.push_back(pr);
+    }
+    std::set<std::string> used;
+    for (int i = 0; i < (int)R.segs.size(); i++) {
+        const Seg& s = R.segs[i]; PlanWall w;
+        Surf* best = s.members[0]; for (auto* m : s.members) if (weight(m) > weight(best)) best = m;
+        w.id = best->id.rfind("w-", 0) == 0 ? "p-" + best->id.substr(2) : "p-" + best->id;
+        while (used.count(w.id)) w.id += "x";
+        used.insert(w.id);
+        auto o = owner.find(i); if (o != owner.end()) w.room = o->second;
+        double y0 = s.y0, y1 = s.y1;
+        for (auto& pr : R.rooms) if (pr.id == w.room && pr.haveFloor && pr.haveCeil) { y0 = pr.floorY; y1 = pr.ceilingY; }
+        double x, z, yaw, wd; R.wall(s, x, z, yaw, wd);
+        w.x = x; w.y = (y0 + y1) / 2; w.z = z; w.yaw = yaw; w.w = wd; w.h = y1 - y0;
+        int sc = 0; for (auto* m : s.members) { w.from.push_back(m->id); sc += m->src != "depth"; }
+        w.src = sc && sc == (int)s.members.size() ? "scene" : sc ? "scene+depth" : "depth";
+        R.walls.push_back(w);
+    }
+    for (int j = 0; j < (int)R.offaxis.size(); j++) {
+        Surf* s = R.offaxis[j]; PlanWall w; w.id = "p-" + (s->id.size() > 2 ? s->id.substr(2) : std::string());
+        w.x = s->p[0]; w.y = s->p[1]; w.z = s->p[2]; w.yaw = s->yaw; w.w = s->w; w.h = s->h; w.offAxis = true; w.from = {s->id}; w.src = s->src;
+        auto o = owner.find(-1 - j); if (o != owner.end()) w.room = o->second;
+        R.walls.push_back(w);
+    }
+}
+
+// Phases 0-3 on a house document; withPlan: phase 2 too (the floor plan: rooms and plan walls).
+inline void run(const json::Value& doc, Result& R, const Params& P = {}, bool withPlan = false) {
     R = Result{};
     std::vector<Surf*> raw; surfaces(doc, R, raw);
-    std::vector<Surf*> surfs = frames(raw, P, R);
+    std::vector<Surf*> surfs = frames(raw, P, R); R.surfs = surfs;
     axesPeak(surfs, P, R.th, R.share);
     Frame2 F(R.th);
     std::vector<Seg> segs = makeSegments(surfs, F, P, R);
@@ -422,6 +672,7 @@ inline void run(const json::Value& doc, Result& R, const Params& P = {}) {
     segs = suppressStacks(segs, P, R);
     segs = clipCorners(segs, P, R);
     R.segs = outsideSceneRooms(segs, F, P, R);
+    if (withPlan) roomsAndWalls(R, F, P);
 }
 
 }  // namespace consolidate

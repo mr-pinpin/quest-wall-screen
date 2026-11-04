@@ -1,6 +1,6 @@
-"""Cross-check fixtures for room_lab/consolidate.h (K27): runs work-34's house/consolidate.py on each fixture up to
-the stage the port covers (phases 0-3 + Meta's room chains) and writes, per case, the input house doc and the
-expected segments / dropped walls to OUT (one directory). bench/consolidate_test.cpp then runs the C++ and compares.
+"""Cross-check fixtures for room_lab/consolidate.h (K27): runs work-34's house/consolidate.py on each fixture and writes,
+per case, the input house doc and what the Python gives: the segments and dropped walls after phase 3 (with Meta's
+rooms), and consolidate()'s plan walls and rooms. bench/consolidate_test.cpp then runs the C++ and compares.
     python3 bench/consolidate_xcheck.py OUT"""
 import json
 import os
@@ -26,9 +26,11 @@ def stage(doc):
     segs = C.clip_corners(segs, P, dropped)
     scene = [s for s in segs if C._scene(s)]
     needs = bool(scene) and not C.meta_cycles([m for s in scene for m in s['members']] + list(off))
-    if not needs:
-        segs, _ = C.outside_scene_rooms(segs, off, F, P, dropped)
-    return {'th': th, 'share': share, 'needsRooms': needs,
+    segs, _ = C.outside_scene_rooms(segs, off, F, P, dropped)
+    plan = C.consolidate(json.loads(json.dumps(doc)))
+    return {'walls': [{k: w.get(k) for k in ('id', 'pose', 'w', 'h', 'room', 'src', 'from', 'offAxis')} for w in plan['walls']],
+            'rooms': [{k: r.get(k) for k in ('id', 'floor', 'area', 'floorY', 'ceilingY', 'closed', 'closure', 'perimeter', 'openM', 'doors')} for r in plan['rooms']],
+            'th': th, 'share': share, 'needsRooms': needs,
             'segs': [{'k': s['k'], 'off': s['off'], 't0': s['t0'], 't1': s['t1'], 'y0': s['y0'], 'y1': s['y1'],
                       'ids': [m['id'] for m in s['members']]} for s in segs],
             'offaxis': [s['id'] for s in off], 'dropped': [[d['id'], d['why']] for d in dropped]}
