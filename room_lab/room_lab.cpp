@@ -1939,7 +1939,7 @@ struct App {
     }
     // ---- GEOMETRY / SCAN mesh rendering: a barycentric wireframe (edges glow, faces faint), brighter where the surface
     // faces the eye, and a blue pulse on blocks re-meshed in the last second, so the mesh visibly grows and refines.
-    GLuint meshProg = 0, meshVao = 0; GLint meshLocVP = -1, meshLocEye = -1, meshLocPulse = -1, meshLocRaw = -1; std::vector<int64_t> meshDraw;
+    GLuint meshProg = 0, meshVao = 0, meshScreenVbo = 0; GLint meshLocVP = -1, meshLocEye = -1, meshLocPulse = -1, meshLocRaw = -1; std::vector<int64_t> meshDraw;
     static constexpr int kMeshTriBudget = 60000;
     void prepareRoomMesh() {
         meshWanted = geometryOn() || scanning();
@@ -1958,7 +1958,7 @@ struct App {
         }
         meshDrawnTris = tris;
     }
-    void drawRoomMesh(const float* vpm) {
+    void drawRoomMesh(const float* vpm, const std::vector<float>& screens) {
         if (!meshProg) {
             const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aB; layout(location=3) in float aF;"
                              " uniform mat4 uVP; uniform vec3 uEye; out vec3 vB; out float vFace; out float vF;"
@@ -1977,6 +1977,21 @@ struct App {
         }
         glUseProgram(meshProg); glBindVertexArray(meshVao);
         glUniformMatrix4fv(meshLocVP, 1, GL_FALSE, vpm); glUniform3f(meshLocEye, head.position.x, head.position.y, head.position.z);
+        // The screens are compositor layers under the eye buffer: the wall mesh would draw over their picture (seen in
+        // prox055's screenshots). Their rectangles go into depth first (colour off), so mesh behind a screen is culled.
+        if (!screens.empty()) {
+            std::vector<float> tri;
+            for (size_t q = 0; q + 12 <= screens.size(); q += 12) for (int k : {0, 1, 2, 0, 2, 3})
+                tri.insert(tri.end(), {screens[q + k * 3], screens[q + k * 3 + 1], screens[q + k * 3 + 2], 0, 0, 1, 1, 1, 1, 0});
+            if (!meshScreenVbo) glGenBuffers(1, &meshScreenVbo);
+            glBindBuffer(GL_ARRAY_BUFFER, meshScreenVbo); glBufferData(GL_ARRAY_BUFFER, tri.size() * sizeof(float), tri.data(), GL_STREAM_DRAW);
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 40, (void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 40, (void*)12);
+            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 40, (void*)24);
+            glEnableVertexAttribArray(3); glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 40, (void*)36);
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); glDepthMask(GL_TRUE); glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(tri.size() / 10));
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        }
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);  // premultiplied glow
         auto tn = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> g(meshLock);
@@ -3831,8 +3846,8 @@ void main(){
         if (quad) panelLayer.update(session, video.mipFbo, video.mipW, video.mipH, video.mipVersion);
         quadShown = quad && panelLayer.hasImage;
         if (models() && modelStarted) model.update();
-        std::vector<float> screenCorners;  // depth-only rectangles of every visible screen, so models behind them hide
-        if (models() && modelStarted) {
+        std::vector<float> screenCorners;  // depth-only rectangles of every visible screen, so models / the room mesh behind them hide
+        if ((models() && modelStarted) || meshWanted.load()) {
             auto addScreen = [&](const Placement& pl, Entity* w) {
                 if (!w || !w->located || !pl.active) return;
                 for (auto c : {V3{pl.x - pl.w / 2, pl.y - pl.h / 2, 0.02f}, V3{pl.x + pl.w / 2, pl.y - pl.h / 2, 0.02f}, V3{pl.x + pl.w / 2, pl.y + pl.h / 2, 0.02f}, V3{pl.x - pl.w / 2, pl.y + pl.h / 2, 0.02f}}) {
@@ -3875,7 +3890,7 @@ void main(){
                 glUseProgram(program); glBindVertexArray(vao);
             }
             if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
-            if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m); glUseProgram(program); glBindVertexArray(vao); }
+            if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m, screenCorners); glUseProgram(program); glBindVertexArray(vao); }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }
