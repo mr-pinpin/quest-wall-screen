@@ -19,7 +19,7 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [x] v0.46 built: HOUSE, DEPTHGAP, depth dump, MODELS default placement, WRIST radial (c4)
 
 ## Now
-- [~] P0 headset never sleeps (active since 01:50, 5 h watch running) on the charger, proven by an overnight watch (c4) — PRD: prd/headset-awake.md
+- [x] P0 headset never sleeps: 219/221 minutes reachable 01:51–06:51Z (the 2 misses were while worn off the charger); holds until a reboot (root)
 - [x] v0.46 session: install, DEPTHGAP reading on screen 2, depth dump, screenshots (c4)
 - [x] wallshape.h line/circle/extrude state machine (09), then WALLTOOL wiring (c4)
 - [x] flag registry flags.json (b9a70e9; benchmark campaign pending) with reasons and evidence, plus the benchmark campaign deciding the defaults (09) — PRD: prd/flags.md
