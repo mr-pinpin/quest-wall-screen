@@ -57,6 +57,7 @@ class Schema(unittest.TestCase):
             'room anchor no pose': lambda d: d['rooms'][0].__setitem__('anchors', [{'uuid': '0' * 32}]),
             'link unknown room': lambda d: d['links'].append({'a': 'r1', 'b': 'r9', 'pose': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}}),
             'shoulder side': lambda d: d['menu'].__setitem__('shoulder', {'side': 'up'}),
+            'room mesh not a blob id': lambda d: d['rooms'][0].__setitem__('mesh', 'not-a-sha'),
             'toggle not bool': lambda d: d['settings'].__setitem__('toggles', {'VT': 1}),
             'schema 99': lambda d: d.__setitem__('schema', 99),
             'rooms not list': lambda d: d.__setitem__('rooms', {}),
@@ -306,6 +307,10 @@ class Server(unittest.TestCase):
         self.assertEqual(self.req('PUT', '/blob/' + h, mesh)[0], 200)
         self.assertEqual(self.put(d, 1)[0], 200)
         self.assertEqual(self.req('GET', '/blob/' + h)[2], mesh)
+        d = self.get()[0]; d['rooms'][0]['mesh'] = '1' * 64
+        self.assertEqual(self.put(d, 2)[0], 400)  # a room mesh must be an uploaded blob too
+        d['rooms'][0]['mesh'] = h
+        self.assertEqual(self.put(d, 2)[0], 200)
 
     def test_legacy_endpoints(self):
         self.seed()

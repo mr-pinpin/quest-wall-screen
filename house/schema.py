@@ -106,6 +106,9 @@ def validate(doc, blobs=None):
         if 'anchors' in r and not _anchors(r['anchors']): e.append(f'{p}.anchors: needs [{{uuid: 32-hex, pose: {{p, q}}}}, ..]')
         if 'height' in r and not (_num(r['height']) and r['height'] > 0): e.append(f'{p}.height: not a positive number')
         if 'floor' in r and not _pts(r['floor'], 3): e.append(f'{p}.floor: not a list of >= 3 [x,z] points')
+        if 'mesh' in r:  # the room's fused geometry (room_lab/roommesh.h save(), "PPRM" blob) in the room frame
+            if not (isinstance(r['mesh'], str) and SHA.match(r['mesh'])): e.append(f'{p}.mesh: not a sha256 blob id')
+            elif blobs is not None and r['mesh'] not in blobs: e.append(f'{p}.mesh: blob {r["mesh"][:12]}.. not stored (PUT /blob first)')
 
     for i, l in enumerate(doc['links']):
         p = f'links[{i}]'

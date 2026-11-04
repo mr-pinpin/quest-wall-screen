@@ -16,7 +16,7 @@ from its cached copy.
 
 ```
 {"schema": 1, "rev": 7, "updated": "2026-11-04T00:00:00Z", "by": "headset", "nextScreenId": 4,
- "rooms":   [{"id": "r1", "name": "home", "height": 2.6, "floor": [[x, z], ...],
+ "rooms":   [{"id": "r1", "name": "home", "height": 2.6, "floor": [[x, z], ...], "mesh": "<sha256 of a roommesh.h blob>",
               "anchors": [{"uuid": "<32 hex>", "pose": {"p": [x,y,z], "q": [x,y,z,w]}}]}],
  "links":   [{"a": "r1", "b": "r2", "pose": {"p": [...], "q": [...]}}],
  "walls":   [{"id": "w-851ff933", "room": "r1", "kind": "wall", "source": "scene|depth|manual",
