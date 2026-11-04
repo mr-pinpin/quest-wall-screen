@@ -27,6 +27,8 @@
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
+#include "wallfit.h"
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include "spell.h"
@@ -197,6 +199,8 @@ struct App {
     bool shoulderMenuFlag = false, shoulderFile = false; bool shoulderOn() const { return shoulderMenuFlag || shoulderFile; }
     // HOUSE flag (room_lab/house.h): the layout is also kept in house.json on the Mini; files/house-on forces it.
     bool houseMenu = false, houseFile = false; bool houseOn() const { return houseMenu || houseFile; }
+    // DEPTHGAP flag (room_lab/wallfit.h): read-only; measures how far each screen sits from the real wall behind it.
+    bool depthGapMenu = false, depthGapFile = false; bool depthGap() const { return depthGapMenu || depthGapFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -455,7 +459,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 31;
+    static constexpr int kMenuItems = 32;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -470,7 +474,8 @@ struct App {
         {"GPUTIME", "EXPERIMENTAL", "MEASURE GPU TIME"}, {"WIFILL", "EXPERIMENTAL", "LOW LATENCY WI-FI"},
         {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
-        {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"}};
+        {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
+        {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -495,6 +500,7 @@ struct App {
         if (l == "KEYREQ") return keyReqOn();
         if (l == "SHOULDER") return shoulderOn();
         if (l == "HOUSE") return houseOn();
+        if (l == "DEPTHGAP") return depthGap();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -555,7 +561,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -584,7 +590,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -619,6 +625,7 @@ struct App {
         else if (l == "KEYREQ") keyReqMenu = !keyReqMenu;                     // ask the sender for keyframes (noperiodic)
         else if (l == "SHOULDER") { shoulderMenuFlag = !shoulderMenuFlag; if (!shoulderOn()) sm.stack.clear(); }  // shoulder button menus
         else if (l == "HOUSE") { houseMenu = !houseMenu; if (houseOn()) { houseStart(); houseQueueScreens(); } }  // layout to the house file
+        else if (l == "DEPTHGAP") depthGapMenu = !depthGapMenu;               // screen vs real wall, in status.json
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -810,6 +817,188 @@ struct App {
                 if (!cl.hint2.empty()) text(b, pe, cl.x * s, cl.hint2Y * s, 0.004f * s, cl.hintPx * s, cl.hint2.c_str(), dim);
             }
         }
+    }
+    // ---- DEPTHGAP (flag; read-only). Twice a second the environment depth of both eyes is copied to the CPU: a
+    // fullscreen pass texelFetches the depth array into a 512x256 RGBA8 target (eye 0 left, eye 1 right; d*65535 as
+    // two bytes), read back through a PBO with a fence, so the render thread never waits. A worker thread feeds
+    // wallfit.h: fused planes from depth, and for every screen the signed gap between the screen and the measured
+    // surface over its rect (positive = the real surface is in front, i.e. the screen is sunk), with corner medians to
+    // tell a yaw/relocalisation error from a plane offset. Results go to status.json "depthGap". files/depth-dump writes
+    // the next frame (both eyes, raw d16 + meta.json with fov, poses, near/far and the scene walls) to files/depth-<t>/.
+    // The depth image carries no capture time of its own: timeNs is the display time it was acquired for.
+    static constexpr int kRB = 256;
+    XrTime frameTime = 0;
+    GLuint rbProg = 0, rbFbo = 0, rbTex = 0, rbVao = 0, rbPbo[2] = {0, 0}; GLint rbLocD = -1; GLsync rbFence[2] = {nullptr, nullptr};
+    bool rbBusy[2] = {false, false}; long rbLast = -1000, rbReads = 0; std::string rbErr;
+    struct GapScreen { int id; std::string wall; wallfit::Pose pose; float x, y, w, h; };
+    struct SceneWall { std::string uuid, label; wallfit::Pose pose, centre; float w, h; };
+    struct DepthShot { XrEnvironmentDepthImageMETA img{}; XrTime now = 0; std::vector<uint16_t> d[2]; std::vector<GapScreen> screens; std::vector<SceneWall> walls; XrPosef head{}; bool dump = false; };
+    DepthShot rbShot[2];
+    std::mutex gapLock; std::condition_variable gapCv; std::unique_ptr<DepthShot> gapNext; bool gapThread = false; std::string gapJson;
+    bool depthDumpWanted = false;
+    static wallfit::Pose wp(const XrPosef& p) { return {{p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w}, {p.position.x, p.position.y, p.position.z}}; }
+    void depthReadback(GLuint depthTex) {
+        for (int k = 0; k < 2; k++) if (rbBusy[k]) {  // finished reads first
+            GLenum st = glClientWaitSync(rbFence[k], 0, 0);
+            if (st != GL_ALREADY_SIGNALED && st != GL_CONDITION_SATISFIED) continue;
+            glDeleteSync(rbFence[k]); rbFence[k] = nullptr; rbBusy[k] = false;
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, rbPbo[k]);
+            const uint8_t* m = (const uint8_t*)glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, 2 * kRB * kRB * 4, GL_MAP_READ_BIT);
+            if (m) {
+                auto shot = std::make_unique<DepthShot>(std::move(rbShot[k]));
+                for (int e = 0; e < 2; e++) {
+                    shot->d[e].resize(kRB * kRB);
+                    for (int y = 0; y < kRB; y++) for (int x = 0; x < kRB; x++) {
+                        const uint8_t* px = m + ((size_t)y * 2 * kRB + e * kRB + x) * 4;
+                        shot->d[e][(size_t)y * kRB + x] = (uint16_t)(px[0] << 8 | px[1]);
+                    }
+                }
+                glUnmapBuffer(GL_PIXEL_PACK_BUFFER); rbReads++;
+                gapSubmit(std::move(shot));
+            } else rbErr = "map failed";
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        }
+        if (frames - rbLast < 36 && !depthDumpWanted) return;
+        int k = !rbBusy[0] ? 0 : !rbBusy[1] ? 1 : -1; if (k < 0) return;
+        if (!rbProg) {
+            const char* vs = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
+            const char* fs = "#version 300 es\nprecision highp float; precision highp int; precision highp sampler2DArray;\n"
+                "uniform sampler2DArray uD; out vec4 o;\n"
+                "void main(){ int e=int(gl_FragCoord.x)>=256?1:0; vec2 q=(vec2(gl_FragCoord.x-float(e*256),gl_FragCoord.y))/256.0;\n"
+                " ivec2 sz=textureSize(uD,0).xy; ivec2 t=clamp(ivec2(q*vec2(sz)),ivec2(0),sz-1);\n"
+                " uint v=uint(clamp(texelFetch(uD,ivec3(t,e),0).r,0.0,1.0)*65535.0+0.5);\n"
+                " o=vec4(float(v>>8u)/255.0,float(v&255u)/255.0,0.0,1.0);}";
+            rbProg = glCreateProgram();
+            GLuint a = compile(GL_VERTEX_SHADER, vs), b = compile(GL_FRAGMENT_SHADER, fs);
+            glAttachShader(rbProg, a); glAttachShader(rbProg, b); glLinkProgram(rbProg);
+            GLint ok = 0; glGetProgramiv(rbProg, GL_LINK_STATUS, &ok); if (!ok) { rbErr = "link failed"; return; }
+            rbLocD = glGetUniformLocation(rbProg, "uD");
+            glGenVertexArrays(1, &rbVao);
+            glGenTextures(1, &rbTex); glBindTexture(GL_TEXTURE_2D, rbTex);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 2 * kRB, kRB);
+            glGenFramebuffers(1, &rbFbo);
+            GLint prevFb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFb);
+            glBindFramebuffer(GL_FRAMEBUFFER, rbFbo); glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rbTex, 0);
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) rbErr = "fbo incomplete";
+            glBindFramebuffer(GL_FRAMEBUFFER, prevFb);
+            glGenBuffers(2, rbPbo);
+            for (int i = 0; i < 2; i++) { glBindBuffer(GL_PIXEL_PACK_BUFFER, rbPbo[i]); glBufferData(GL_PIXEL_PACK_BUFFER, 2 * kRB * kRB * 4, nullptr, GL_STREAM_READ); }
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, depthTex);
+            if (!rbErr.empty()) return;
+        }
+        rbLast = frames;
+        GLint prevFb = 0, prevProg = 0, prevVao = 0, vp[4]; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFb); glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao); glGetIntegerv(GL_VIEWPORT, vp);
+        GLboolean dt = glIsEnabled(GL_DEPTH_TEST), bl = glIsEnabled(GL_BLEND), sc = glIsEnabled(GL_SCISSOR_TEST);
+        glBindFramebuffer(GL_FRAMEBUFFER, rbFbo); glViewport(0, 0, 2 * kRB, kRB);
+        glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST);
+        glUseProgram(rbProg); glBindVertexArray(rbVao);
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, depthTex); glUniform1i(rbLocD, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, rbPbo[k]); glReadPixels(0, 0, 2 * kRB, kRB, GL_RGBA, GL_UNSIGNED_BYTE, nullptr); glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        rbFence[k] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0); rbBusy[k] = true;
+        glBindFramebuffer(GL_FRAMEBUFFER, prevFb); glViewport(vp[0], vp[1], vp[2], vp[3]); glUseProgram(prevProg); glBindVertexArray(prevVao);
+        if (dt) glEnable(GL_DEPTH_TEST); if (bl) glEnable(GL_BLEND); if (sc) glEnable(GL_SCISSOR_TEST);
+        // What the depth was taken against: the screens and scene walls as they stand now.
+        DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted; depthDumpWanted = false;
+        auto addScreen = [&](int id, const Placement& p) {
+            Entity* w = p.active ? wallById(p.wall) : nullptr; if (!w || !w->located) return;
+            sh.screens.push_back({id, p.wall, wp(w->pose), p.x, p.y, p.w, p.h});
+        };
+        addScreen(1, placed); for (auto& e : extras) addScreen(e.id, e.p);
+        for (auto& e : entities) if (e.located && e.has2d) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z};
+            sh.walls.push_back({e.uuid, e.label, wp(e.pose), wp(cp), e.r2.extent.width, e.r2.extent.height});
+        }
+    }
+    void gapSubmit(std::unique_ptr<DepthShot> shot) {
+        std::lock_guard<std::mutex> g(gapLock);
+        gapNext = std::move(shot); gapCv.notify_one();  // latest only: an unprocessed older shot is dropped
+        if (gapThread) return;
+        gapThread = true;
+        std::thread([this] {
+            wallfit::Fuser fuser; std::map<int, std::vector<float>> recent;  // per screen: the last medians
+            for (;;) {
+                std::unique_ptr<DepthShot> sh;
+                { std::unique_lock<std::mutex> g(gapLock); gapCv.wait(g, [&] { return gapNext != nullptr; }); sh = std::move(gapNext); }
+                auto t0 = std::chrono::steady_clock::now();
+                wallfit::DepthFrame f[2];
+                for (int e = 0; e < 2; e++) {
+                    const auto& v = sh->img.views[e];
+                    f[e].w = f[e].h = kRB; f[e].d16 = sh->d[e].data();
+                    f[e].fov = {v.fov.angleLeft, v.fov.angleRight, v.fov.angleUp, v.fov.angleDown}; f[e].pose = wp(v.pose);
+                    f[e].nearZ = sh->img.nearZ; f[e].farZ = sh->img.farZ; f[e].timeNs = (int64_t)sh->now;
+                    fuser.add(f[e], (int64_t)sh->now);
+                }
+                std::vector<wallfit::Wall> fused = fuser.walls();
+                std::vector<wallfit::HouseWall> scene; for (auto& w : sh->walls) scene.push_back({w.centre, w.w, w.h});
+                std::ostringstream j; j.setf(std::ios::fixed); j.precision(3);
+                auto num = [](float v) { return std::isfinite(v) ? v : -99.0f; };
+                j << "\"fused\":" << fused.size() << ",\"screens\":[";
+                bool first = true;
+                for (auto& s : sh->screens) {
+                    wallfit::Gap g = wallfit::screenGap(f[0], s.pose, s.x, s.y, s.w, s.h), g1 = wallfit::screenGap(f[1], s.pose, s.x, s.y, s.w, s.h);
+                    if (g1.valid > g.valid) g = g1;
+                    // The fused plane that is this screen's scene wall (loose: the point is to measure how far off it is).
+                    int si = -1; for (size_t i = 0; i < sh->walls.size(); i++) if (sh->walls[i].uuid == s.wall) si = (int)i;
+                    std::string plane = "null";
+                    if (si >= 0) for (auto& w : fused) {
+                        wallfit::Match m = wallfit::match(w, {scene[si]}, 0.30f, 10.0f, 0.5f);
+                        if (m.index < 0) continue;
+                        wallfit::Gap gp = wallfit::screenGapPlane(w, s.pose, s.x, s.y, s.w, s.h);
+                        std::ostringstream q; q.setf(std::ios::fixed); q.precision(3);
+                        q << "{\"median\":" << num(gp.median) << ",\"tl\":" << num(gp.tl) << ",\"tr\":" << num(gp.tr) << ",\"bl\":" << num(gp.bl) << ",\"br\":" << num(gp.br)
+                          << ",\"wallOffset\":" << m.offset << ",\"wallDeg\":" << m.angleDeg << ",\"rms\":" << w.rms_m << ",\"conf\":" << w.confidence << "}";
+                        plane = q.str(); break;
+                    }
+                    auto& r = recent[s.id]; if (g.n) { r.push_back(g.median); if (r.size() > 20) r.erase(r.begin()); }
+                    std::vector<float> sr = r; std::sort(sr.begin(), sr.end());
+                    j << (first ? "" : ",") << "{\"id\":" << s.id << ",\"wall\":\"" << s.wall.substr(0, 8) << "\",\"median\":" << num(g.median) << ",\"p10\":" << num(g.p10) << ",\"p90\":" << num(g.p90)
+                      << ",\"valid\":" << g.valid << ",\"tl\":" << num(g.tl) << ",\"tr\":" << num(g.tr) << ",\"bl\":" << num(g.bl) << ",\"br\":" << num(g.br)
+                      << ",\"median20\":" << (sr.empty() ? -99.0f : sr[sr.size() / 2]) << ",\"plane\":" << plane << "}";
+                    first = false;
+                }
+                float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                j << "],\"workerMs\":" << ms << ",\"dropped\":" << fuser.dropped;
+                if (sh->dump) depthDump(*sh);
+                std::lock_guard<std::mutex> g(gapLock); gapJson = j.str();
+            }
+        }).detach();
+    }
+    void depthDump(const DepthShot& sh) {
+        std::string dir = gDir + "/depth-" + std::to_string((long long)(sh.now / 1000000));
+        mkdir(dir.c_str(), 0755);
+        for (int e = 0; e < 2; e++) house::writeAtomic(dir + (e ? "/right.d16" : "/left.d16"), std::string((const char*)sh.d[e].data(), sh.d[e].size() * 2));
+        std::ostringstream j; j.precision(9);
+        auto pose = [&](const XrPosef& p) {
+            std::ostringstream q; q.precision(9);
+            q << "{\"p\":[" << p.position.x << "," << p.position.y << "," << p.position.z << "],\"q\":[" << p.orientation.x << "," << p.orientation.y << "," << p.orientation.z << "," << p.orientation.w << "]}";
+            return q.str();
+        };
+        auto wpose = [&](const wallfit::Pose& p) {
+            std::ostringstream q; q.precision(9);
+            q << "{\"p\":[" << p.p.x << "," << p.p.y << "," << p.p.z << "],\"q\":[" << p.q.x << "," << p.q.y << "," << p.q.z << "," << p.q.w << "]}";
+            return q.str();
+        };
+        j << "{\"w\":" << kRB << ",\"h\":" << kRB << ",\"format\":\"uint16 little-endian, d*65535, row 0 = bottom\",\"near\":" << sh.img.nearZ << ",\"far\":"
+          << (std::isinf(sh.img.farZ) ? -1.0f : sh.img.farZ) << ",\"timeNs\":" << (long long)sh.now << ",\"nowNs\":" << (long long)sh.now << ",\"eyes\":[";
+        for (int e = 0; e < 2; e++) {
+            const auto& v = sh.img.views[e];
+            j << (e ? "," : "") << "{\"fov\":[" << v.fov.angleLeft << "," << v.fov.angleRight << "," << v.fov.angleUp << "," << v.fov.angleDown << "],\"pose\":" << pose(v.pose) << "}";
+        }
+        j << "],\"head\":" << pose(sh.head) << ",\"walls\":[";
+        for (size_t i = 0; i < sh.walls.size(); i++)
+            j << (i ? "," : "") << "{\"uuid\":\"" << sh.walls[i].uuid << "\",\"label\":\"" << sh.walls[i].label << "\",\"pose\":" << wpose(sh.walls[i].pose)
+              << ",\"centre\":" << wpose(sh.walls[i].centre) << ",\"w\":" << sh.walls[i].w << ",\"h\":" << sh.walls[i].h << "}";
+        j << "],\"screens\":[";
+        for (size_t i = 0; i < sh.screens.size(); i++)
+            j << (i ? "," : "") << "{\"id\":" << sh.screens[i].id << ",\"wall\":\"" << sh.screens[i].wall << "\",\"x\":" << sh.screens[i].x << ",\"y\":" << sh.screens[i].y
+              << ",\"w\":" << sh.screens[i].w << ",\"h\":" << sh.screens[i].h << "}";
+        j << "]}";
+        house::writeAtomic(dir + "/meta.json", j.str());
+        event("depth dump written to " + dir);
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -2372,6 +2561,7 @@ void main(){
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_NONE);
                 depthConfigured.insert(depthTex);
             }
+            if (depthGap() || depthDumpWanted) depthReadback(depthTex);
         }
         bool hasVideo = video.update(display) && video.mipTex;
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
@@ -2430,6 +2620,8 @@ void main(){
             keyReqFile = access((gDir + "/keyreq-on").c_str(), F_OK) == 0;    // forces KEYREQ for self-tests
             shoulderFile = access((gDir + "/shoulder-on").c_str(), F_OK) == 0;  // forces SHOULDER for self-tests
             houseFile = access((gDir + "/house-on").c_str(), F_OK) == 0;        // forces HOUSE for self-tests
+            depthGapFile = access((gDir + "/depthgap-on").c_str(), F_OK) == 0;  // forces DEPTHGAP for self-tests
+            if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
@@ -2502,6 +2694,7 @@ void main(){
         XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         if (ptLayer) { ptl.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT; ptl.layerHandle = ptLayer; layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&ptl)); }
         if (fs.shouldRender) {
+            frameTime = fs.predictedDisplayTime;
             XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO}; vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             vli.displayTime = fs.predictedDisplayTime; vli.space = local;
             XrViewState vs{XR_TYPE_VIEW_STATE}; XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}}; uint32_t vc = 0;
@@ -2593,6 +2786,7 @@ void main(){
         { std::lock_guard<std::mutex> g(houseLock);
           j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
+        { std::lock_guard<std::mutex> g(gapLock); j << ",\"depthGap\":{\"on\":" << (depthGap() ? 1 : 0) << ",\"reads\":" << rbReads << ",\"rb\":\"" << rbErr << "\"" << (gapJson.empty() ? "" : "," + gapJson) << "}"; }
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
