@@ -350,8 +350,8 @@ def busy(force, sim=False):
     if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
-    over = air_overloaded()
-    if over: return f'the bench lock is held (the Air is overloaded: {over})'  # the user's Mac first; loops wait
+    over = air_overloaded(load_max=START_LOAD)
+    if over: return f'the bench lock is held (the Air is busy: {over})'  # the user's Mac first; loops wait
     return ''
 
 
@@ -433,17 +433,24 @@ def air_load():
         return {'error': str(ex)[:100]}
 
 
-AIR_OVERLOAD = (8.0, 80.0)  # load1, WindowServer %: the user's Mac sluggish (work-df 2026-11-04: "not sluggish or stuck")
+# "Never sluggish" (work-df 2026-11-04): a run starts only below load1 START_LOAD and stands down when, for
+# STANDDOWN_S, load1 is above MID_LOAD or WindowServer is MID_WS points above its level once our own test
+# displays were up (they are expected load).
+START_LOAD, MID_LOAD, MID_WS, STANDDOWN_S = 4.0, 6.0, 60.0, 30
 
 
-def air_overloaded(smp=None):
-    """'' when the Air is fine, else why it is overloaded (load1 > 8 or WindowServer > 80%)."""
+def ws_cpu(smp):
+    return max([c for c, n in smp.get('topAll', []) if n == 'WindowServer'] or [0.0])
+
+
+def air_overloaded(smp=None, ws_base=0.0, load_max=MID_LOAD):
+    """'' when the Air is fine, else why it is overloaded."""
     smp = smp or air_load()
     if 'load1' not in smp: return ''
-    ws = max([c for c, n in smp.get('topAll', []) if n == 'WindowServer'] or [0])
     why = []
-    if smp['load1'] > AIR_OVERLOAD[0]: why.append(f'load {smp["load1"]}')
-    if ws > AIR_OVERLOAD[1]: why.append(f'WindowServer {ws:.0f}%')
+    if smp['load1'] > load_max: why.append(f'load {smp["load1"]}')
+    ws = ws_cpu(smp)
+    if ws - ws_base > MID_WS: why.append(f'WindowServer {ws:.0f}% ({ws - ws_base:+.0f} over the run start)')
     return ', '.join(why)
 
 
@@ -687,10 +694,12 @@ def main():
             elif sim and headset_in_use(): aborted = 'the headset came into use (room_lab focused); requeued'; note_in_use_wait()
             elif sim and headset_owner() == '' and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             nchk += 1
-            if not aborted and nchk % 3 == 0:  # every 30 s: a run that keeps the user's Mac overloaded for 60 s stops
-                why = air_overloaded()
+            if not aborted:  # every 10 s: a run that keeps the user's Mac overloaded for STANDDOWN_S stands down
+                why = air_overloaded(ws_base=ws_cpu(load_samples.get('start', {})))
                 over_since = (over_since or time.time()) if why else None
-                if why and time.time() - over_since >= 60: aborted = f'the Air is overloaded ({why}); stood down, retried later'
+                if why and time.time() - over_since >= STANDDOWN_S:
+                    aborted = f'the Air is overloaded ({why}); stood down, retried later'
+                    activity(f'STAND-DOWN: {aborted}')
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break
