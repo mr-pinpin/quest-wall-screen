@@ -23,6 +23,23 @@
 - **Never execute a third-party binary to probe it** (`--version`, `--help` included): read its strings or source, or its
   logs. On 2026-11-04, `sunshine --version` on the Mini booted a second Sunshine with the default config and truncated
   the live sunshine.log.
+- **Scratch virtual displays come from a FIXED POOL: created once, NEVER removed** (K24, 2026-11-04). Every virtual
+  display created and then removed raises macOS colorsync's display-info polling for good (+11–18 requests/min per
+  cycle; each request rebuilds every display's profile): colorsync crept to a full core over hours of test churn and
+  failed air_smoke, and only a reboot reset it. So a test never calls `POST /remove`; it reuses its pool display and
+  clears its content instead (close its windows, unassign its app). `POST /displays` always RECREATES (even at the same
+  size), so call it only when `GET /displays` lacks the id at the size you need. One id per user, one fixed size each:
+
+  | id | owner | size (points, scale) | used by |
+  |---|---|---|---|
+  | 47 | work-ad (apps) | 1920x1200 @1 | tools/air_test.sh, tools/input_test.sh |
+  | 48 | everyone | 1920x1200 @1 | bench/air_smoke.sh |
+  | 50 | work-c4 (headset) | 1920x1200 @1 | headset/runtime tests that need a spare Air screen |
+  | 60 | work-42 (assistant) | 1600x1000 @2 | bench/eval_run.sh and verification runs (63 is retired) |
+  | 90–99 | work-34 / work-09 (bench) | 1920x1200 @1 (cinema: as stress.py sets it) | stress.py --source sck test displays |
+
+  Ids 2–39 are the house's real screens (house.json nextScreenId keeps growing), so tests never create in that range.
+  A new need gets a new row here, not an ad-hoc id. /status shows colorsync's CPU and request rate: red above 40%.
 - **PinPin Host:** never change its bundle id or signing identity (every permission would need new clicks).
 - **pinpin-displays is a PinPin Host plugin, and the Host is its SOLE owner.** Never create or
   `launchctl bootstrap` the `io.mr-pinpin.displays` launchd agent, and never `open` the app: that
