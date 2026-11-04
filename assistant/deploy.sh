@@ -24,7 +24,8 @@ mkdir -p "$PL"
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 cat > "$PL/assistant.json" <<JSON
 { "exec": "/usr/bin/python3", "args": ["$D/pinpin_assistant.py"],
-  "env": { "PINPIN_ASSIST_PORT": "57840", "PATH": "$(dirname "$CLAUDE"):/usr/bin:/bin:/usr/local/bin" },
+  "env": { "PINPIN_ASSIST_PORT": "57840", "PATH": "$(dirname "$CLAUDE"):/usr/bin:/bin:/usr/local/bin",
+           "PINPIN_ASSIST_MAX_WALL_S": "180", "PINPIN_ASSIST_MAX_STEPS": "20" },
   "cwd": "$D", "log": "$D/assistant.log", "truncateLog": true, "enabled": true, "restartDelay": 1.5 }
 JSON
 echo "deployed to $D; PinPin Host will start it within ~3 s. Health: curl -s http://127.0.0.1:57840/health"

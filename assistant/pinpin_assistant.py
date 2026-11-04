@@ -271,8 +271,12 @@ class ClaudeCliBackend(ModelBackend):
             f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
             f"THIS screen's browser window to a page (it lands on this display), and click/scroll/type act inside "
             f"it. Every action returns a screenshot of the screen — read it to CONFIRM the result actually "
-            f"happened before you say it did; if it didn't, try again or report what you see. Keep replies short "
-            f"and in Markdown, and confirm in one line what the user now sees."
+            f"happened before you say it did; if it didn't, try again or report what you see.\n"
+            f"To turn this screen into a custom mini-app (\"make this a kitchen timer\", \"build me X here\"): call "
+            f"authoring_guide first, write the app with put_app (create:true for a new app; id derived from the "
+            f"name) and iterate until check.errors is empty AND check.text matches what was asked, then assign_app "
+            f"to show it on this screen and confirm from a screenshot.\n"
+            f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
         )
         argv = [self.claude, "-p", text, "--output-format", "stream-json", "--verbose",
                 "--model", model, "--append-system-prompt", sys_prompt,
