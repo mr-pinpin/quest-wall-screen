@@ -66,3 +66,17 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** check scripts rolled back or restarted under the user 3 times today (stale bars, skipped checks counted as failures). Now: never roll back while worn; install only at STANDBY.
 - **Broke:** agents quoted commit hashes from memory, twice wrong. Quote only from git output.
 - **Next:** v0.71 auto-installs at STANDBY; the MINI-screen Claude button (VPS brain + Mini helper); the campaign A2→F; a quiet reboot later to reset colorsync.
+
+## 2026-11-04 13:00 UTC
+- **Shipped (k5 / work-0e):**
+  - consolidate.h phase 1+2 plus the live scan-quality verdict (v0.72–0.74; byte-exact against consolidate.py on 12 fixtures, 0.26 ms);
+  - WALLTOOL on clean walls (v0.75: lines bend around corners, and the w-w-d id persistence bug fixed);
+  - docs/try-v075.md.
+- **Shipped (ad):**
+  - the nightly health suite (01:40, 5/6 green; red = colorsync);
+  - the scratch house server under launchd, with a single owner;
+  - the network and colorsync rows on /status.
+- **Learned, worn detection:** prox_close makes dumpsys say HEADSET_MOUNTED. c4's scripts mistook our own simulated wear for the user, rolled back v0.71 and left the prox stuck. Real wear = mounted AND virtual prox not CLOSE, and the release always runs in finally. My earlier report to the user ("restarts under you") was probably wrong, and I corrected it.
+- **Broke:** the headset has been off the network since ~12:24 (no ping), probably asleep or rebooted (which loses the root wake lock). v0.72–0.75 are queued behind it, and the user has been asked to check the charger.
+- **Kanban:** 14 cards moved to Done. The open work is mostly "waiting for the user to try" (SETCAT, STEADY, CTLTOP, CLEANLIVE, WALLS).
+- **Next:** the headset back online, v0.75 installed, then the guided tour; K20 (MINI button); the campaign; a quiet reboot of the Air for colorsync.
