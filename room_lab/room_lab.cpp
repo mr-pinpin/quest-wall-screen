@@ -34,6 +34,7 @@
 #include "mesh_arena.h"
 #include "vt_strip.h"
 #include "marks.h"
+#include "consolidate.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -264,7 +265,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true, marksMenu = true; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true, marksMenu = true, cleanLiveMenu = false; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -551,7 +552,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 54;
+    static constexpr int kMenuItems = 55;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -579,7 +580,7 @@ struct App {
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
         {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"},
         {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"},
-        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}};
+        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}, {"CLEANLIVE", "EXPERIMENTAL", "CLEAN WALLS LIVE WHILE SCANNING"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -627,6 +628,7 @@ struct App {
         if (l == "MESHBATCH") return meshBatchMenu;
         if (l == "BEZELFEW") return bezelFewMenu;
         if (l == "MARKS") return marksMenu;
+        if (l == "CLEANLIVE") return cleanLiveMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -724,7 +726,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}, {"MARKS", marksMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}, {"MARKS", marksMenu}, {"CLEANLIVE", cleanLiveMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -796,7 +798,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu); get("MARKS", marksMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu); get("MARKS", marksMenu); get("CLEANLIVE", cleanLiveMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -859,6 +861,7 @@ struct App {
         else if (l == "MESHBATCH") meshBatchMenu = !meshBatchMenu;              // room mesh in one buffer, few draws
         else if (l == "BEZELFEW") bezelFewMenu = !bezelFewMenu;                 // AMBI under VT cut on tile edges only
         else if (l == "MARKS") marksMenu = !marksMenu;                          // house marks on the walls
+        else if (l == "CLEANLIVE") cleanLiveMenu = !cleanLiveMenu;              // live consolidation while scanning
         else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -1844,6 +1847,61 @@ struct App {
     }
     // The progress cue: each surface being captured fills in place (cyan while uncertain, green once solid) with a
     // sweep line crossing it. Drawn in the occluded batch, so real things in front hide it like the room itself.
+    // ---- CLEANLIVE (kanban K27, room_lab/consolidate.h, a port of work-34's house/consolidate.py "consolidate/1"):
+    // while SCAN runs, the house's walls plus the live fits (one batch "live", in the house frame) are consolidated on a
+    // worker at most twice a second, and the clean walls (Manhattan-snapped, merged, cut at the corners, furniture faces
+    // and junk dropped) are drawn over the raw fits. Depth walls in the house without a "frame" field (pre-v0.65, drifted
+    // against Meta) are left out, as work-34's consolidate/2 will. Committing the clean walls as the placement targets is
+    // the next step (work-c4). status.json "clean".
+    struct CleanWall { V3 c, r, u, n; float w = 0, h = 0; bool scene = false; };
+    std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
+    long cleanRuns = 0; double cleanUs = 0; int cleanDropped = 0, cleanInput = 0; bool cleanNeedsRooms = false; double cleanTh = 0;
+    void updateCleanLive() {
+        if (!cleanLiveMenu || !scanning() || !houseFrame.ok || cleanBusy || now() - cleanAt < 0.5f) return;
+        cleanAt = now(); cleanBusy = true;
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        std::vector<wallfit::Wall> live; { std::lock_guard<std::mutex> g(gapLock); live = gapWalls; }
+        wallfit::Pose roomInLocal = houseFrame.roomInLocal;
+        std::thread([this, d, live, roomInLocal] {
+            json::Value doc = house::obj(); doc.o["walls"] = house::arr();
+            if (d) for (auto& w : (*d)["walls"].a) if (!(w["source"].str() == "depth" && !w.has("frame"))) doc.o["walls"].a.push_back(w);
+            for (auto& w : live) {
+                if (w.confidence < 0.1f || w.w < 0.2f || w.h < 0.2f) continue;
+                json::Value o = house::obj(); o.o["id"] = house::str("live-" + std::to_string(w.id)); o.o["source"] = house::str("depth"); o.o["kind"] = house::str("plane");
+                o.o["pose"] = poseJson(roomframe::toRoom(roomInLocal, w.pose())); o.o["w"] = house::num(w.w); o.o["h"] = house::num(w.h);
+                json::Value fit = house::obj(); fit.o["conf"] = house::num(w.confidence); fit.o["samples"] = house::num((double)w.samples); fit.o["rms_m"] = house::num(w.rms_m); fit.o["updated"] = house::str("live");
+                o.o["fit"] = fit; json::Value fr = house::obj(); fr.o["id"] = house::str("live"); o.o["frame"] = fr;
+                doc.o["walls"].a.push_back(o);
+            }
+            auto t0 = std::chrono::steady_clock::now();
+            consolidate::Result R; consolidate::run(doc, R);
+            double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+            std::vector<CleanWall> out;
+            for (auto& sg : R.segs) {
+                double x, z, yaw, w; R.wall(sg, x, z, yaw, w);
+                wallfit::Pose pr{{0, (float)std::sin(yaw / 2), 0, (float)std::cos(yaw / 2)}, {(float)x, (float)((sg.y0 + sg.y1) / 2), (float)z}};
+                wallfit::Pose pl = anchors::compose(roomInLocal, pr);
+                XrPosef xpL = xp(pl); CleanWall c; c.c = v3(xpL.position);
+                c.r = rot(xpL.orientation, {1, 0, 0}); c.u = rot(xpL.orientation, {0, 1, 0}); c.n = rot(xpL.orientation, {0, 0, 1});
+                c.w = (float)w; c.h = (float)(sg.y1 - sg.y0); c.scene = consolidate::hasScene(sg); out.push_back(c);
+            }
+            std::lock_guard<std::mutex> g(cleanLock);
+            cleanWalls.swap(out); cleanUs = us; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
+            cleanBusy = false;
+        }).detach();
+    }
+    void drawClean(Batch& b) {
+        if (!cleanLiveMenu || !scanning()) return;
+        std::vector<CleanWall> ws; { std::lock_guard<std::mutex> g(cleanLock); ws = cleanWalls; }
+        for (auto& w : ws) {
+            auto W = [&](float x, float y) { return w.c + w.r * x + w.u * y + w.n * 0.02f; };
+            const float meta[4] = {1.0f, 0.8f, 0.25f, 0.9f}, depth[4] = {0.3f, 1.0f, 0.55f, 0.9f}, fillM[4] = {1.0f, 0.8f, 0.25f, 0.10f}, fillD[4] = {0.3f, 1.0f, 0.55f, 0.12f};
+            const float* e = w.scene ? meta : depth; float hw = w.w / 2, hh = w.h / 2;
+            b.quad(W(-hw, -hh), W(hw, -hh), W(hw, hh), W(-hw, hh), w.scene ? fillM : fillD);
+            b.line(W(-hw, -hh), W(hw, -hh), w.n, 0.012f, e); b.line(W(hw, -hh), W(hw, hh), w.n, 0.012f, e);
+            b.line(W(hw, hh), W(-hw, hh), w.n, 0.012f, e); b.line(W(-hw, hh), W(-hw, -hh), w.n, 0.012f, e);
+        }
+    }
     void drawScan(Batch& b) {
         if (!scanning() || !meshDraw.empty()) return;  // once the mesh has blocks, it is the scan's progress cue
         std::vector<wallfit::Wall> walls; { std::lock_guard<std::mutex> g(gapLock); walls = gapWalls; }
@@ -4540,6 +4598,7 @@ void main(){
         drawShoulder(over); costMark("shoulder/wrist menus", occ, over);
         prepareRoomMesh(); costMark("room mesh prep", occ, over);
         drawScan(occ);
+        updateCleanLive(); drawClean(occ);
         drawWallTool(occ); costMark("scan + wall tool", occ, over);
         drawAssist(over); costMark("assistant buttons + chats", occ, over);
         drawVoice(over);
@@ -5006,6 +5065,9 @@ void main(){
           j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
         j << ",\"placement\":" << placementJson();
         j << ",\"frameCost\":" << frameCostJson();
+        { std::lock_guard<std::mutex> g(cleanLock);
+          j << ",\"clean\":{\"on\":" << (cleanLiveMenu ? 1 : 0) << ",\"algo\":\"" << consolidate::kAlgo << "\",\"runs\":" << cleanRuns << ",\"us\":" << (long)cleanUs << ",\"input\":" << cleanInput
+            << ",\"walls\":" << cleanWalls.size() << ",\"dropped\":" << cleanDropped << ",\"needsRooms\":" << (cleanNeedsRooms ? 1 : 0) << ",\"axisDeg\":" << cleanTh << "}"; }
         j << ",\"marks\":{\"on\":" << (marksMenu ? 1 : 0) << ",\"listed\":" << (markList.size() + markDemo.size()) << ",\"shown\":" << marksShown << ",\"unresolved\":" << marksUnresolved << "}";
         { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }

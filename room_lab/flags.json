@@ -880,6 +880,19 @@
           "commit": "4568da5"
         }
       ]
+    },
+    {
+      "name": "CLEANLIVE",
+      "where": "headset",
+      "default": false,
+      "state": "off",
+      "category": "experimental",
+      "reason": "While SCAN runs, the house walls plus the live fits are consolidated on the headset (room_lab/consolidate.h, a port of work-34's house/consolidate.py consolidate/1 that matches it exactly on 12 fixtures, about 0.1 ms) and the clean walls are drawn over the raw fits. Off until seen on the headset.",
+      "evidence": [
+        {
+          "commit": "9651dbb"
+        }
+      ]
     }
   ]
 }
