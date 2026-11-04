@@ -32,4 +32,12 @@ check(not os.path.exists(stress.INSTALL_LOCK), 'released')
 open(stress.INSTALL_LOCK, 'w').write(f'999999999 {stress.socket.gethostname()} dead 2026\n')
 with stress.install_lock('t'): check(True, '')
 check(not os.path.exists(stress.INSTALL_LOCK), 'stale lock taken over and released')
+# Old mkdir-style lock: an empty dir whose owner pid is dead is stale; a live owner blocks.
+os.mkdir(stress.INSTALL_LOCK); (d / '.quest-install.owner').write_text('999999999 old\n')
+with stress.install_lock('t'): check(os.path.isfile(stress.INSTALL_LOCK), 'stale lock dir replaced by the file lock')
+os.mkdir(stress.INSTALL_LOCK); (d / '.quest-install.owner').write_text(f'{os.getpid()} live\n')
+try:
+    with stress.install_lock('t'): check(False, 'live old-style lock ignored')
+except stress.OwnerRefused: pass
+check(os.path.isdir(stress.INSTALL_LOCK), 'live old-style lock left alone'); os.rmdir(stress.INSTALL_LOCK)
 print(f'guard self-test: {fails} failures'); sys.exit(1 if fails else 0)

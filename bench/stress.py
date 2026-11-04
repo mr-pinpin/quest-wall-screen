@@ -92,6 +92,16 @@ def install_lock(who='', wait_s=0):
         try:
             fd = os.open(INSTALL_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644); os.write(fd, me.encode()); break
         except FileExistsError:
+            if os.path.isdir(INSTALL_LOCK):  # the old mkdir-style lock: stale once empty and its owner pid is gone
+                try: owner = open(os.path.join(os.path.dirname(INSTALL_LOCK), '.quest-install.owner')).read().split()
+                except OSError: owner = []
+                pid = next((w for w in owner if w.isdigit()), '')
+                if not os.listdir(INSTALL_LOCK) and not (pid and os.path.exists(f'/proc/{pid}')):
+                    try: os.rmdir(INSTALL_LOCK)
+                    except OSError: pass
+                    continue
+                if time.time() - t0 >= wait_s: raise OwnerRefused(f'old-style install lock held by pid {pid or "?"}')
+                time.sleep(5); continue
             try: held = open(INSTALL_LOCK).read().split()
             except OSError: held = []
             alive = bool(held) and held[0].isdigit() and len(held) > 1 and held[1] == socket.gethostname() and os.path.exists(f'/proc/{held[0]}')
