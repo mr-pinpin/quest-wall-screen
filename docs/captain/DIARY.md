@@ -50,3 +50,19 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** colorsync was pegged since 02:04. It was NOT the wallpaper; I relayed a wrong diagnosis and sent the user on a detour. A reboot fixed most of it (100% → 30%).
 - **Broke:** after the reboot the Air joined the ZyXEL with Tailscale off. Rejoined it to RT-5WiFi (.105), removed the other home networks, started Tailscale.
 - **Next:** work-0e's combined v0.68 (dictation, STEADY, select, panels, chat history); the campaign resumes; a network-health check on /status.
+
+## 2026-11-04 12:00 UTC
+- **Decided:**
+  - The user handed the Mac to the agents ("don't make it sluggish"). Guards went on every bench run: start only at load < 4; stand down if load > 6 or WindowServer +60 for 30 s.
+  - Kitchen = screen 3 (recipes), found from wall geometry. Spotify quit, plus its autostart off.
+- **Shipped:**
+  - the native click (TextEdit closed) and scroll (scrollY 0→1200) both proven on the extra displays;
+  - placement-review fixes (4 bugs, plus MULTIROOM doorway pollution, plus visible setup-change and repair hints) as v0.71;
+  - consolidate.h, live (v0.72, off);
+  - the network and colorsync rows on /status.
+- **Learned, the big one:** every virtual-display create/remove permanently ramps colorsync's polling (92→203 req/min), and only a reboot resets it. Today's slowness came from our own churn, not the wallpaper; I relayed a wrong diagnosis earlier.
+  - Rule: a fixed scratch-display pool (ids 1–64 only; bench 51–59).
+  - The old sck bench runs even used the user's own screen ids 2..N.
+- **Broke:** check scripts rolled back or restarted under the user 3 times today (stale bars, skipped checks counted as failures). Now: never roll back while worn; install only at STANDBY.
+- **Broke:** agents quoted commit hashes from memory, twice wrong. Quote only from git output.
+- **Next:** v0.71 auto-installs at STANDBY; the MINI-screen Claude button (VPS brain + Mini helper); the campaign A2→F; a quiet reboot later to reset colorsync.
