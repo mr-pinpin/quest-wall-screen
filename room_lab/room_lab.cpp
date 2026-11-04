@@ -253,7 +253,7 @@ struct App {
     // to the captain (work-df). The mic stays on while it is open: an utterance ends after 3.5 s of quiet (5 s when it
     // did not end like a sentence), what is said while the answer comes is queued, and the mic restarts if it stops.
     bool receptionMenu = true; bool receptionOn() const { return receptionMenu && assistOn(); }
-    // v0.66 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
+    // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
     bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true; float steadyK = 0.7f;
