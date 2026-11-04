@@ -16,3 +16,4 @@
 - 04:10 check: all busy. Air load ~5: colorsync.displayservices+colorsyncd pegged ~100% since ~02:04Z (a killall respawned them pegged again), WallpaperVideoExtension ~30%; Spotify calmer; our scratch displays gone (42 quiet). Campaign waits for load<4. v0.57 installed. Assistant eval 16/18
 - 04:30 check: all four busy (running commands). The campaign retries while the work-42 eval holds the lock; Air load ~5-7 (Chrome eval, colorsync, and the user's own gaucho tier1 login item spiking). Nothing stuck
 - 04:50 check: c4 (v0.58 wallmerge fix, house walls restored rev 20), 34 (budgeted hero offline, A2 waits for quiet Air), ad busy; 42 un-held to diagnose the colorsync peg. Block A report: vt strong but load-tainted; vt-latency rule pre-registered 04:48Z
+- 05:10 check: all four active. Wallpaper CLI fix failed and was reverted (42); the user picks a still wallpaper in the morning. Apps token enforced 04:58. ad on data backups; 34 on budgeted hero; c4 busy
