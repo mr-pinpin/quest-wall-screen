@@ -3478,7 +3478,10 @@ void main(){
         }).detach();
     }
     static std::string houseSceneOf(const json::Value& d, const std::string& wid) {
-        for (auto& w : d["walls"].a) if (w["id"].str() == wid) return w["scene"][0].str();
+        for (auto& w : d["walls"].a) if (w["id"].str() == wid) {
+            if (w["scene"].size()) return w["scene"][0].str();
+            if (wid.rfind("w-d", 0) == 0) return wid;   // our depth wall: the entity has the house id
+        }
         return "";
     }
     void houseUpdate() {
@@ -3543,6 +3546,22 @@ void main(){
         std::vector<house::Edit> edits; std::set<std::string> newWalls;
         auto wallId = [&](const std::string& uuid) {
             for (auto& w : doc["walls"].a) for (auto& u : w["scene"].a) if (u.str() == uuid) return w["id"].str();
+            if (uuid.rfind("w-d", 0) == 0) {   // our own depth wall: its id is the house id; never a Meta uuid in scene[]
+                for (auto& w : doc["walls"].a) if (w["id"].str() == uuid) return uuid;
+                if (newWalls.insert(uuid).second) {
+                    json::Value w = house::obj(); w.o["id"] = house::str(uuid); w.o["room"] = house::str("r1"); w.o["kind"] = house::str("wall");
+                    w.o["source"] = house::str("depth"); w.o["scene"] = house::arr();
+                    if (Entity* e = wallById(uuid)) {
+                        if (e->has2d) { w.o["w"] = house::num(e->r2.extent.width); w.o["h"] = house::num(e->r2.extent.height); }
+                        if (houseFrame.ok && e->located) {   // the house frame (roomframe.h), the rect centre
+                            V3 c = xform(e->pose, {e->r2.offset.x + e->r2.extent.width / 2, e->r2.offset.y + e->r2.extent.height / 2, 0});
+                            XrPosef cp = e->pose; cp.position = {c.x, c.y, c.z}; w.o["pose"] = poseJson(roomframe::toRoom(houseFrame.roomInLocal, wp(cp)));
+                        }
+                    }
+                    edits.push_back({"walls", uuid, w});
+                }
+                return uuid;
+            }
             std::string id = "w-" + uuid.substr(0, 8);
             if (newWalls.insert(id).second) {
                 json::Value w = house::obj(); w.o["id"] = house::str(id); w.o["room"] = house::str("r1"); w.o["kind"] = house::str("wall");

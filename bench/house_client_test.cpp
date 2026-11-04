@@ -62,6 +62,23 @@ int main(int argc, char** argv) {
     std::string body = house::dump(C.doc);
     house::Response r = house::http("127.0.0.1", port, "PUT", "/house", body, {"If-Match: " + std::to_string(R + 5), "X-House-SHA256: " + house::sha256(body + "x")});
     check(r.status == 400, "server refuses a damaged PUT");
+    // v0.66's refused first push (400): a depth wall whose scene[] held its w-d id, and screens above nextScreenId.
+    // sanitize() before the PUT makes it acceptable; the screen on the depth wall goes up with it.
+    {
+        std::string c = dir + "/c"; mkdir(c.c_str(), 0700);
+        house::Store C(c); C.host = "127.0.0.1"; C.port = port; check(C.fetch(), "fetch c");
+        json::Value w = house::obj(); w.o["id"] = house::str("w-dfeed01"); w.o["room"] = house::str("r1"); w.o["kind"] = house::str("wall");
+        w.o["source"] = house::str("depth"); json::Value sc = house::arr(); sc.a.push_back(house::str("w-dfeed01")); w.o["scene"] = sc;
+        C.edit({"walls", "w-dfeed01", w});
+        json::Value s9 = house::obj(); s9.o["id"] = house::num(9); s9.o["role"] = house::str("extra"); s9.o["on"] = house::num(1); s9.o["wall"] = house::str("w-dfeed01");
+        s9.o["x"] = house::num(0); s9.o["y"] = house::num(0); s9.o["w"] = house::num(1); s9.o["h"] = house::num(0.6);
+        json::Value src = house::obj(); src.o["kind"] = house::str("mac-display"); src.o["screen"] = house::num(9); s9.o["source"] = src;
+        C.edit({"screens", "9", s9});
+        bool pushed = C.push();
+        check(pushed && C.pending.empty(), (std::string("sanitized push accepted: ") + C.lastError).c_str());
+        house::Store D(dir + "/c"); D.host = "127.0.0.1"; D.port = port; D.fetch();
+        check(!screen(D.doc, 9)["wall"].str().empty() && D.doc["nextScreenId"].integer() > 9, "screen 9 on the depth wall, nextScreenId above it");
+    }
     printf("house client: %s (%ld GET, %ld PUT, %ld conflicts)\n", fails ? "FAILED" : "all checks passed", A.gets + B.gets, A.puts + B.puts + A3.puts, B.conflicts);
     return fails ? 1 : 0;
 }

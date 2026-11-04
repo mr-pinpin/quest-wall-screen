@@ -9,7 +9,9 @@
 // house/server.py on the VPS.
 #pragma once
 #include "json.h"
+#include <algorithm>
 #include <arpa/inet.h>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -213,12 +215,24 @@ struct Store {
         writeAtomic(cachePath, dump(doc));
         return true;
     }
+    // What house/schema.py would refuse in our own edits, fixed before every PUT (2026-11-04: v0.66's first push was
+    // refused, 400, and stayed pending: a depth wall's scene held its w-d id, and nextScreenId was not above the new
+    // screens). Walls' scene[] keeps only 32-hex Meta uuids; nextScreenId is above every screen id.
+    static bool hex32(const std::string& u) { if (u.size() != 32) return false; for (char c : u) if (!isxdigit((unsigned char)c)) return false; return true; }
+    static void sanitize(json::Value& d) {
+        if (d["walls"].type == json::Value::Arr) for (auto& w : d.o["walls"].a) if (w["scene"].type == json::Value::Arr) {
+            json::Value keep = arr(); for (auto& u : w["scene"].a) if (hex32(u.str())) keep.a.push_back(u);
+            w.o["scene"] = keep;
+        }
+        long top = 0; for (auto& s : d["screens"].a) top = std::max(top, (long)s["id"].integer());
+        if (d["nextScreenId"].integer(0) <= top) d.o["nextScreenId"] = num((double)(top + 1));
+    }
     // Send the queued edits. Returns true when nothing is left to send.
     bool push(const std::string& note = "headset") {
         if (pending.empty()) return true;
         if (rev < 0 && !fetch()) return false;
         for (int attempt = 0; attempt < 3; attempt++) {
-            json::Value d = doc; d.o["by"] = str("headset");
+            json::Value d = doc; d.o["by"] = str("headset"); sanitize(d);
             std::string body = dump(d);
             Response r = http(host, port, "PUT", "/house", body,
                               {"If-Match: " + std::to_string(rev), "X-House-SHA256: " + sha256(body), "X-House-Note: " + note,
