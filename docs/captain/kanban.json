@@ -1,6 +1,6 @@
 {
- "rev": 61,
- "next": 24,
+ "rev": 62,
+ "next": 25,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -834,7 +834,28 @@
      "column": "doing"
     }
    ]
+  },
+  {
+   "title": "colorsync CPU on the Air: which display/event drives it",
+   "details": "30-min read-only correlation of colorsyncd + colorsync.displayservices CPU against the pinpin-displays log, atlas capture restarts and per-display config (scale, HDR, profile); find the driver and propose a fix; then air_smoke under the exclusive lock in a gap of work-34's campaign. Follows K21 (wallpaper ruled out).",
+   "column": "doing",
+   "owner": "work-ad",
+   "area": "perf",
+   "links": [],
+   "id": "K24",
+   "created": "2026-11-04T11:25:31Z",
+   "updated": "2026-11-04T11:25:31Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:25:31Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T11:24:58Z"
+ "updated": "2026-11-04T11:25:31Z"
 }
