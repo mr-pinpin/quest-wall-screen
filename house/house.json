@@ -17,7 +17,7 @@
   }
  },
  "nextScreenId": 4,
- "rev": 8,
+ "rev": 10,
  "rooms": [
   {
    "anchors": [
@@ -122,7 +122,7 @@
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-04T02:34:35Z",
+ "updated": "2026-11-04T02:49:48Z",
  "walls": [
   {
    "h": 2.51,
