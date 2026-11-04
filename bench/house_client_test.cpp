@@ -24,20 +24,20 @@ int main(int argc, char** argv) {
     std::string a = dir + "/a", b = dir + "/b"; mkdir(a.c_str(), 0700); mkdir(b.c_str(), 0700);
     house::Store A(a); A.host = "127.0.0.1"; A.port = port;
     check(!A.loadCache(), "no cache at first");
-    check(A.fetch(), "fetch rev 1"); check(A.rev == 1, "rev 1");
-    check(A.doc["screens"].size() == 3 && screen(A.doc, 2)["wall"].str() == "w-df0486f4", "migrated screens");
+    check(A.fetch(), "fetch"); const long R = A.rev; check(R >= 1, "a rev");  // the seed is the repo mirror: any rev
+    check(A.doc["screens"].size() >= 2 && !screen(A.doc, 2)["wall"].str().empty(), "migrated screens");
     // An edit goes up as one PUT and comes back after a restart.
     A.edit(moveScreen(A, 2, "x", -0.5));
     check(std::fabs(screen(A.doc, 2)["x"].num() + 0.5) < 1e-9, "edit applied locally at once");
-    check(A.push("test move screen 2"), "push"); check(A.rev == 2 && A.pending.empty(), "rev 2, nothing pending");
+    check(A.push("test move screen 2"), "push"); check(A.rev == R + 1 && A.pending.empty(), "rev +1, nothing pending");
     house::Store A2(a); A2.host = "127.0.0.1"; A2.port = port;
-    check(A2.loadCache() && A2.rev == 2 && std::fabs(screen(A2.doc, 2)["x"].num() + 0.5) < 1e-9, "cache survives a restart");
+    check(A2.loadCache() && A2.rev == R + 1 && std::fabs(screen(A2.doc, 2)["x"].num() + 0.5) < 1e-9, "cache survives a restart");
     // Two writers on rev 2: the second gets 409, re-applies its edit on top and both edits survive.
-    house::Store B(b); B.host = "127.0.0.1"; B.port = port; check(B.fetch() && B.rev == 2, "B on rev 2");
+    house::Store B(b); B.host = "127.0.0.1"; B.port = port; check(B.fetch() && B.rev == R + 1, "B on rev +1");
     A.edit(moveScreen(A, 3, "y", 0.11)); check(A.push(), "A pushes rev 3");
     B.edit(moveScreen(B, 2, "w", 1.2)); check(B.push(), "B pushes after a conflict");
-    check(B.conflicts == 1 && B.rev == 4, "one conflict, rev 4");
-    check(A.fetch() && A.rev == 4, "A sees rev 4");
+    check(B.conflicts == 1 && B.rev == R + 3, "one conflict, rev +3");
+    check(A.fetch() && A.rev == R + 3, "A sees rev +3");
     check(std::fabs(screen(A.doc, 3)["y"].num() - 0.11) < 1e-9 && std::fabs(screen(A.doc, 2)["w"].num() - 1.2) < 1e-9 &&
           std::fabs(screen(A.doc, 2)["x"].num() + 0.5) < 1e-9, "both edits kept");
     // Offline: edits queue on disk, survive a restart, and go up when the server is back.
@@ -45,21 +45,22 @@ int main(int argc, char** argv) {
     check(!A.push() && A.pending.size() == 1, "offline push fails, edit queued");
     house::Store A3(a); A3.host = "127.0.0.1"; A3.port = port;
     check(A3.loadCache() && A3.pending.size() == 1 && std::fabs(screen(A3.doc, 2)["h"].num() - 0.75) < 1e-9, "queued edit survives a restart");
-    check(A3.push() && A3.rev == 5 && A3.pending.empty(), "queued edit sent when back online");
+    check(A3.push() && A3.rev == R + 4 && A3.pending.empty(), "queued edit sent when back online");
     // A whole-object section and a delete.
     json::Value set = A3.doc["settings"]; set.o["locked"].type = json::Value::Bool; set.o["locked"].b = true;
     A3.edit({"settings", "", set});
+    size_t before = A3.doc["screens"].size();
     A3.edit({"screens", "3", json::Value{}});
-    check(A3.push() && A3.rev == 6, "settings + delete pushed");
+    check(A3.push() && A3.rev == R + 5, "settings + delete pushed");
     house::Store C(dir); C.host = "127.0.0.1"; C.port = port;
-    check(C.fetch() && C.doc["screens"].size() == 2 && C.doc["settings"]["locked"].b, "server has both");
+    check(C.fetch() && C.doc["screens"].size() == before - 1 && C.doc["settings"]["locked"].b, "server has both");
     // Damaged inputs: a corrupt cache is ignored; a body that doesn't match its hash is refused.
     house::writeAtomic(a + "/house.json", "{\"schema\":1,\"rev\":");
     house::Store A4(a); check(!A4.loadCache(), "corrupt cache ignored");
     check(!A4.adopt("{\"schema\":1,\"rev\":9}", house::sha256("something else")) && A4.lastError == "sha mismatch", "hash mismatch refused");
     // The server refuses a PUT whose body doesn't match its hash (sent by hand).
     std::string body = house::dump(C.doc);
-    house::Response r = house::http("127.0.0.1", port, "PUT", "/house", body, {"If-Match: 6", "X-House-SHA256: " + house::sha256(body + "x")});
+    house::Response r = house::http("127.0.0.1", port, "PUT", "/house", body, {"If-Match: " + std::to_string(R + 5), "X-House-SHA256: " + house::sha256(body + "x")});
     check(r.status == 400, "server refuses a damaged PUT");
     printf("house client: %s (%ld GET, %ld PUT, %ld conflicts)\n", fails ? "FAILED" : "all checks passed", A.gets + B.gets, A.puts + B.puts + A3.puts, B.conflicts);
     return fails ? 1 : 0;
