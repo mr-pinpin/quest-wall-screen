@@ -89,7 +89,11 @@ def house_moved_left(sid):
         a = screen_by(ctx["h0"], sid); b = screen_by(ctx["h1"], sid)
         if not a or not b:
             return False, f"no screen {sid}"
-        return b["x"] < a["x"] - 0.01, f"x {a['x']}->{b['x']}"
+        w = next((x for x in ctx["h1"].get("walls", []) if x["id"] == b["wall"]), None)
+        lim = (w["w"] / 2 - b["w"] / 2 - 0.03) if w and w.get("w") else 1e9
+        leftmost = -lim if lim > 0 else 0.0  # as far left as the wall allows (centre if wider than wall)
+        ok = b["x"] < a["x"] - 0.01 or abs(b["x"] - leftmost) < 0.05  # moved left OR clamped at the left edge
+        return ok, f"x {a['x']:.2f}->{b['x']:.2f} (leftmost {leftmost:.2f})"
     return chk
 
 
