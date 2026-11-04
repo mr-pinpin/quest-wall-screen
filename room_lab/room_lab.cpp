@@ -27,6 +27,7 @@
 #include "steady.h"
 #include "select_house.h"
 #include "panel_texture.h"
+#include "dictation.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -1950,6 +1951,44 @@ struct App {
         std::mt19937 rng((unsigned)time(nullptr) ^ (unsigned)(uintptr_t)this); char b[32]; snprintf(b, sizeof b, "headset-%08x%04x", (unsigned)rng(), (unsigned)(rng() & 0xffff));
         receptionConv = b; house::writeAtomic(gDir + "/reception-id", receptionConv); return receptionConv;
     }
+    // ---- DICTQ (room_lab/dictation.h): while a chat is open (a screen's Claude button, or CLAUDE / RECEPTION in the ring)
+    // the mic stays on and dq decides: an utterance never ends at a breath, ends after 3.5 s of quiet (2.2 s after a
+    // finished sentence) or on "send"; what is said while the answer streams is queued and goes after it, in order.
+    // The fist cannot take the mic from an open chat (dmic). Every wait has a watchdog in dictation.h; here the mic is
+    // restarted if it ever stops. Replaces updateReceptionMic and the button's pause logic when DICTQ is on.
+    dictsm::Mic dmic; dictsm::Listener dq; dictsm::State dqState = dictsm::State::Idle; int dqQueued = 0; float dqRestartAt = -10, dqVoiceAt = 0; long dqSent = 0, dqRestarts = 0, dqCuts = 0;
+    void dqReset() { dq = dictsm::Listener{}; dictation.clearEvents(); dqVoiceAt = now(); }
+    void updateDictQ() {
+        float t = now();
+        if (!dmic.acquire(dictsm::Owner::Button, t)) return;
+        if (!dictation.recording && t - dqRestartAt > 2) { dqRestartAt = t; dictation.start(); dqRestarts++; event("dictq: mic (re)started"); }
+        Dictation::Ev ev;
+        while (dictation.takeEvent(ev)) {
+            if (ev.kind == Dictation::Ev::Segment) dq.segment(t);
+            else if (ev.kind == Dictation::Ev::Text) dq.text(t, ev.text);
+            else dq.failed(t);
+        }
+        bool speaking = dictation.recording && dictation.level.load() >= 800;
+        if (speaking) dqVoiceAt = t;
+        dq.voice(t, speaking, dictsm::Owner::Button);
+        if (assistWaiting) {  // the answer is done (or failed): the next queued utterance may go
+            std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[assistArmed].state; }
+            if (st == "idle" || st == "error") { assistWaiting = false; dq.replyDone(t); }
+        }
+        dictsm::Out o = dq.tick(t);
+        if (o.cutNow) { dqCuts++; if (!dictation.cut()) dq.unvoiced(t); }
+        if (!o.caption.empty() && o.caption != assistBuffer) assistHeardAt = std::chrono::steady_clock::now();
+        assistBuffer = o.caption;
+        for (auto& sd : o.sends) {  // one at a time; after a reply's 90 s watchdog this goes even if the old one never ended
+            assistSend(assistArmed, sd.text); assistWaiting = true; dqSent++; event("dictq: sent " + sd.text);
+        }
+        dqState = o.state; dqQueued = o.queued;
+        // A screen's chat (not the always-on reception) closes its mic after 60 s with nothing said; the panel stays.
+        bool always = assistArmed == 0 && receptionOn();
+        if (!always && o.state == dictsm::State::Idle && !assistWaiting && t - dqVoiceAt > 60) {
+            dictation.stop(); dmic.release(dictsm::Owner::Button, t); assistArmed = -1; event("dictq: 60 s quiet, mic closed");
+        }
+    }
     void updateReceptionMic(std::chrono::steady_clock::time_point tn) {
         // Never stuck: while the chat is open the mic is on; if it stopped (or a stop never drained) start it again.
         if (!dictation.recording && tn - recRestartAt > std::chrono::seconds(2)) {
@@ -2022,20 +2061,22 @@ struct App {
     }
     void assistListen(int id) {
         assistArmed = id; assistBuffer.clear(); assistWaiting = false; assistT0 = assistHeardAt = std::chrono::steady_clock::now();
+        if (dictQMenu) { dqReset(); dmic.acquire(dictsm::Owner::Button, now()); }
         if (!dictation.recording) dictation.start();
     }
     void assistClose(int id) {
         chatOpen.erase(id);
-        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; }
+        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; dqReset(); dmic.release(dictsm::Owner::Button, now()); }
         event("assist: chat closed for screen " + std::to_string(id));
     }
     // Returns true when a Claude button takes the right hand this frame.
     bool updateAssist() {
         assistHover = 0; chatHover = 0;
-        if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; } chatOpen.clear(); return false; }
+        if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; dmic.release(dictsm::Owner::Button, now()); } chatOpen.clear(); return false; }
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
-        if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
+        if (dictQMenu && assistArmed >= 0) updateDictQ();
+        else if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
         else {
         if (assistArmed >= 0 && dictation.recording && !assistWaiting) {
             // Pause: words were heard, then 3.5 s of nothing new and a quiet microphone -> stop and send.
@@ -2161,6 +2202,7 @@ struct App {
     // that UI state synthetically, then the file is removed. Only menus/tool/panel state; nothing is sent anywhere.
     //   shoulder | settings | walls (WALLS palette + a dashed line preview on the wall in view) | wrist | assist
     //   (a local demo chat beside the main screen) | scan | scan-done | click:<id>:<u>:<v> | scroll:<id>:<dy> | close
+    //   | select:<id> (the gold outline, as house["selected"] would) | select-clear
     void uiDemo(const std::string& scene) {
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
@@ -2189,6 +2231,8 @@ struct App {
         } else if (scene == "scan") { scanStart();
         } else if (scene == "ask") { shoulderAction("ui-demo", "ask");   // opens (or closes) the CLAUDE / ASK... chat
         } else if (scene == "scan-done") { scanFinish();
+        } else if (scene.rfind("select:", 0) == 0) { sel.select(atoi(scene.c_str() + 7), now()); event("ui-demo: select " + scene.substr(7));
+        } else if (scene == "select-clear") { sel.clear(now());
         } else if (scene.rfind("click:", 0) == 0 || scene.rfind("scroll:", 0) == 0) {  // click:<id>:<u>:<v> / scroll:<id>:<dy>, the same routing as a pinch / wave
             int id = 0, a = 0, b = 0; bool click = scene[1] == 'l';
             sscanf(scene.c_str() + (click ? 6 : 7), "%d:%d:%d", &id, &a, &b);
@@ -3700,12 +3744,14 @@ void main(){
         }
         // While a Claude button is armed it owns the microphone: the fist gesture neither starts nor stops it (v0.47 bug:
         // the open hand stopped the button's recording 150 ms after every press).
-        if (assistArmed < 0 && !dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
-        if (assistArmed < 0 && dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
+        if (assistArmed < 0 && !dictation.recording && fistTime >= kFistHold && (!dictQMenu || dmic.acquire(dictsm::Owner::Fist, now()))) { dictation.start(); event("dictation started"); }
+        if (dictQMenu && assistArmed < 0 && dictation.recording) dmic.touch(dictsm::Owner::Fist, now());
+        if (assistArmed < 0 && dictation.recording && openTime >= kFistRelease) { dictation.stop(); dmic.release(dictsm::Owner::Fist, now()); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
             if (assistArmed >= 0) {  // the Claude button (or ASK..., id 0) is armed: the words go to that screen's assistant, not the stream
-                assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
+                if (!dictQMenu) assistBuffer += (assistBuffer.empty() ? "" : " ") + t;  // DICTQ assembles utterances from its events
+                caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
                 event("assist: heard " + t); continue;
             }
             if (streamInput()) {
@@ -4568,7 +4614,9 @@ void main(){
         { std::string dest; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(0); if (it != chats.end()) dest = it->second.dest; }
           j << ",\"reception\":{\"on\":" << (receptionOn() ? 1 : 0) << ",\"open\":" << (chatOpen.count(0) && receptionOn() ? 1 : 0) << ",\"dest\":\"" << jsonEscape(dest)
             << "\",\"sent\":" << receptionSent << ",\"queued\":" << receptionQueued << ",\"micRestarts\":" << receptionMicRestarts << ",\"waiting\":" << (assistWaiting ? 1 : 0)
-            << ",\"heard\":" << assistBuffer.size() << "}"; }
+            << ",\"heard\":" << assistBuffer.size() << ",\"dictq\":{\"on\":" << (dictQMenu ? 1 : 0) << ",\"state\":\"" << dictsm::name(dqState) << "\",\"queued\":" << dqQueued
+            << ",\"owner\":\"" << dictsm::name(dmic.owner) << "\",\"sent\":" << dqSent << ",\"restarts\":" << dqRestarts << ",\"cuts\":" << dqCuts
+            << ",\"replyTimeouts\":" << dq.replyTimeouts << ",\"closeTimeouts\":" << dq.closeTimeouts << ",\"forcedCuts\":" << dq.forcedCuts << "}}"; }
         j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";

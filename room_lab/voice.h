@@ -59,12 +59,23 @@ struct Dictation {
             }
         }
     }
-    void cutLocked() {
+    bool cutLocked() {
         // Drop segments that are nothing but silence.
         bool voiced = false; for (size_t i = 0; i < seg.size() && !voiced; i++) voiced = std::abs(seg[i]) > std::max(noise * 4, 900.0f);
-        if (voiced && seg.size() > kRate / 4) { queue.push_back(std::move(seg)); segments++; cv.notify_one(); }
+        bool kept = voiced && seg.size() > kRate / 4;
+        if (kept) { queue.push_back(std::move(seg)); segments++; event({Ev::Segment, ""}); cv.notify_one(); }
         seg.clear(); quietFrames = 0;
+        return kept;
     }
+    // DICTQ (room_lab/dictation.h): the same segments and transcripts as ordered events, so the utterance logic can
+    // tell which words belong to which pause. A segment's event comes before its transcript's. Capped: nobody may read.
+    struct Ev { enum Kind { Segment, Text, Failed } kind; std::string text; };
+    std::deque<Ev> events;
+    void event(Ev e) { events.push_back(std::move(e)); if (events.size() > 256) events.pop_front(); }  // under lock
+    bool takeEvent(Ev& e) { std::lock_guard<std::mutex> g(lock); if (events.empty()) return false; e = std::move(events.front()); events.pop_front(); return true; }
+    void clearEvents() { std::lock_guard<std::mutex> g(lock); events.clear(); }
+    // Cut the current segment now (an utterance just ended); false if it held no voice and was dropped.
+    bool cut() { std::lock_guard<std::mutex> g(lock); return recording && cutLocked(); }
     bool open() {
         AAudioStreamBuilder* b = nullptr; if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return false;
         AAudioStreamBuilder_setDirection(b, AAUDIO_DIRECTION_INPUT);
@@ -162,8 +173,9 @@ struct Dictation {
             lastMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (code == 200) {
                 std::string t = textField(reply); sent++;
-                if (!t.empty()) { std::lock_guard<std::mutex> g(lock); results.push_back(t); lastText = t; }
-            } else { failures++; lastError = "http " + std::to_string(code); }
+                std::lock_guard<std::mutex> g(lock); event({Ev::Text, t});
+                if (!t.empty()) { results.push_back(t); lastText = t; }
+            } else { failures++; lastError = "http " + std::to_string(code); std::lock_guard<std::mutex> g(lock); event({Ev::Failed, ""}); }
             inflight = false;
         }
     }
