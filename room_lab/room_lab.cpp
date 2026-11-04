@@ -792,6 +792,15 @@ struct App {
             L.items = {{"LINE", "POINT A THEN B ON A WALL", "wt:line"}, {"CIRCLE", "CENTRE THEN EDGE", "wt:circle"}, {"CONFIRM", "KEEP THE DASHED SHAPE", "wt:confirm"},
                        {"EXPAND", "PULL THE LINE INTO A SURFACE", "wt:expand"}, {"DONE", "FINISH THIS SHAPE", "wt:finish"}, {"UNDO", "STEP BACK", "wt:undo"},
                        {"CANCEL", "DROP WHAT YOU ARE DRAWING", "wt:cancel"}, {wtFill ? "FILL ON" : "FILL OFF", "FILLED CIRCLES", "wt:fill"}, {"BACK", "ONE MENU BACK", "back"}};
+        } else if (n.rfind("APPS ", 0) == 0) {  // the mini-apps catalog (work-ad, :57830), fetched when this opens
+            int sid = atoi(n.c_str() + 5); L.title = "APPS FOR SCREEN " + std::to_string(sid);
+            appsFetch();
+            std::lock_guard<std::mutex> g(appsLock);
+            if (appsCatalog.empty()) L.items.push_back({appsErr.empty() ? "LOADING" : "OFFLINE", appsErr.empty() ? "ASKING THE MINI FOR APPS" : "THE APPS SERVER DID NOT ANSWER", "noop"});
+            for (auto& a : appsCatalog) L.items.push_back({a.name, a.hint, "app:" + std::to_string(sid) + ":" + a.id});
+            L.items.push_back({"NONE", "THE PLAIN SCREEN", "app:" + std::to_string(sid) + ":"});
+            L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+            if (L.items.size() > 8) L.grid.cols = 4;
         } else if (n == "SCREENS") {
             if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
             for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
@@ -803,6 +812,7 @@ struct App {
         } else if (n.rfind("SCREEN ", 0) == 0) {
             L.items = {{"BIGGER", "20% WIDER", "bigger"}, {"SMALLER", "20% NARROWER", "smaller"}, {"MOVE", "POINT AT A WALL THEN PINCH", "move"}};
             if (n != "SCREEN 1") L.items.push_back({"DELETE", "REMOVE THIS SCREEN", "delete"});
+            if (n != "SCREEN 1") L.items.push_back({"APP...", "PICK WHAT RUNS ON THIS SCREEN", "open:APPS " + n.substr(7)});
             L.items.push_back({"BACK", "ONE MENU BACK", "back"});
         }
         return L;
@@ -810,6 +820,9 @@ struct App {
     // Returns true when the shoulder button or one of its panels takes the right hand this frame.
     bool updateShoulder() {
         smButtonHover = false; smHover = {}; wristShown = false; wristHover = false;
+        { std::string msg; long v; { std::lock_guard<std::mutex> g(appsLock); msg.swap(appsToast); v = appsVersion; }
+          if (!msg.empty()) { const float c[4] = {0.35f, 0.85f, 1.0f, 1}; toast("apps", msg, c, 3); }
+          if (v != appsSeen) { appsSeen = v; if (sm.open() && sm.stack.back().name.rfind("APPS ", 0) == 0) sm.refresh(); } }
         if (!shoulderOn() && !wristOn()) { sm.stack.clear(); smPokePrev = false; return false; }
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
@@ -860,6 +873,7 @@ struct App {
         const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         event("shoulder: " + level + " " + a);
         if (a.rfind("wt:", 0) == 0) { wallToolAction(a.substr(3)); return; }
+        if (a.rfind("app:", 0) == 0) { size_t c = a.find(':', 4); appsAssign(atoi(a.c_str() + 4), a.substr(c + 1)); return; }
         if (a == "scan") { sm.stack.clear(); scanStart(); return; }
         if (a == "scan-done") { sm.stack.clear(); scanFinish(); return; }
         if (a.rfind("set:", 0) == 0) { for (int i = 0; i < kMenuItems; i++) if (a.substr(4) == menuItems[i].label) { choose(i); break; } return; }
@@ -926,7 +940,7 @@ struct App {
             text(b, pe, 0, L.grid.titleY * s, 0.003f * s, UiGrid::fit(L.title, L.grid.titlePx, 2 * L.grid.halfW - 2 * L.grid.pad, L.grid.titleH * 0.6f) * s, L.title.c_str(), white);
             for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
                 const UiGrid::Cell& cl = L.grid.cells[i]; const shoulder::Item& it = L.items[i];
-                bool on = it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0;
+                bool on = (it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0) || appIsOn(it.action);
                 const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
                 float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
                 f[3] *= fade;
@@ -1865,6 +1879,53 @@ struct App {
             glDrawArrays(GL_TRIANGLES, 0, b.verts);
         }
         glDepthMask(GL_TRUE); glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    }
+    // ---- APP... (work-ad's mini-apps, docs at pinpin-apps/docs/HEADSET.md): SCREENS -> SCREEN n -> APP... lists the
+    // catalog from the Mini (re-fetched each time it opens), the current app highlighted; a pick POSTs
+    // /api/screens/<n>/app and the Air's runner changes the window. Extra screens only (never the main screen).
+    struct AppEntry { std::string id, name, hint; };
+    std::mutex appsLock; std::vector<AppEntry> appsCatalog; std::map<int, std::string> appsOnScreen; std::string appsErr, appsToast;
+    long appsVersion = 0, appsSeen = 0; std::atomic<bool> appsBusy{false};
+    static std::string fontSafe(std::string t, size_t max) {  // the menu font: A-Z 0-9 % - . : ! and space
+        for (auto& c : t) { c = (char)toupper((unsigned char)c); if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strchr("%-.:! ", c))) c = ' '; }
+        if (t.size() > max) t = t.substr(0, max);
+        while (!t.empty() && t.back() == ' ') t.pop_back();
+        return t;
+    }
+    void appsFetch() {
+        if (appsBusy.exchange(true)) return;
+        std::thread([this] {
+            house::Response a = house::http("192.168.0.50", 57830, "GET", "/api/apps"), sc = house::http("192.168.0.50", 57830, "GET", "/api/screens");
+            bool ok1 = false, ok2 = false; json::Value apps = json::parse(a.body, &ok1), scr = json::parse(sc.body, &ok2);
+            std::lock_guard<std::mutex> g(appsLock);
+            if (a.status == 200 && ok1) {
+                appsCatalog.clear();
+                for (auto& x : apps.a) {
+                    std::string d = x["description"].str(); size_t dot = d.find(". "); if (dot != std::string::npos) d = d.substr(0, dot);
+                    appsCatalog.push_back({x["id"].str(), fontSafe(x["name"].str().empty() ? x["id"].str() : x["name"].str(), 14), fontSafe(d, 40)});
+                }
+                appsErr.clear();
+            } else appsErr = a.error.empty() ? "HTTP " + std::to_string(a.status) : a.error;
+            if (sc.status == 200 && ok2) { appsOnScreen.clear(); for (auto& x : scr.a) if (x["app"].type == json::Value::Str) appsOnScreen[x["screen"].integer()] = x["app"].str(); }
+            appsVersion++; appsBusy = false;
+        }).detach();
+    }
+    bool appIsOn(const std::string& action) {
+        if (action.rfind("app:", 0) != 0) return false;
+        size_t c = action.find(':', 4); int sid = atoi(action.c_str() + 4); std::string id = action.substr(c + 1);
+        std::lock_guard<std::mutex> g(appsLock); auto it = appsOnScreen.find(sid);
+        return id.empty() ? it == appsOnScreen.end() : (it != appsOnScreen.end() && it->second == id);
+    }
+    void appsAssign(int sid, const std::string& id) {
+        event("apps: screen " + std::to_string(sid) + " -> " + (id.empty() ? std::string("none") : id));
+        std::thread([this, sid, id] {
+            std::string body = id.empty() ? "{\"app\":null}" : "{\"app\":" + house::dump(house::str(id)) + "}";
+            house::Response r = house::http("192.168.0.50", 57830, "POST", "/api/screens/" + std::to_string(sid) + "/app", body, {"Content-Type: application/json"});
+            std::lock_guard<std::mutex> g(appsLock);
+            if (r.status == 200) { if (id.empty()) appsOnScreen.erase(sid); else appsOnScreen[sid] = id; appsToast = id.empty() ? "PLAIN SCREEN" : fontSafe(id, 20) + " ON SCREEN " + std::to_string(sid); }
+            else appsToast = "COULD NOT SAVE - TRY AGAIN";
+            appsVersion++;
+        }).detach();
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
