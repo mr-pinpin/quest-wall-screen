@@ -22,6 +22,7 @@ run "keyframe requests (vt.h KeyReq)" bash -c "g++ -std=c++17 -Wall -I room_lab 
 run "settings explanations + AMBI under VT (bench/ui_v044_test.cpp)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/ui_v044_test.cpp -o $T/ui44 && $T/ui44"
 run "shoulder menu (room_lab/shoulder.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/shoulder_test.cpp -o $T/shoulder && $T/shoulder"
 run "house client vs house/server.py (room_lab/house.h)" bash bench/house_client_test.sh
+run "room frame from our anchors (room_lab/anchors.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/anchors_test.cpp -o $T/anch && $T/anch"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py

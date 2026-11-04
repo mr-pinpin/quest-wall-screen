@@ -28,6 +28,8 @@
 #include "shoulder.h"
 #include "house.h"
 #include "wallfit.h"
+#include "anchors.h"
+#include <random>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -204,6 +206,9 @@ struct App {
     // WRIST flag (room_lab/shoulder.h radial root): the back of the left wrist toward the face shows a button; a tap opens
     // a ring menu that cascades like SHOULDER. It replaces the watch-pose hold that opens the settings panel.
     bool wristMenu = false, wristFile = false; bool wristOn() const { return wristMenu || wristFile; }
+    // SCAN flag (room_lab/anchors.h, wallfit.h): "scan what is in front of me" from the menus; surfaces fill as they are
+    // captured, and the result goes to house.json in the frame of our own saved anchors.
+    bool scanMenu = false, scanFile = false; bool scanOn() const { return scanMenu || scanFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -377,6 +382,7 @@ struct App {
     PFN_xrGetSpaceBoundingBox3DFB xrGetSpaceBoundingBox3DFB_ = nullptr;
     PFN_xrGetSpaceSemanticLabelsFB xrGetSpaceSemanticLabelsFB_ = nullptr;
     PFN_xrRequestSceneCaptureFB xrRequestSceneCaptureFB_ = nullptr;
+    PFN_xrCreateSpatialAnchorFB xrCreateSpatialAnchorFB_ = nullptr; PFN_xrSaveSpaceFB xrSaveSpaceFB_ = nullptr;
     std::vector<Entity> entities;
     std::string sceneState = "idle";
     XrAsyncRequestIdFB queryId = 0;
@@ -462,7 +468,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 33;
+    static constexpr int kMenuItems = 34;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -478,7 +484,8 @@ struct App {
         {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
-        {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"}};
+        {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
+        {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -505,6 +512,7 @@ struct App {
         if (l == "HOUSE") return houseOn();
         if (l == "DEPTHGAP") return depthGap();
         if (l == "WRIST") return wristOn();
+        if (l == "SCAN") return scanOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -565,7 +573,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -594,7 +602,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -631,6 +639,7 @@ struct App {
         else if (l == "HOUSE") { houseMenu = !houseMenu; if (houseOn()) { houseStart(); houseQueueScreens(); } }  // layout to the house file
         else if (l == "DEPTHGAP") depthGapMenu = !depthGapMenu;               // screen vs real wall, in status.json
         else if (l == "WRIST") { wristMenu = !wristMenu; if (!wristOn() && !shoulderOn()) sm.stack.clear(); }  // wrist ring menu
+        else if (l == "SCAN") scanMenu = !scanMenu;                           // the scan button in SHOULDER / WRIST
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -724,9 +733,11 @@ struct App {
         if (n == "WRIST") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
+            if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
         } else if (n == "ROOT") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
+            if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
         } else if (n == "SCREENS") {
             if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
             for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
@@ -794,6 +805,8 @@ struct App {
     void shoulderAction(const std::string& level, const std::string& a) {
         const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         event("shoulder: " + level + " " + a);
+        if (a == "scan") { sm.stack.clear(); scanStart(); return; }
+        if (a == "scan-done") { sm.stack.clear(); scanFinish(); return; }
         if (a.rfind("set:", 0) == 0) { for (int i = 0; i < kMenuItems; i++) if (a.substr(4) == menuItems[i].label) { choose(i); break; } return; }
         if (level.rfind("SCREEN ", 0) != 0) return;
         int id = atoi(level.c_str() + 7);
@@ -888,6 +901,7 @@ struct App {
     struct DepthShot { XrEnvironmentDepthImageMETA img{}; XrTime now = 0; std::vector<uint16_t> d[2]; std::vector<GapScreen> screens; std::vector<SceneWall> walls; XrPosef head{}; bool dump = false; };
     DepthShot rbShot[2];
     std::mutex gapLock; std::condition_variable gapCv; std::unique_ptr<DepthShot> gapNext; bool gapThread = false; std::string gapJson;
+    std::vector<wallfit::Wall> gapWalls; bool scanReset = false;
     bool depthDumpWanted = false;
     static wallfit::Pose wp(const XrPosef& p) { return {{p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w}, {p.position.x, p.position.y, p.position.z}}; }
     void depthReadback(GLuint depthTex) {
@@ -911,7 +925,7 @@ struct App {
             } else rbErr = "map failed";
             glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         }
-        if (frames - rbLast < 36 && !depthDumpWanted) return;
+        if (frames - rbLast < (scanning() ? 18 : 36) && !depthDumpWanted) return;
         int k = !rbBusy[0] ? 0 : !rbBusy[1] ? 1 : -1; if (k < 0) return;
         if (!rbProg) {
             const char* vs = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
@@ -975,7 +989,8 @@ struct App {
             wallfit::Fuser fuser; std::map<int, std::vector<float>> recent;  // per screen: the last medians
             for (;;) {
                 std::unique_ptr<DepthShot> sh;
-                { std::unique_lock<std::mutex> g(gapLock); gapCv.wait(g, [&] { return gapNext != nullptr; }); sh = std::move(gapNext); }
+                { std::unique_lock<std::mutex> g(gapLock); gapCv.wait(g, [&] { return gapNext != nullptr; }); sh = std::move(gapNext);
+                  if (scanReset) { fuser = wallfit::Fuser(); scanReset = false; } }
                 auto t0 = std::chrono::steady_clock::now();
                 wallfit::DepthFrame f[2];
                 for (int e = 0; e < 2; e++) {
@@ -1016,7 +1031,7 @@ struct App {
                 float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
                 j << "],\"workerMs\":" << ms << ",\"dropped\":" << fuser.dropped;
                 if (sh->dump) depthDump(*sh);
-                std::lock_guard<std::mutex> g(gapLock); gapJson = j.str();
+                std::lock_guard<std::mutex> g(gapLock); gapJson = j.str(); gapWalls = fused;
             }
         }).detach();
     }
@@ -1052,6 +1067,213 @@ struct App {
         j << "]}";
         house::writeAtomic(dir + "/meta.json", j.str());
         event("depth dump written to " + dir);
+    }
+    // ---- SCAN and our anchors (flag SCAN; room_lab/anchors.h, docs/house-onboarding.md section 3).
+    // SCAN (from SHOULDER / WRIST): 20 s of depth at 4 Hz into a fresh wallfit fuser. The surfaces being captured fill
+    // in place with a sweep line, cyan while uncertain, green once solid (no raw vertices). DONE or the timeout commits:
+    // the room frame is our anchor 0 (created, made storable and saved now if the room has none), each solid surface
+    // is matched to the house wall it is (by its Meta scene wall) or added as a new depth wall, and walls + the room's
+    // anchors go to house.json as whole-object edits. At start (HOUSE or SCAN on), the room's saved anchors are queried
+    // by uuid and located every frame; anchors::solve gives the room frame and names drifted anchors (status "anchors").
+    enum class ScanState { idle, capturing, anchoring, done, failed } scanState = ScanState::idle;
+    bool scanning() const { return scanState == ScanState::capturing; }
+    const char* scanStateName() const { const char* n[] = {"idle", "capturing", "anchoring", "done", "failed"}; return n[(int)scanState]; }
+    std::chrono::steady_clock::time_point scanT0{}, anchorT0{};
+    int scanSurfaces = 0, scanCommitted = 0; std::string scanErr; std::vector<wallfit::Wall> scanResult;
+    struct OurAnchor { std::string uuid; XrSpace space = XR_NULL_HANDLE; XrPosef local{{0, 0, 0, 1}, {0, 0, 0}}; bool located = false, saved = false; };
+    std::vector<OurAnchor> ours; std::vector<anchors::Stored> storedAnchors; anchors::Frame roomFrame;
+    std::map<XrAsyncRequestIdFB, int> anchorReq;  // create / status / save request -> index in ours (-1-k: pending create k)
+    std::vector<XrPosef> anchorPending; XrAsyncRequestIdFB anchorQueryId = 0; bool anchorsQueried = false, anchorsLoadTried = false;
+    long anchorsCreated = 0, anchorsSavedN = 0, anchorsFailed = 0; int anchorsLocated = 0;
+    shoulder::Item scanItem() const {
+        return scanning() ? shoulder::Item{"DONE", "FINISH AND SAVE THE SCAN", "scan-done"} : shoulder::Item{"SCAN", "SCAN WHAT IS IN FRONT OF YOU", "scan"};
+    }
+    static XrUuidEXT uuidFromHex(const std::string& h) {
+        XrUuidEXT u{}; for (int i = 0; i < 16 && 2 * i + 1 < (int)h.size(); i++) u.data[i] = (uint8_t)strtoul(h.substr(2 * i, 2).c_str(), nullptr, 16); return u;
+    }
+    static XrPosef xp(const wallfit::Pose& p) { XrPosef r; r.orientation = {p.q.x, p.q.y, p.q.z, p.q.w}; r.position = {p.p.x, p.p.y, p.p.z}; return r; }
+    static json::Value poseJson(const wallfit::Pose& p) {
+        json::Value o = house::obj(), pp = house::arr(), q = house::arr();
+        pp.a = {house::num(p.p.x), house::num(p.p.y), house::num(p.p.z)}; q.a = {house::num(p.q.x), house::num(p.q.y), house::num(p.q.z), house::num(p.q.w)};
+        o.o["p"] = pp; o.o["q"] = q; return o;
+    }
+    static wallfit::Pose poseFrom(const json::Value& o) {
+        wallfit::Pose p; const json::Value &pp = o["p"], &q = o["q"];
+        p.p = {(float)pp[0].num(), (float)pp[1].num(), (float)pp[2].num()}; p.q = {(float)q[0].num(), (float)q[1].num(), (float)q[2].num(), (float)q[3].num(1)};
+        return p;
+    }
+    // The saved anchors of room r1 in the house: query them once the house is known.
+    void anchorsLoad() {
+        if (anchorsLoadTried || !xrQuerySpacesFB_) return;
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        if (!d) return;
+        anchorsLoadTried = true;
+        for (auto& r : (*d)["rooms"].a) if (r["id"].str() == "r1") for (auto& a : r["anchors"].a) storedAnchors.push_back({a["uuid"].str(), poseFrom(a["pose"])});
+        if (storedAnchors.empty()) { event("anchors: the house has none yet"); return; }
+        std::vector<XrUuidEXT> ids; for (auto& a : storedAnchors) ids.push_back(uuidFromHex(a.uuid));
+        XrSpaceStorageLocationFilterInfoFB storage{XR_TYPE_SPACE_STORAGE_LOCATION_FILTER_INFO_FB, nullptr, XR_SPACE_STORAGE_LOCATION_LOCAL_FB};
+        XrSpaceUuidFilterInfoFB uf{XR_TYPE_SPACE_UUID_FILTER_INFO_FB, &storage, (uint32_t)ids.size(), ids.data()};
+        XrSpaceQueryInfoFB qi{XR_TYPE_SPACE_QUERY_INFO_FB, nullptr, XR_SPACE_QUERY_ACTION_LOAD_FB, 32, 0, reinterpret_cast<XrSpaceFilterInfoBaseHeaderFB*>(&uf), nullptr};
+        XrResult r = xrQuerySpacesFB_(session, reinterpret_cast<XrSpaceQueryInfoBaseHeaderFB*>(&qi), &anchorQueryId);
+        event("anchors: query " + std::to_string(ids.size()) + " saved anchors -> " + std::to_string((int)r));
+    }
+    void anchorsRetrieve(XrAsyncRequestIdFB id) {
+        XrSpaceQueryResultsFB res{XR_TYPE_SPACE_QUERY_RESULTS_FB};
+        if (!ok(xrRetrieveSpaceQueryResultsFB_(session, id, &res), "anchors: retrieve count")) return;
+        std::vector<XrSpaceQueryResultFB> out(res.resultCountOutput); res.resultCapacityInput = (uint32_t)out.size(); res.results = out.data();
+        if (!ok(xrRetrieveSpaceQueryResultsFB_(session, id, &res), "anchors: retrieve")) return;
+        for (auto& r : out) {
+            if (!componentEnabled(r.space, XR_SPACE_COMPONENT_TYPE_LOCATABLE_FB)) {
+                XrSpaceComponentStatusSetInfoFB si{XR_TYPE_SPACE_COMPONENT_STATUS_SET_INFO_FB, nullptr, XR_SPACE_COMPONENT_TYPE_LOCATABLE_FB, XR_TRUE, 0};
+                XrAsyncRequestIdFB rid; xrSetSpaceComponentStatusFB_(r.space, &si, &rid);
+            }
+            OurAnchor a; a.uuid = hexUuid(r.uuid); a.space = r.space; a.saved = true; ours.push_back(a);
+        }
+    }
+    void anchorsLocate(XrTime t) {
+        std::vector<anchors::Seen> seen; anchorsLocated = 0;
+        for (auto& a : ours) {
+            XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
+            a.located = XR_SUCCEEDED(xrLocateSpace(a.space, local, t, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+            if (a.located) { a.local = sl.pose; anchorsLocated++; seen.push_back({a.uuid, wp(sl.pose)}); }
+        }
+        if (!storedAnchors.empty()) roomFrame = anchors::solve(storedAnchors, seen);
+        if (scanState == ScanState::anchoring) {  // all created anchors saved (or failed), or 10 s: commit with what we have
+            bool waiting = !anchorPending.empty() || !anchorReq.empty();
+            if (!waiting || std::chrono::steady_clock::now() - anchorT0 > std::chrono::seconds(10)) scanCommit();
+        }
+    }
+    void scanStart() {
+        const float cyan[4] = {0.35f, 0.85f, 1.0f, 1};
+        { std::lock_guard<std::mutex> g(gapLock); scanReset = true; gapWalls.clear(); }
+        scanState = ScanState::capturing; scanT0 = std::chrono::steady_clock::now(); scanErr.clear(); scanSurfaces = 0;
+        toast("scan", "SCANNING: LOOK AROUND SLOWLY", cyan, 4); event("scan started");
+    }
+    void updateScan() {
+        if (!scanning()) return;
+        std::vector<wallfit::Wall> w; { std::lock_guard<std::mutex> g(gapLock); w = gapWalls; }
+        scanSurfaces = 0; for (auto& x : w) scanSurfaces += x.confidence >= 0.5f;
+        if (std::chrono::steady_clock::now() - scanT0 > std::chrono::seconds(20)) scanFinish();
+    }
+    void scanFinish() {
+        if (!scanning()) return;
+        { std::lock_guard<std::mutex> g(gapLock); scanResult = gapWalls; }
+        scanResult.erase(std::remove_if(scanResult.begin(), scanResult.end(), [](const wallfit::Wall& w) { return w.confidence < 0.5f; }), scanResult.end());
+        if (scanResult.empty()) { scanState = ScanState::failed; scanErr = "nothing solid captured"; const float red[4] = {1, 0.3f, 0.25f, 1}; toast("scan", "SCAN: NOTHING SOLID YET, TRY AGAIN", red, 4); return; }
+        scanState = ScanState::anchoring; anchorT0 = std::chrono::steady_clock::now();
+        if (roomFrame.ok || !xrCreateSpatialAnchorFB_) return;  // the room is already anchored (or anchors unsupported: commit in LOCAL is refused)
+        std::vector<wallfit::V3> c; for (auto& w : scanResult) if (w.kind == wallfit::Kind::wall) c.push_back(w.centre);
+        if (c.empty()) for (auto& w : scanResult) c.push_back(w.centre);
+        float yaw = std::atan2(-rot(head.orientation, {0, 0, -1}).x, -rot(head.orientation, {0, 0, -1}).z);
+        for (auto& at : anchors::choosePlaces(c, 3)) {
+            XrPosef pose; pose.orientation = {0, std::sin(yaw / 2), 0, std::cos(yaw / 2)}; pose.position = {at.x, at.y, at.z};
+            XrSpatialAnchorCreateInfoFB ci{XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_FB, nullptr, local, pose, frameTime};
+            XrAsyncRequestIdFB rid;
+            if (ok(xrCreateSpatialAnchorFB_(session, &ci, &rid), "create anchor")) { anchorReq[rid] = -1 - (int)anchorPending.size(); anchorPending.push_back(pose); }
+            else anchorsFailed++;
+        }
+        event("scan: " + std::to_string(scanResult.size()) + " surfaces, creating " + std::to_string(anchorPending.size()) + " anchors");
+    }
+    void anchorCreated(const XrEventDataSpatialAnchorCreateCompleteFB& e) {
+        auto it = anchorReq.find(e.requestId); if (it == anchorReq.end()) return;
+        anchorReq.erase(it); if (!anchorPending.empty()) anchorPending.pop_back();
+        if (XR_FAILED(e.result)) { anchorsFailed++; event("anchor create failed " + std::to_string((int)e.result)); return; }
+        anchorsCreated++;
+        OurAnchor a; a.uuid = hexUuid(e.uuid); a.space = e.space; ours.push_back(a);
+        XrSpaceComponentStatusSetInfoFB si{XR_TYPE_SPACE_COMPONENT_STATUS_SET_INFO_FB, nullptr, XR_SPACE_COMPONENT_TYPE_STORABLE_FB, XR_TRUE, 0};
+        XrAsyncRequestIdFB rid;
+        XrResult r = xrSetSpaceComponentStatusFB_(e.space, &si, &rid);
+        if (r == XR_ERROR_SPACE_COMPONENT_STATUS_ALREADY_SET_FB) anchorSave((int)ours.size() - 1);
+        else if (XR_SUCCEEDED(r)) anchorReq[rid] = (int)ours.size() - 1;
+        else { anchorsFailed++; event("anchor storable failed " + std::to_string((int)r)); }
+    }
+    void anchorStatusSet(const XrEventDataSpaceSetStatusCompleteFB& e) {
+        auto it = anchorReq.find(e.requestId); if (it == anchorReq.end()) return;
+        int k = it->second; anchorReq.erase(it);
+        if (XR_FAILED(e.result)) { anchorsFailed++; event("anchor storable failed " + std::to_string((int)e.result)); return; }
+        anchorSave(k);
+    }
+    void anchorSave(int k) {
+        XrSpaceSaveInfoFB si{XR_TYPE_SPACE_SAVE_INFO_FB, nullptr, ours[k].space, XR_SPACE_STORAGE_LOCATION_LOCAL_FB, XR_SPACE_PERSISTENCE_MODE_INDEFINITE_FB};
+        XrAsyncRequestIdFB rid;
+        if (xrSaveSpaceFB_ && ok(xrSaveSpaceFB_(session, &si, &rid), "save anchor")) anchorReq[rid] = k; else anchorsFailed++;
+    }
+    void anchorSaved(const XrEventDataSpaceSaveCompleteFB& e) {
+        auto it = anchorReq.find(e.requestId); if (it == anchorReq.end()) return;
+        int k = it->second; anchorReq.erase(it);
+        if (XR_FAILED(e.result)) { anchorsFailed++; event("anchor save failed " + std::to_string((int)e.result)); return; }
+        ours[k].saved = true; anchorsSavedN++; event("anchor saved " + ours[k].uuid);
+    }
+    void scanCommit() {
+        const float green[4] = {0.3f, 1.0f, 0.5f, 1}, red[4] = {1, 0.3f, 0.25f, 1};
+        scanState = ScanState::failed;
+        // The room frame: the solved one (anchors already in the house), else our first saved anchor this scan.
+        wallfit::Pose room; bool have = false; std::vector<json::Value> newAnchors;
+        if (roomFrame.ok) { room = roomFrame.roomInLocal; have = true; }
+        for (auto& a : ours) {
+            bool known = false; for (auto& st : storedAnchors) known = known || st.uuid == a.uuid;
+            if (known || !a.saved || !a.located) continue;
+            if (!have) { room = wp(a.local); have = true; }
+            json::Value o = house::obj(); o.o["uuid"] = house::str(a.uuid); o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), wp(a.local)));
+            newAnchors.push_back(o); storedAnchors.push_back({a.uuid, anchors::compose(anchors::inverse(room), wp(a.local))});
+        }
+        if (!have) { scanErr = "no anchor saved"; toast("scan", "SCAN NOT SAVED: NO ANCHOR", red, 4); event("scan: no anchor, nothing committed"); return; }
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        json::Value none; const json::Value& doc = d ? *d : none;
+        // Scene walls in LOCAL, to say which house wall each fitted surface is.
+        std::vector<wallfit::HouseWall> scene; std::vector<std::string> sceneIds;
+        for (auto& e : entities) if (e.located && e.has2d) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height}); sceneIds.push_back(e.uuid);
+        }
+        std::vector<house::Edit> edits; char stamp[32]; time_t now = time(nullptr); strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+        std::mt19937 rng((unsigned)now);
+        for (auto& w : scanResult) {
+            std::string id, uuid; wallfit::Match m = wallfit::match(w, scene, 0.08f, 5.0f);
+            if (m.index >= 0) {
+                uuid = sceneIds[m.index];
+                for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == uuid) id = hw["id"].str();
+                if (id.empty()) id = "w-" + uuid.substr(0, 8);
+            } else { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); id = b; }
+            json::Value o = house::obj();
+            for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
+            o.o["id"] = house::str(id); o.o["room"] = house::str("r1"); o.o["kind"] = house::str(wallfit::kindName(w.kind));
+            if (!o.has("source")) o.o["source"] = house::str(uuid.empty() ? "depth" : "scene");
+            if (!uuid.empty() && !o.has("scene")) { json::Value sc = house::arr(); sc.a.push_back(house::str(uuid)); o.o["scene"] = sc; }
+            o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), w.pose())); o.o["w"] = house::num(w.w); o.o["h"] = house::num(w.h);
+            json::Value fit = house::obj(); fit.o["rms_m"] = house::num(w.rms_m); fit.o["samples"] = house::num((double)w.samples); fit.o["updated"] = house::str(stamp);
+            o.o["fit"] = fit;
+            edits.push_back({"walls", id, o});
+        }
+        json::Value r1 = house::obj(); r1.o["id"] = house::str("r1"); r1.o["name"] = house::str("home");
+        for (auto& r : doc["rooms"].a) if (r["id"].str() == "r1") r1 = r;
+        json::Value an = r1["anchors"].type == json::Value::Arr ? r1["anchors"] : house::arr();
+        for (auto& a : newAnchors) an.a.push_back(a);
+        r1.o["anchors"] = an; edits.push_back({"rooms", "r1", r1});
+        houseStart();
+        { std::lock_guard<std::mutex> g(houseLock); for (auto& e : edits) houseQueue.push_back(e); }
+        scanCommitted = (int)scanResult.size(); scanState = ScanState::done;
+        toast("scan", "SCAN SAVED: " + std::to_string(scanCommitted) + " SURFACES", green, 4);
+        event("scan: committed " + std::to_string(scanCommitted) + " surfaces, " + std::to_string(newAnchors.size()) + " new anchors");
+    }
+    // The progress cue: each surface being captured fills in place (cyan while uncertain, green once solid) with a
+    // sweep line crossing it. Drawn in the occluded batch, so real things in front hide it like the room itself.
+    void drawScan(Batch& b) {
+        if (!scanning()) return;
+        std::vector<wallfit::Wall> walls; { std::lock_guard<std::mutex> g(gapLock); walls = gapWalls; }
+        float t = now();
+        for (auto& w : walls) {
+            if (w.confidence < 0.1f || w.w < 0.2f || w.h < 0.2f) continue;
+            auto W = [&](float x, float y) { wallfit::V3 p = w.centre + w.right * x + w.up * y + w.n * 0.01f; return V3{p.x, p.y, p.z}; };
+            bool solid = w.confidence >= 0.5f; float a = 0.10f + 0.30f * std::fmin(w.confidence, 1.0f);
+            const float fill[4] = {solid ? 0.3f : 0.35f, solid ? 1.0f : 0.85f, solid ? 0.5f : 1.0f, a};
+            const float edge[4] = {fill[0], fill[1], fill[2], 0.8f}, sweep[4] = {1, 1, 1, 0.7f};
+            float hw = w.w / 2, hh = w.h / 2; V3 n{w.n.x, w.n.y, w.n.z};
+            b.quad(W(-hw, -hh), W(hw, -hh), W(hw, hh), W(-hw, hh), fill);
+            b.line(W(-hw, -hh), W(hw, -hh), n, 0.006f, edge); b.line(W(hw, -hh), W(hw, hh), n, 0.006f, edge);
+            b.line(W(hw, hh), W(-hw, hh), n, 0.006f, edge); b.line(W(-hw, hh), W(-hw, -hh), n, 0.006f, edge);
+            if (!solid) { float x = -hw + std::fmod(t * 0.8f + w.id * 0.37f, 1.0f) * w.w; b.line(W(x, -hh), W(x, hh), n, 0.01f, sweep); }
+        }
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -1124,6 +1346,7 @@ struct App {
         load("xrGetSpaceComponentStatusFB", xrGetSpaceComponentStatusFB_); load("xrSetSpaceComponentStatusFB", xrSetSpaceComponentStatusFB_);
         load("xrGetSpaceBoundingBox2DFB", xrGetSpaceBoundingBox2DFB_); load("xrGetSpaceBoundingBox3DFB", xrGetSpaceBoundingBox3DFB_);
         load("xrGetSpaceSemanticLabelsFB", xrGetSpaceSemanticLabelsFB_); load("xrRequestSceneCaptureFB", xrRequestSceneCaptureFB_);
+        load("xrCreateSpatialAnchorFB", xrCreateSpatialAnchorFB_); load("xrSaveSpaceFB", xrSaveSpaceFB_);
         load("xrCreateEnvironmentDepthProviderMETA", xrCreateEnvironmentDepthProviderMETA_);
         load("xrStartEnvironmentDepthProviderMETA", xrStartEnvironmentDepthProviderMETA_);
         load("xrCreateEnvironmentDepthSwapchainMETA", xrCreateEnvironmentDepthSwapchainMETA_);
@@ -1393,9 +1616,17 @@ void main(){
                 } else if (state == XR_SESSION_STATE_STOPPING) { xrEndSession(session); running = false; }
                 else if (state == XR_SESSION_STATE_EXITING || state == XR_SESSION_STATE_LOSS_PENDING) gQuit = true;
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB) {
-                retrieveSpaces(reinterpret_cast<XrEventDataSpaceQueryResultsAvailableFB*>(&ev)->requestId);
+                auto id = reinterpret_cast<XrEventDataSpaceQueryResultsAvailableFB*>(&ev)->requestId;
+                if (id == anchorQueryId) anchorsRetrieve(id); else retrieveSpaces(id);
             } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB) {
-                sceneState = "loaded"; event("scene query complete");
+                if (reinterpret_cast<XrEventDataSpaceQueryCompleteFB*>(&ev)->requestId == anchorQueryId) { anchorsQueried = true; event("anchors: query complete, " + std::to_string(ours.size()) + " found"); }
+                else { sceneState = "loaded"; event("scene query complete"); }
+            } else if (ev.type == XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB) {
+                anchorCreated(*reinterpret_cast<XrEventDataSpatialAnchorCreateCompleteFB*>(&ev));
+            } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB) {
+                anchorStatusSet(*reinterpret_cast<XrEventDataSpaceSetStatusCompleteFB*>(&ev));
+            } else if (ev.type == XR_TYPE_EVENT_DATA_SPACE_SAVE_COMPLETE_FB) {
+                anchorSaved(*reinterpret_cast<XrEventDataSpaceSaveCompleteFB*>(&ev));
             } else if (ev.type == XR_TYPE_EVENT_DATA_SCENE_CAPTURE_COMPLETE_FB) {
                 event("scene capture complete"); entities.clear(); querySpaces();
             } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) gQuit = true;
@@ -2155,6 +2386,7 @@ void main(){
         pollWifiLock();
         updateVoice();
         updateSpell();
+        updateScan();
         if (updateShoulder() || updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
@@ -2476,6 +2708,7 @@ void main(){
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
         drawShoulder(over);
+        drawScan(occ);
         drawVoice(over);
         drawExtras(occ);
         drawSpell(over);
@@ -2614,7 +2847,7 @@ void main(){
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_NONE);
                 depthConfigured.insert(depthTex);
             }
-            if (depthGap() || depthDumpWanted) depthReadback(depthTex);
+            if (depthGap() || depthDumpWanted || scanning()) depthReadback(depthTex);
         }
         bool hasVideo = video.update(display) && video.mipTex;
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
@@ -2675,6 +2908,8 @@ void main(){
             houseFile = access((gDir + "/house-on").c_str(), F_OK) == 0;        // forces HOUSE for self-tests
             depthGapFile = access((gDir + "/depthgap-on").c_str(), F_OK) == 0;  // forces DEPTHGAP for self-tests
             wristFile = access((gDir + "/wrist-on").c_str(), F_OK) == 0;        // forces WRIST for self-tests
+            scanFile = access((gDir + "/scan-on").c_str(), F_OK) == 0;          // forces SCAN for self-tests
+            if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {
@@ -2773,6 +3008,7 @@ void main(){
                 if (XR_SUCCEEDED(xrLocateSpace(e.space, local, fs.predictedDisplayTime, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
                     (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) { e.pose = sl.pose; e.located = true; }
             }
+            anchorsLocate(fs.predictedDisplayTime);
             if (depthStarted) {
                 XrEnvironmentDepthImageAcquireInfoMETA ai{XR_TYPE_ENVIRONMENT_DEPTH_IMAGE_ACQUIRE_INFO_META}; ai.space = local; ai.displayTime = fs.predictedDisplayTime;
                 XrEnvironmentDepthImageMETA img{XR_TYPE_ENVIRONMENT_DEPTH_IMAGE_META};
@@ -2853,6 +3089,10 @@ void main(){
         { std::lock_guard<std::mutex> g(houseLock);
           j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
+        j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"
+          << ",\"anchors\":{\"stored\":" << storedAnchors.size() << ",\"found\":" << ours.size() << ",\"located\":" << anchorsLocated << ",\"used\":" << roomFrame.used
+          << ",\"drifted\":" << roomFrame.drifted.size() << ",\"spreadM\":" << roomFrame.spreadM << ",\"spreadDeg\":" << roomFrame.spreadDeg << ",\"roomOk\":" << (roomFrame.ok ? 1 : 0)
+          << ",\"created\":" << anchorsCreated << ",\"saved\":" << anchorsSavedN << ",\"failed\":" << anchorsFailed << "}";
         { std::lock_guard<std::mutex> g(gapLock); j << ",\"depthGap\":{\"on\":" << (depthGap() ? 1 : 0) << ",\"reads\":" << rbReads << ",\"rb\":\"" << rbErr << "\"" << (gapJson.empty() ? "" : "," + gapJson) << "}"; }
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
