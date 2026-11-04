@@ -20,22 +20,35 @@ touches Sunshine, never changes displays, and only ever acts on that one named d
 200 {"ok": false, "error": "display 'PinPin Atlas Owned' not found"}   // helper up, display missing
 ```
 
-## GET /shot   (Bearer)
-`200 image/png` — ScreenCaptureKit capture of the target display, long edge ~900 px, cursor hidden.
-`500` on capture failure; `503` if the named display isn't found.
+## GET /shot   (Bearer)   `?max=<px>` (default 900, long edge)
+`200 image/png` — ScreenCaptureKit capture of the target display, uniform scale so **u,v map 1:1 onto
+the image** (no crop/letterbox), cursor hidden. Headers `X-Display-Id` and `X-Display-Bounds`
+(`x,y,w,h`) so a shot and a click always refer to the same display generation. `500` capture failure;
+`503` if the named display isn't found.
 
-## POST /input   (Bearer)   body `{"op": ..., ...}` → `200 {"ok": true, "op": ...}`
-Every op WARPS the cursor into the target display first (libvirtualhid / the click path drop a click
-when the cursor is outside it), then acts at the current cursor.
+## POST /input   (Bearer)   body `{"op": ..., ...}`
+→ `200 {"ok": true, "op": ..., "x": <global px>, "y": <global px>, "display": <id>}` (echoes where it
+acted, so the brain can spot a stale display or a clamp). Every op WARPS the cursor into the target
+display first (libvirtualhid / the click path drop a click when the cursor is outside it).
+
+**Shared cursor — the brain must NOT act while the user is pointing.** That display is what the headset
+streams; the user's Moonlight pointer and the helper's warps move the SAME system cursor. Before each
+input the helper checks for REAL user HID input (excluding its own posted events) in the last ~3 s and,
+if found, returns `409 {"error": "user_active", "idle_s": <s>}` — unless the body sets `"force": true`.
+Inputs are serialised (one at a time) so callers can't interleave move/click.
+
 | op | fields | effect |
 |---|---|---|
 | `move` | `u,v` | warp + move the pointer to u,v |
-| `click` | `u,v` | warp to u,v, hover, then left down/up (single click) |
-| `scroll` | `u,v,dy,dx` | warp to u,v, then pixel scroll. **dy>0 scrolls DOWN (reveals content below), dx>0 scrolls right** (sign to be confirmed on the first on-screen test, verify-after-act) |
-| `type` | `text` | type the unicode text into the focused element |
-| `key` | `combo` | key combo, e.g. `"return"`, `"cmd+l"`, `"cmd+t"` |
+| `click` | `u,v`, `button` (left\|right\|middle, default left), `count` (2 = double) | warp to u,v, hover, then button down/up |
+| `scroll` | `u,v,dy,dx` | warp to u,v, then pixel scroll. **dy>0 scrolls DOWN (reveals content below), dx>0 scrolls right** (matches the Air w-handler; sign confirmed on the first on-screen test) |
+| `type` | `text` | type the unicode text (capped 5000) into the focused element |
+| `key` | `combo` | case-insensitive combo, e.g. `"Return"`, `"Cmd+L"`, `"cmd+t"` |
 
-`400` on unknown op. The VPS brain screenshots after each input (verify-after-act).
+`400` unknown op; `503` if the display vanished (re-resolve). The VPS brain screenshots after each input
+(verify-after-act). Every input is appended to a small rotating audit log
+(`~/.local/share/pinpin-mini-screen/input.log`: time, op, u, v, caller IP) so our actions are
+distinguishable from the click bug / work-ad's cursor watcher.
 
 ## Notes
 - The MINI screen's front app is the resident's Chrome (chrome-atlas-profile). This helper does PIXEL
