@@ -19,6 +19,7 @@ run "LOD by viewer pose (vt.h projectedPx, pose paths)" bash -c "g++ -std=c++17 
 run "hero selection (vt.h Heroes)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hero_test.cpp -o $T/hero && $T/hero"
 run "keyframe requests (vt.h KeyReq)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/keyreq_test.cpp -o $T/keyreq && $T/keyreq"
 run "settings explanations + AMBI under VT (bench/ui_v044_test.cpp)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/ui_v044_test.cpp -o $T/ui44 && $T/ui44"
+run "shoulder menu (room_lab/shoulder.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/shoulder_test.cpp -o $T/shoulder && $T/shoulder"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py
 run "verdict.py self-test (pass/drop rules)" python3 bench/verdict.py --self-test

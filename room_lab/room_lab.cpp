@@ -25,6 +25,7 @@
 #include "moonlight.h"
 #include "voice.h"
 #include "ui_grid.h"
+#include "shoulder.h"
 #include "spell.h"
 #include "gamestream.h"
 #include "panel_layer.h"
@@ -189,6 +190,8 @@ struct App {
     bool heroMenu = false, heroFile = false; bool heroOn() const { return heroMenu || heroFile; }
     // KEYREQ flag (pairs with the sender's noperiodic): demand "keyReq" counts keyframe requests (vt::KeyReq).
     bool keyReqMenu = false, keyReqFile = false; bool keyReqOn() const { return keyReqMenu || keyReqFile; }
+    // SHOULDER flag (docs/house-onboarding.md): the shoulder button and its cascading menus; files/shoulder-on forces it.
+    bool shoulderMenuFlag = false, shoulderFile = false; bool shoulderOn() const { return shoulderMenuFlag || shoulderFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -447,7 +450,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 29;
+    static constexpr int kMenuItems = 30;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -461,7 +464,8 @@ struct App {
         {"VT", "EXPERIMENTAL", "SHARP ONLY WHERE YOU LOOK"}, {"BUDGET", "EXPERIMENTAL", "SHARE WI-FI BETWEEN STREAMS"},
         {"GPUTIME", "EXPERIMENTAL", "MEASURE GPU TIME"}, {"WIFILL", "EXPERIMENTAL", "LOW LATENCY WI-FI"},
         {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
-        {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"}};
+        {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
+        {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -484,6 +488,7 @@ struct App {
         if (l == "LODPOSE") return lodPose();
         if (l == "HERO") return heroOn();
         if (l == "KEYREQ") return keyReqOn();
+        if (l == "SHOULDER") return shoulderOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -544,7 +549,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -573,7 +578,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -606,6 +611,7 @@ struct App {
         else if (l == "LODPOSE") lodPoseMenu = !lodPoseMenu;                  // detail from the screen's projection, both axes
         else if (l == "HERO") heroMenu = !heroMenu;                           // big in-gaze screens get their own stream
         else if (l == "KEYREQ") keyReqMenu = !keyReqMenu;                     // ask the sender for keyframes (noperiodic)
+        else if (l == "SHOULDER") { shoulderMenuFlag = !shoulderMenuFlag; if (!shoulderOn()) sm.stack.clear(); }  // shoulder button menus
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -685,6 +691,118 @@ struct App {
         if (cell >= 0) menuHover = menuShown[cell];
         if (menuHover >= 0 && ray[1].pinch && !pinchPrev[1]) choose(menuHover);
         return true;
+    }
+    // ---- Shoulder menu (flag SHOULDER; room_lab/shoulder.h, docs/house-onboarding.md). A button by the shoulder opens a
+    // cascading stack of panels that drive the screens and every setting; each button explains itself in one line.
+    // With the flag off nothing here runs and nothing is drawn.
+    shoulder::Menu sm; bool stickyMove = false, smButtonHover = false, smPokePrev = false; shoulder::Hit smHover; long smPresses = 0;
+    static shoulder::P3 sp(V3 v) { return {v.x, v.y, v.z}; }
+    static V3 vp(shoulder::P3 p) { return {p.x, p.y, p.z}; }
+    int extraIndex(int id) const { for (size_t i = 0; i < extras.size(); i++) if (extras[i].id == id) return (int)i; return -1; }
+    shoulder::Level shoulderLevel(const std::string& n) {
+        shoulder::Level L; L.title = n;
+        if (n == "ROOT") {
+            L.title = "MENU";
+            L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
+        } else if (n == "SCREENS") {
+            if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
+            for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
+            L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+        } else if (n == "SETTINGS") {
+            L.grid.cols = 5;  // 30 switches: wide rather than tall
+            for (auto& m : menuItems) if (std::string(m.label) != "CLOSE") L.items.push_back({m.label, m.hint, std::string("set:") + m.label});
+            L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+        } else if (n.rfind("SCREEN ", 0) == 0) {
+            L.items = {{"BIGGER", "20% WIDER", "bigger"}, {"SMALLER", "20% NARROWER", "smaller"}, {"MOVE", "POINT AT A WALL THEN PINCH", "move"}};
+            if (n != "SCREEN 1") L.items.push_back({"DELETE", "REMOVE THIS SCREEN", "delete"});
+            L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+        }
+        return L;
+    }
+    // Returns true when the shoulder button or one of its panels takes the right hand this frame.
+    bool updateShoulder() {
+        smButtonHover = false; smHover = {};
+        if (!shoulderOn()) { sm.stack.clear(); smPokePrev = false; return false; }
+        if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
+        V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
+        bool edge = handActive[1] && ray[1].pinch && !pinchPrev[1];
+        bool poke = false;  // either index tip touching the button: one press per touch
+        for (int h = 0; h < 2; h++) if (handActive[h]) poke = poke || sm.buttonPoke(sp(hp), sp(gaze), sp(v3(joints[h][XR_HAND_JOINT_INDEX_TIP_EXT].pose.position)));
+        bool pokeEdge = poke && !smPokePrev; smPokePrev = poke;
+        if (handActive[1] && ray[1].valid) smButtonHover = sm.buttonHit(sp(hp), sp(gaze), sp(ray[1].o), sp(ray[1].d));
+        if (pokeEdge || (smButtonHover && edge)) {
+            sm.toggle(sp(hp), sp(gaze)); smPresses++;
+            event(std::string("shoulder menu ") + (sm.open() ? "opened" : "closed"));
+            return true;
+        }
+        if (smButtonHover || poke) return true;
+        if (!sm.open() || !(handActive[1] && ray[1].valid)) return false;
+        smHover = sm.hit(sp(ray[1].o), sp(ray[1].d));
+        if (smHover.level < 0) return false;
+        if (edge) {
+            std::string top = sm.stack.back().name, a = sm.press(smHover);
+            if (!a.empty()) shoulderAction(top, a);
+            if (sm.open()) sm.refresh();
+        }
+        return true;
+    }
+    void shoulderAction(const std::string& level, const std::string& a) {
+        const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
+        event("shoulder: " + level + " " + a);
+        if (a.rfind("set:", 0) == 0) { for (int i = 0; i < kMenuItems; i++) if (a.substr(4) == menuItems[i].label) { choose(i); break; } return; }
+        if (level.rfind("SCREEN ", 0) != 0) return;
+        int id = atoi(level.c_str() + 7);
+        if (id == 1) {
+            Entity* w = placed.active ? wallById(placed.wall) : nullptr; if (!w) return;
+            if (a == "bigger" || a == "smaller") { resizeTo(placed.w * (a == "bigger" ? 1.2f : 1 / 1.2f), *w); validate(placed, *w); savePlacement(); }
+            else if (a == "move") { sm.stack.clear(); moving = true; stickyMove = true; toast("shoulder", "POINT AT A WALL THEN PINCH", cyan, 3); }
+            return;
+        }
+        int i = extraIndex(id); if (i < 0) return;
+        Placement& p = extras[i].p; Entity* w = wallById(p.wall);
+        if ((a == "bigger" || a == "smaller") && w) {
+            Placement q = p; q.w = std::fmax(p.w * (a == "bigger" ? 1.2f : 1 / 1.2f), 0.3f); q.h = q.w * p.h / p.w; validate(q, *w);
+            if (q.valid) { p = q; saveScreens(); } else toast("shoulder", "NO ROOM: " + q.reason, red, 3);
+        } else if (a == "move") { sm.stack.clear(); extraMoving = i; stickyMove = true; toast("shoulder", "POINT AT A WALL THEN PINCH", cyan, 3); }
+        else if (a == "delete") {
+            extras.erase(extras.begin() + i); saveScreens();
+            if (macDisplays) macDisplay(id, false);
+            event("dismissed screen " + std::to_string(id)); sm.pop();
+        }
+    }
+    void drawShoulder(Batch& b) {
+        if (!shoulderOn()) return;
+        V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
+        V3 c = vp(sm.button(sp(hp), sp(gaze))), toHead = norm(hp - c), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
+        const float idleB[4] = {0.75f, 0.8f, 0.9f, 0.85f}, hotB[4] = {0.3f, 0.75f, 1.0f, 1.0f};
+        const float* col = smButtonHover || sm.open() ? hotB : idleB; float r = 0.025f;
+        for (int i = 0; i < 24; i++) {
+            float a0 = i * 0.2618f, a1 = (i + 1) * 0.2618f;
+            b.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.004f, col);
+        }
+        for (int k = -1; k <= 1; k++) b.line(c + ax * -0.011f + ay * (k * 0.008f), c + ax * 0.011f + ay * (k * 0.008f), toHead, 0.003f, col);
+        for (size_t k = 0; k < sm.stack.size(); k++) {
+            const shoulder::Level& L = sm.stack[k]; bool top = k + 1 == sm.stack.size();
+            Entity pe; pe.pose.orientation = {0, std::sin(L.yaw / 2), 0, std::cos(L.yaw / 2)}; pe.pose.position = {L.centre.x, L.centre.y, L.centre.z};
+            float s = L.scale, hw = L.grid.halfW * s, hh = L.grid.halfH * s, fade = top ? 1.0f : 0.45f;
+            auto P = [&](float x, float y, float z) { return xform(pe.pose, {x, y, z}); };
+            const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f * fade}, white[4] = {0.95f, 0.97f, 1.0f, fade}, dim[4] = {0.62f, 0.68f, 0.78f, fade};
+            b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
+            text(b, pe, 0, L.grid.titleY * s, 0.003f * s, UiGrid::fit(L.title, L.grid.titlePx, 2 * L.grid.halfW - 2 * L.grid.pad, L.grid.titleH * 0.6f) * s, L.title.c_str(), white);
+            for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
+                const UiGrid::Cell& cl = L.grid.cells[i]; const shoulder::Item& it = L.items[i];
+                bool on = it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0;
+                const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
+                float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
+                f[3] *= fade;
+                if (top && smHover.level == (int)k && smHover.item == (int)i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
+                float x0 = (cl.x - cl.w / 2) * s, x1 = (cl.x + cl.w / 2) * s, y0 = (cl.y - cl.h / 2) * s, y1 = (cl.y + cl.h / 2) * s;
+                b.quad(P(x0, y0, 0.002f * s), P(x1, y0, 0.002f * s), P(x1, y1, 0.002f * s), P(x0, y1, 0.002f * s), f);
+                text(b, pe, cl.x * s, cl.labelY * s, 0.004f * s, cl.px * s, it.label.c_str(), white);
+                if (!cl.hint1.empty()) text(b, pe, cl.x * s, cl.hint1Y * s, 0.004f * s, cl.hintPx * s, cl.hint1.c_str(), dim);
+                if (!cl.hint2.empty()) text(b, pe, cl.x * s, cl.hint2Y * s, 0.004f * s, cl.hintPx * s, cl.hint2.c_str(), dim);
+            }
+        }
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -1317,7 +1435,7 @@ void main(){
     void counterSpell(V3 c, float r) {
         const float violet[4] = {0.75f, 0.45f, 1.0f, 1};
         if (moving || menuMoving || extraMoving >= 0) {
-            moving = false; candidate.active = false; extraMoving = -1;
+            moving = false; candidate.active = false; extraMoving = -1; stickyMove = false;
             if (menuMoving) { menuMoving = false; menuRestored = false; }  // the saved pose comes back next frame
             burst(c, r, violet); toast("spell", "CANCELLED", violet, 2); event("counter-spell: cancelled move"); return;
         }
@@ -1354,7 +1472,8 @@ void main(){
                 candidate.active = true; candidate.wall = w->uuid; candidate.x = hx; candidate.y = hy + p.h / 2 + kBarGap; candidate.w = p.w; candidate.h = p.h;
                 validate(candidate, *w);
             }
-            if (!p1) {
+            if (stickyMove ? (p1 && !pinchPrev[1]) : !p1) {
+                stickyMove = false;
                 if (candidate.active && candidate.valid) { p.wall = candidate.wall; p.x = candidate.x; p.y = candidate.y; saveScreens(); event("moved screen " + std::to_string(extras[extraMoving].id)); }
                 extraMoving = -1; candidate.active = false;
             }
@@ -1387,7 +1506,7 @@ void main(){
         extraPtr = -1;
         if (p1 && !pinchPrev[1]) extraStart = std::chrono::steady_clock::now();
         extraHold = p1 ? std::chrono::duration<float>(std::chrono::steady_clock::now() - extraStart).count() / kHoldToMove : 0;
-        if (extraHold >= 1) { extraMoving = extraBarHover; extraHold = 0; event("moving screen " + std::to_string(extras[extraMoving].id)); }
+        if (extraHold >= 1) { extraMoving = extraBarHover; stickyMove = false; extraHold = 0; event("moving screen " + std::to_string(extras[extraMoving].id)); }
         return true;
     }
     // Demand: what the user can see right now, so the laptop spends bandwidth only there ("virtual texture" style).
@@ -1680,7 +1799,7 @@ void main(){
         pollWifiLock();
         updateVoice();
         updateSpell();
-        if (updateMenu() || updateExtras()) {
+        if (updateShoulder() || updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
             return;
@@ -1718,7 +1837,8 @@ void main(){
                     candidate.active = true; candidate.wall = hit->uuid; candidate.x = hx; candidate.y = hy + candH / 2 + kBarGap;
                     candidate.w = candW; candidate.h = candH; validate(candidate, *hit);
                 }
-                if (!pinch[1]) {
+                if (stickyMove ? (pinch[1] && !pinchPrev[1]) : !pinch[1]) {
+                    stickyMove = false;
                     if (candidate.active && candidate.valid) { placed = candidate; savePlacement(); event("moved panel to wall " + placed.wall); }
                     else event("move cancelled");
                     moving = false; candidate.active = false;
@@ -1777,7 +1897,7 @@ void main(){
                 if (pinch[1] && !pinchPrev[1]) { barHolding = true; barPinchStart = std::chrono::steady_clock::now(); }
                 if (barHolding && pinch[1]) {
                     barHold = std::chrono::duration<float>(std::chrono::steady_clock::now() - barPinchStart).count() / kHoldToMove;
-                    if (barHold >= 1) { moving = true; barHolding = false; barHold = 0; event("move started"); }
+                    if (barHold >= 1) { moving = true; stickyMove = false; barHolding = false; barHold = 0; event("move started"); }
                 }
             }
             if (!barHover || !pinch[1]) { barHolding = false; barHold = 0; }
@@ -1999,6 +2119,7 @@ void main(){
         if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w, placed);
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
         drawMenu(over);
+        drawShoulder(over);
         drawVoice(over);
         drawExtras(occ);
         drawSpell(over);
@@ -2193,6 +2314,7 @@ void main(){
             lodPoseFile = access((gDir + "/lodpose-on").c_str(), F_OK) == 0;  // forces LODPOSE for self-tests
             heroFile = access((gDir + "/hero-on").c_str(), F_OK) == 0;        // forces HERO for self-tests
             keyReqFile = access((gDir + "/keyreq-on").c_str(), F_OK) == 0;    // forces KEYREQ for self-tests
+            shoulderFile = access((gDir + "/shoulder-on").c_str(), F_OK) == 0;  // forces SHOULDER for self-tests
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
                 if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
@@ -2350,7 +2472,8 @@ void main(){
           << "],\"nearestT\":" << lastNearest << ",\"nearest\":\"" << jsonEscape(lastNearestWall) << "\"}";
         j << ",\"pointer\":{\"on\":" << pointer.on << ",\"pressed\":" << pointer.pressed << ",\"u\":" << pointer.u << ",\"v\":" << pointer.v
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
-        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << ",\"hero\":" << (heroOn() ? 1 : 0) << ",\"heroScreens\":" << heroLayout.size() << ",\"heroPackets\":" << heroPackets << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton;
+        j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << ",\"hero\":" << (heroOn() ? 1 : 0) << ",\"heroScreens\":" << heroLayout.size() << ",\"heroPackets\":" << heroPackets << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton
+          << ",\"shoulder\":{\"on\":" << (shoulderOn() ? 1 : 0) << ",\"depth\":" << sm.stack.size() << ",\"presses\":" << smPresses << ",\"top\":\"" << (sm.open() ? sm.stack.back().name : std::string()) << "\"}";
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
