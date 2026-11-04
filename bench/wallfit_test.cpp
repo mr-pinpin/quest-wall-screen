@@ -198,6 +198,31 @@ int main() {
         CHECK(fitFrame(g).planes.size() == fitFrame(f).planes.size(), "d01 and d16 disagree");
     }
 
+    // review fixes (2026-11-04): tracking loss (non-finite pose / fov) fits nothing; clutter tracks do not pile up
+    {
+        Synth s; DepthFrame f = s.render(EYE, yawPitch(0, -10));
+        DepthFrame bad = f; bad.pose.p.x = NAN; Fuser fz;
+        CHECK(fitFrame(bad).planes.empty() && fz.add(bad).planes.empty() && fz.tracks.empty(), "a NaN pose was fitted");
+        bad = f; bad.fov.left = INFINITY; CHECK(fitFrame(bad).planes.empty(), "an infinite fov was fitted");
+        bad = f; bad.pose.q.w = NAN; Gap g = screenGap(bad, houseOf(truths()[0]).pose, 0, 0, 1, 1);
+        CHECK(g.n == 0 && g.valid == 0, "screenGap on a NaN pose");
+        // 400 frames of one-off clutter planes, all over the place, plus one real wall seen every frame
+        Fuser fc; std::mt19937 rng(5); std::uniform_real_distribution<float> U(-20, 20);
+        for (int i = 0; i < 400; i++) {
+            fc.frameNo++;
+            Observation o; o.n = norm(V3{U(rng), U(rng), U(rng)}); o.centroid = {U(rng), U(rng) / 10, U(rng)}; o.d = -dot(o.n, o.centroid);
+            for (int k = 0; k < 50; k++) { V3 r, u; axesFor(o.n, r, u); V3 p = o.centroid + r * (k % 7 * 0.05f) + u * (k / 7 * 0.05f); o.sc.add(p); o.pts.push_back(p); }
+            fc.fuse(o);
+            Observation wall; wall.n = {0, 0, 1}; wall.centroid = {0, 1.25f, -3}; wall.d = 3;
+            for (int k = 0; k < 60; k++) { V3 p{-1 + (k % 10) * 0.2f, 0.5f + (k / 10) * 0.2f, -3}; wall.sc.add(p); wall.pts.push_back(p); }
+            fc.fuse(wall);
+            fc.endFrame();
+        }
+        bool wallKept = false; for (auto& w : fc.walls()) wallKept |= w.frames > 100 && std::fabs(w.centre.z + 3) < 0.01f;
+        CHECK(fc.tracks.size() < 2 + (size_t)fc.forgetAfter + 5 && fc.forgotten > 300 && wallKept,
+              "clutter: %zu tracks after 400 frames (%ld forgotten), real wall kept %d", fc.tracks.size(), fc.forgotten, wallKept);
+    }
+
     // cost per frame (VPS CPU; the headset will be a few times slower)
     for (int size : {256, 512, 2000}) {
         Synth s; s.w = s.h = size; DepthFrame f = s.render(EYE, yawPitch(30, -20));

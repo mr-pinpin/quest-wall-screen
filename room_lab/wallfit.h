@@ -67,6 +67,13 @@ struct DepthFrame {
     Fov fov; Pose pose; float nearZ = 0.1f, farZ = std::numeric_limits<float>::infinity();
     int64_t timeNs = 0;             // when the depth was captured (XrTime); 0 = unknown, never dropped as stale
 
+    // A pose or projection that is not finite (tracking lost) must not reach the fitting: NaN points end in
+    // floor()-to-integer casts, which are undefined behaviour.
+    bool sane() const {
+        const float v[] = {pose.q.x, pose.q.y, pose.q.z, pose.q.w, pose.p.x, pose.p.y, pose.p.z, fov.left, fov.right, fov.up, fov.down, nearZ};
+        for (float x : v) if (!std::isfinite(x)) return false;
+        return fov.left < fov.right && fov.down < fov.up && fov.left > -1.55f && fov.right < 1.55f && fov.down > -1.55f && fov.up < 1.55f && nearZ > 0;
+    }
     float raw(int x, int y) const { size_t i = (size_t)y * w + x; return d16 ? d16[i] * (1.0f / 65535.0f) : d01[i]; }
     // Metres along the view axis at pixel (x, y), 0 where there is no depth.
     float viewZ(int x, int y) const {
@@ -195,7 +202,7 @@ struct FrameFit {
 
 inline FrameFit fitFrame(const DepthFrame& f, const Params& P = {}) {
     FrameFit out;
-    if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01)) return out;
+    if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01) || !f.sane()) return out;
     int s = std::max(1, (int)std::ceil(std::sqrt((double)f.w * f.h / std::max(1, P.targetPoints)) - 1e-9));
     int gw = f.w / s, gh = f.h / s; out.stride = s; out.gridW = gw; out.gridH = gh;
     std::vector<V3> pt(gw * gh); std::vector<float> zs(gw * gh, 0);
@@ -297,10 +304,13 @@ struct Wall {
 struct Fuser {
     Params P;
     struct Track {
-        int id; Scatter sc; V3 n; float d; V3 origin, bx, by; int frames = 0;
+        int id; Scatter sc; V3 n; float d; V3 origin, bx, by; int frames = 0; long lastSeen = 0;
         std::unordered_map<int64_t, int> cells;
     };
-    std::vector<Track> tracks; int nextId = 1; long dropped = 0;
+    std::vector<Track> tracks; int nextId = 1; long dropped = 0, frameNo = 0, forgotten = 0;
+    // Clutter makes small planes that never grow; over a long scan they would pile up (memory, and every frame's fuse
+    // loops over all tracks). A track seen in fewer than keepFrames frames is forgotten after forgetAfter frames unseen.
+    int keepFrames = 3; long forgetAfter = 40;
     explicit Fuser(Params p = {}) : P(p) {}
 
     static int64_t key(int64_t x, int64_t y) { return (x << 32) ^ (y & 0xffffffff); }
@@ -309,8 +319,19 @@ struct Fuser {
     // than maxAgeNs is dropped unfitted (counted in dropped).
     FrameFit add(const DepthFrame& f, int64_t nowNs = 0) {
         if (nowNs && f.timeNs && nowNs - f.timeNs > P.maxAgeNs) { dropped++; return {}; }
-        FrameFit ff = fitFrame(f, P); for (auto& o : ff.planes) fuse(o);
-        mergeTracks(); return ff;
+        FrameFit ff = fitFrame(f, P); frameNo++;
+        for (auto& o : ff.planes) fuse(o);
+        endFrame();
+        return ff;
+    }
+
+    // After a frame's planes are fused: merge duplicate tracks, forget stale small ones.
+    void endFrame() {
+        mergeTracks();
+        size_t before = tracks.size();
+        tracks.erase(std::remove_if(tracks.begin(), tracks.end(), [&](const Track& t) {
+            return t.frames < keepFrames && frameNo - t.lastSeen > forgetAfter; }), tracks.end());
+        forgotten += (long)(before - tracks.size());
     }
 
     // Two tracks of one surface (e.g. both started from partial first views) become one once their fits agree.
@@ -325,7 +346,7 @@ struct Fuser {
                     V3 cb = b.sc.centroid(), ca = a.sc.centroid();
                     if (0.5f * (std::fabs(dot(a.n, cb) + a.d) + std::fabs(dot(b.n, ca) + b.d)) > P.fuseDist) continue;
                     float ax0, ax1, ay0, ay1, bx0, bx1, by0, by1;
-                    if (!box(a, ax0, ax1, ay0, ay1) || !box(b, bx0, bx1, by0, by1)) continue;
+                    if (!box(a, ax0, ax1, ay0, ay1, 1) || !box(b, bx0, bx1, by0, by1, 1)) continue;
                     // b's box corners in a's basis must come within the margin of a's box
                     float lo[2] = {1e9f, 1e9f}, hi[2] = {-1e9f, -1e9f};
                     for (float u : {bx0, bx1})
@@ -346,7 +367,7 @@ struct Fuser {
             V3 c = b.origin + b.bx * ((cx + 0.5f) * P.cell) + b.by * ((cy + 0.5f) * P.cell) - a.origin;
             a.cells[key((int64_t)std::floor(dot(c, a.bx) / P.cell), (int64_t)std::floor(dot(c, a.by) / P.cell))] += kv.second;
         }
-        a.sc.merge(b.sc); a.frames += b.frames;
+        a.sc.merge(b.sc); a.frames += b.frames; a.lastSeen = std::max(a.lastSeen, b.lastSeen);
         V3 n; float rms; a.sc.plane(n, rms); if (dot(n, a.n) < 0) n = n * -1.0f;
         a.n = n; a.d = -dot(n, a.sc.centroid());
     }
@@ -358,7 +379,7 @@ struct Fuser {
             if (dot(o.n, t.n) < cosF) continue;
             float off = std::fabs(dot(t.n, o.centroid) + t.d); if (off > P.fuseDist) continue;
             // overlap: the observation's centroid within the track's occupied box plus a margin
-            float x0, x1, y0, y1; if (!box(t, x0, x1, y0, y1)) continue;
+            float x0, x1, y0, y1; if (!box(t, x0, x1, y0, y1, 1)) continue;
             V3 v = o.centroid - t.origin; float cx = dot(v, t.bx), cy = dot(v, t.by);
             float mx = P.fuseMargin, half = 0;
             for (auto& p : o.pts) { V3 q = p - o.centroid; half = std::max(half, std::max(std::fabs(dot(q, t.bx)), std::fabs(dot(q, t.by)))); }
@@ -369,7 +390,7 @@ struct Fuser {
             Track t; t.id = nextId++; t.n = o.n; t.d = o.d; t.origin = o.centroid; axesFor(o.n, t.bx, t.by);
             tracks.push_back(t); best = &tracks.back();
         }
-        best->sc.merge(o.sc); best->frames++;
+        best->sc.merge(o.sc); best->frames++; best->lastSeen = frameNo;
         V3 n; float rms; best->sc.plane(n, rms); if (dot(n, best->n) < 0) n = n * -1.0f;
         best->n = n; best->d = -dot(n, best->sc.centroid());
         for (auto& p : o.pts) {
@@ -378,10 +399,13 @@ struct Fuser {
         }
     }
 
-    bool box(const Track& t, float& x0, float& x1, float& y0, float& y1) const {
+    // minHits: cellMinHits for the reported extent; 1 for matching (a sparse track, one point per cell, must still be
+    // found again: with cellMinHits it had no box and every frame started a duplicate track, found 2026-11-04)
+    bool box(const Track& t, float& x0, float& x1, float& y0, float& y1, int minHits = -1) const {
+        if (minHits < 0) minHits = P.cellMinHits;
         bool any = false; x0 = y0 = 1e9f; x1 = y1 = -1e9f;
         for (auto& kv : t.cells) {
-            if (kv.second < P.cellMinHits) continue;
+            if (kv.second < minHits) continue;
             int64_t cx = kv.first >> 32, cy = (int32_t)(kv.first & 0xffffffff);  // undo key()
             x0 = std::min(x0, cx * P.cell); x1 = std::max(x1, (cx + 1) * P.cell);
             y0 = std::min(y0, cy * P.cell); y1 = std::max(y1, (cy + 1) * P.cell); any = true;
@@ -457,6 +481,7 @@ inline Gap summarize(std::vector<float> g, int asked) {
 // the measured surface: > 0 the real surface is in front of the screen (the screen is sunk into the wall), < 0 the
 // screen floats in front of it. Points the depth view does not see are skipped (valid = the fraction seen).
 inline Gap screenGap(const DepthFrame& f, const Pose& wallPose, float x, float y, float w, float h) {
+    if (!f.sane() || !std::isfinite(x + y + w + h)) return Gap{};
     V3 n = rotate(wallPose.q, {0, 0, 1}); std::vector<float> g, c[4]; int asked = 0;
     for (int b = 0; b < 5; b++)
         for (int a = 0; a < 5; a++) {

@@ -90,6 +90,14 @@ out = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspa
 check(out.stdout.strip() == '1' and out.returncode == 0, f'CLI holds while running ({out.stdout!r} {out.stderr[-200:]!r})')
 check('shared: \n' in bl.status() or bl.status().rstrip().endswith('shared:'), 'CLI released')
 
+# heartbeat (review fix): a CLI command that runs longer than its --max keeps its hold
+here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'benchlock.py')
+pr = subprocess.Popen([sys.executable, here, 'shared', '--who', 'long', '--max', '2', '--', 'sleep', '6'])
+time.sleep(4.5)
+check(bl.try_exclusive('e-hb', 'bench', 60).startswith('busy shared'), 'a shared hold expired while its command still ran')
+pr.wait(timeout=30); bl.withdraw('e-hb')
+check(bl.try_exclusive('e-hb2', 'bench', 60) == 'taken', 'exclusive after the long shared command ended'); bl.release('exclusive:e-hb2')
+
 # randomised: 6 workers, mixed modes; an exclusive hold never overlaps any other hold
 events = []; lk = threading.Lock()
 

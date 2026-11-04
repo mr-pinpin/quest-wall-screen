@@ -76,7 +76,7 @@ public:
 
     // Fuse one depth frame. Returns the number of blocks it touched.
     int integrate(const DepthFrame& f) {
-        if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01)) return 0;
+        if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01) || !f.sane()) return 0;  // tracking lost: nothing to fuse
         // linear depth once per frame
         depth_.assign((size_t)f.w * f.h, 0.0f);
         for (int y = 0; y < f.h; y++) for (int x = 0; x < f.w; x++) { float z = f.viewZ(x, y); depth_[(size_t)y * f.w + x] = z > P.maxDepth ? 0 : z; }

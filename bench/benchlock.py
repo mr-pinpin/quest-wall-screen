@@ -122,6 +122,16 @@ def release(token):
              f'ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf')
 
 
+def refresh(token, who, max_s):
+    """Keep a hold alive: a shared holder's expiry moves to now + max_s; an exclusive lock (ours only) is touched so it
+    never reads as stale. The CLI does this every max_s / 3 while its command runs."""
+    mode, tid = token.split(':', 1)
+    if mode == 'shared':
+        _run(f'S=$D/pinpin-bench.shared; [ -f $S/{tid} ] && printf "%s\\n%s\\n" {shlex.quote(who)} $(( $(date +%s) + {int(max_s)} )) > $S/{tid}')
+    else:
+        _run(f'L=$D/pinpin-bench.lock; [ "$(cat $L/id 2>/dev/null)" = {tid} ] && touch $L')
+
+
 def status():
     return _run(_pre() + '''
 echo "exclusive: $(xheld && cat $L/owner || echo none)"
@@ -150,10 +160,15 @@ def main():
     cmd = a.command[1:] if a.command[:1] == ['--'] else a.command
     if not cmd: sys.exit('nothing to run (put the command after --)')
     tok = take(a.cmd, a.who, a.max, a.wait)
+    import threading
+    done = threading.Event()
+    def beat():  # a command that outlives --max must not lose its hold (found in review, 2026-11-04)
+        while not done.wait(max(1.0, a.max / 3)): refresh(tok, a.who, a.max)
+    hb = threading.Thread(target=beat, daemon=True); hb.start()
     try:
         rc = subprocess.call(cmd)
     finally:
-        release(tok)
+        done.set(); hb.join(timeout=5); release(tok)
     sys.exit(rc)
 
 

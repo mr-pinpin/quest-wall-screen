@@ -33,7 +33,7 @@ struct Mesh {
 
 inline Mesh build(const DepthFrame& f, const Params& P = {}) {
     Mesh m;
-    if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01) || P.step < 1) return m;
+    if (f.w <= 0 || f.h <= 0 || (!f.d16 && !f.d01) || P.step < 1 || !f.sane()) return m;
     int gw = f.w / P.step, gh = f.h / P.step; m.gw = gw; m.gh = gh;
     std::vector<float> z(gw * gh, 0), zs(gw * gh, 0);
     for (int j = 0; j < gh; j++) for (int i = 0; i < gw; i++) {

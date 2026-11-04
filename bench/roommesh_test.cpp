@@ -164,6 +164,11 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 3; i++) v5.integrate(s5.render(EYE, yawPitch(views[i][0], views[i][1])));
         CHECK(v5.blocks() <= 50 && v5.refusedBlocks > 0, "cap: %zu blocks, %ld refused", v5.blocks(), v5.refusedBlocks);
     }
+    // tracking loss (review fix): a NaN pose fuses nothing (no NaN to integer casts)
+    {
+        Volume v7; Synth s7; DepthFrame f = s7.render(EYE, yawPitch(0, -10)); f.pose.p.y = NAN;
+        CHECK(v7.integrate(f) == 0 && v7.blocks() == 0, "a NaN pose was fused");
+    }
     // empty and far-only depth fuse nothing
     {
         Volume v6; Synth s6; DepthFrame f = s6.render(EYE, yawPitch(0, -10));
