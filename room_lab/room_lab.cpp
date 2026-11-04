@@ -34,6 +34,8 @@
 #include "assist.h"
 #include "placement_guard.h"
 #include "roommesh.h"
+#include "rawsurface.h"
+#include "roomplanes.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -977,6 +979,23 @@ struct App {
     struct MeshBlock { std::vector<float> cpu; long version = 0, uploaded = -1; bool empty = true; V3 centre{0, 0, 0}; float radius = 0; GLuint vbo = 0; int verts = 0;
                        std::chrono::steady_clock::time_point changedAt{}; };
     std::mutex meshLock; std::map<int64_t, MeshBlock> meshBlocks;
+    std::atomic<float> meshFuseMs{0}; std::atomic<long> meshFrames{0}; std::atomic<int> meshChanged{0}; int meshDrawnTris = 0;
+    // work-34's rawsurface.h (live depth while scanning) and roomplanes.h (walls/floor as big flat quads, triangles only on
+    // furniture), both built on the worker; the render thread uploads each when its version moves.
+    std::vector<float> rawCpu, flatCpu; long rawVersion = 0, flatVersion = 0, rawUp = -1, flatUp = -1; GLuint rawVbo = 0, flatVbo = 0; int rawVerts = 0, flatVerts = 0;
+    std::atomic<bool> meshDirty{false}; std::chrono::steady_clock::time_point flatAt{}; std::atomic<float> rawMs{0}, flatMs{0}; std::atomic<int> flatTris{0};
+    // Indexed triangles to the shader's vertex layout: position, normal, barycentric (wire edges), planar flag.
+    static std::vector<float> deindex(const std::vector<float>& P, const std::vector<float>& N, const std::vector<uint32_t>& I, const std::vector<uint8_t>* planar) {
+        std::vector<float> out; out.reserve(I.size() * 10);
+        for (size_t t = 0; t + 2 < I.size(); t += 3) {
+            float pl = planar && t / 3 < planar->size() ? (float)(*planar)[t / 3] : 0.f;
+            for (int c = 0; c < 3; c++) {
+                uint32_t v = I[t + c];
+                out.insert(out.end(), {P[3 * v], P[3 * v + 1], P[3 * v + 2], N[3 * v], N[3 * v + 1], N[3 * v + 2], c == 0 ? 1.f : 0.f, c == 1 ? 1.f : 0.f, c == 2 ? 1.f : 0.f, pl});
+            }
+        }
+        return out;
+    }
     static int64_t keyOf(const roommesh::Key& k) { return ((int64_t)(uint16_t)k.x << 32) | ((int64_t)(uint16_t)k.y << 16) | (uint16_t)k.z; }
     bool depthDumpWanted = false;
     static wallfit::Pose wp(const XrPosef& p) { return {{p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w}, {p.position.x, p.position.y, p.position.z}}; }
@@ -1080,24 +1099,38 @@ struct App {
                     fuser.add(f[e], (int64_t)sh->now);
                 }
                 if (meshWanted.load()) {  // the room mesh (SCAN / GEOMETRY): fuse both eyes, re-mesh within 6 ms, publish changes
+                    auto m0 = std::chrono::steady_clock::now();
                     for (int e = 0; e < 2; e++) meshVol.integrate(f[e]);
                     auto changed = meshVol.update(6.0);
+                    meshFuseMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - m0).count(); meshFrames++; meshChanged = (int)changed.size();
+                    if (!changed.empty()) meshDirty = true;
+                    if (scanning()) {  // the live raw surface: what the sensor sees this instant, redrawn whole each shot
+                        auto r0 = std::chrono::steady_clock::now();
+                        rawsurface::Mesh rm = rawsurface::build(f[0]);
+                        std::vector<float> cpu = deindex(rm.pos, rm.nrm, rm.idx, nullptr);
+                        rawMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - r0).count();
+                        std::lock_guard<std::mutex> g(meshLock); rawCpu.swap(cpu); rawVersion++;
+                    }
                     if (!changed.empty()) {
                         std::lock_guard<std::mutex> g(meshLock);
                         for (auto& k : changed) {
                             const roommesh::BlockMesh* m = meshVol.mesh(k); MeshBlock& B = meshBlocks[keyOf(k)];
                             if (!m || m->idx.empty()) { B.cpu.clear(); B.version++; B.empty = true; continue; }
-                            B.cpu.clear(); B.cpu.reserve(m->idx.size() * 9);
-                            for (size_t t = 0; t + 2 < m->idx.size(); t += 3) for (int c = 0; c < 3; c++) {  // de-indexed: pos, normal, barycentric
-                                uint32_t v = m->idx[t + c];
-                                B.cpu.insert(B.cpu.end(), {m->pos[3 * v], m->pos[3 * v + 1], m->pos[3 * v + 2], m->nrm[3 * v], m->nrm[3 * v + 1], m->nrm[3 * v + 2],
-                                                           c == 0 ? 1.f : 0.f, c == 1 ? 1.f : 0.f, c == 2 ? 1.f : 0.f});
-                            }
+                            B.cpu = deindex(m->pos, m->nrm, m->idx, nullptr);
                             auto cc = m->centre(); B.centre = {cc.x, cc.y, cc.z}; B.radius = m->radius(); B.version++; B.empty = false; B.changedAt = std::chrono::steady_clock::now();
                         }
                     }
                 }
                 std::vector<wallfit::Wall> fused = fuser.walls();
+                if (meshWanted.load() && meshDirty && std::chrono::steady_clock::now() - flatAt > std::chrono::seconds(1)) {  // the flat room, ~1 Hz
+                    auto p0 = std::chrono::steady_clock::now(); flatAt = p0; meshDirty = false;
+                    std::vector<wallfit::Wall> planes; for (auto& w : fused) if (w.confidence > 0.3f) planes.push_back(w);
+                    roomplanes::Result R = roomplanes::regularize(meshVol, planes);
+                    std::vector<float> P, N; std::vector<uint32_t> I; std::vector<uint8_t> planar; R.toMesh(P, N, I, planar);
+                    std::vector<float> cpu = deindex(P, N, I, &planar);
+                    flatMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - p0).count(); flatTris = (int)(I.size() / 3);
+                    std::lock_guard<std::mutex> g(meshLock); flatCpu.swap(cpu); flatVersion++;
+                }
                 std::vector<wallfit::HouseWall> scene; for (auto& w : sh->walls) scene.push_back({w.centre, w.w, w.h});
                 std::ostringstream j; j.setf(std::ios::fixed); j.precision(3);
                 auto num = [](float v) { return std::isfinite(v) ? v : -99.0f; };
@@ -1424,6 +1457,9 @@ struct App {
             if (!streamInput()) return;
             if (o.dy) LiSendHighResScrollEvent((short)-o.dy);   // hand up: content up = wheel down (negative)
             if (o.dx) LiSendHighResHScrollEvent((short)o.dx);
+        } else if (webScreen(scrollTarget)) {  // CSS px; dy > 0 reveals what is below (the same sign as "w")
+            cdpPost(scrollTarget, "scroll", "{\"u\":" + std::to_string((int)(scrollU * 10000)) + ",\"v\":" + std::to_string((int)(scrollV * 10000)) +
+                                           ",\"dx\":" + std::to_string(o.dx) + ",\"dy\":" + std::to_string(o.dy) + "}");
         } else {
             if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
             sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57711); inet_pton(AF_INET, laptop().c_str(), &a.sin_addr);
@@ -1871,7 +1907,7 @@ struct App {
     }
     // ---- GEOMETRY / SCAN mesh rendering: a barycentric wireframe (edges glow, faces faint), brighter where the surface
     // faces the eye, and a blue pulse on blocks re-meshed in the last second, so the mesh visibly grows and refines.
-    GLuint meshProg = 0, meshVao = 0; GLint meshLocVP = -1, meshLocEye = -1, meshLocPulse = -1; std::vector<int64_t> meshDraw;
+    GLuint meshProg = 0, meshVao = 0; GLint meshLocVP = -1, meshLocEye = -1, meshLocPulse = -1, meshLocRaw = -1; std::vector<int64_t> meshDraw;
     static constexpr int kMeshTriBudget = 60000;
     void prepareRoomMesh() {
         meshWanted = geometryOn() || scanning();
@@ -1884,22 +1920,27 @@ struct App {
         int tris = 0;
         std::lock_guard<std::mutex> g(meshLock);
         for (auto& [d, k] : order) {
-            MeshBlock& b = meshBlocks[k]; int t = (int)(b.cpu.size() / 27);
+            MeshBlock& b = meshBlocks[k]; int t = (int)(b.cpu.size() / 30);
             if (tris + t > kMeshTriBudget) break;
             tris += t; meshDraw.push_back(k);
         }
+        meshDrawnTris = tris;
     }
     void drawRoomMesh(const float* vpm) {
         if (!meshProg) {
-            const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aB; uniform mat4 uVP; uniform vec3 uEye;"
-                             " out vec3 vB; out float vFace; void main(){ vB=aB; vFace=abs(dot(normalize(aN), normalize(uEye-aP))); gl_Position=uVP*vec4(aP,1.0); }";
-            const char* fs = "#version 300 es\nprecision mediump float; in vec3 vB; in float vFace; uniform float uPulse; out vec4 o;"
+            const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aB; layout(location=3) in float aF;"
+                             " uniform mat4 uVP; uniform vec3 uEye; out vec3 vB; out float vFace; out float vF;"
+                             " void main(){ vB=aB; vF=aF; vFace=abs(dot(normalize(aN), normalize(uEye-aP))); gl_Position=uVP*vec4(aP,1.0); }";
+            const char* fs = "#version 300 es\nprecision mediump float; in vec3 vB; in float vFace; in float vF; uniform float uPulse; uniform float uRaw; out vec4 o;"
                              " void main(){ vec3 d=fwidth(vB); vec3 a=smoothstep(vec3(0.0),d*1.5,vB); float edge=1.0-min(min(a.x,a.y),a.z);"
-                             " vec3 c=mix(vec3(0.35,0.85,1.0), vec3(0.75,0.95,1.0), uPulse); float alpha=(0.06+0.55*edge)*(0.35+0.65*vFace)*(1.0+uPulse);"
-                             " o=vec4(c*alpha, alpha); }";
+                             " vec3 wire=mix(vec3(0.35,0.85,1.0), vec3(0.75,0.95,1.0), uPulse); float alpha=(0.06+0.55*edge)*(0.35+0.65*vFace)*(1.0+uPulse);"
+                             " if (vF > 0.5) { wire=vec3(0.55,0.75,0.95); alpha=0.10+0.12*edge; }"   // walls / floor: calm flat quads
+                             " if (uRaw > 0.5) { wire=vec3(1.0,0.85,0.45); alpha=(0.03+0.30*edge)*(0.4+0.6*vFace); }"  // live raw depth
+                             " o=vec4(wire*alpha, alpha); }";
             meshProg = glCreateProgram(); GLuint a = compile(GL_VERTEX_SHADER, vs), c = compile(GL_FRAGMENT_SHADER, fs);
             glAttachShader(meshProg, a); glAttachShader(meshProg, c); glLinkProgram(meshProg);
             meshLocVP = glGetUniformLocation(meshProg, "uVP"); meshLocEye = glGetUniformLocation(meshProg, "uEye"); meshLocPulse = glGetUniformLocation(meshProg, "uPulse");
+            meshLocRaw = glGetUniformLocation(meshProg, "uRaw");
             glGenVertexArrays(1, &meshVao);
         }
         glUseProgram(meshProg); glBindVertexArray(meshVao);
@@ -1907,14 +1948,29 @@ struct App {
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);  // premultiplied glow
         auto tn = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> g(meshLock);
-        for (int64_t k : meshDraw) {
+        auto attribs = [] {
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 40, (void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 40, (void*)12);
+            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 40, (void*)24);
+            glEnableVertexAttribArray(3); glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 40, (void*)36);
+        };
+        auto single = [&](GLuint& vb, std::vector<float>& cpu, long ver, long& up, int& verts, float raw) {
+            if (cpu.empty()) return false;
+            if (!vb) glGenBuffers(1, &vb);
+            glBindBuffer(GL_ARRAY_BUFFER, vb);
+            if (up != ver) { glBufferData(GL_ARRAY_BUFFER, cpu.size() * sizeof(float), cpu.data(), GL_DYNAMIC_DRAW); up = ver; verts = (int)(cpu.size() / 10); }
+            attribs(); glUniform1f(meshLocPulse, 0); glUniform1f(meshLocRaw, raw); glDrawArrays(GL_TRIANGLES, 0, verts);
+            return true;
+        };
+        bool flat = single(flatVbo, flatCpu, flatVersion, flatUp, flatVerts, 0.0f);  // the flat room replaces the block mesh once it exists
+        if (scanning()) single(rawVbo, rawCpu, rawVersion, rawUp, rawVerts, 1.0f);
+        glUniform1f(meshLocRaw, 0);
+        if (!flat) for (int64_t k : meshDraw) {
             MeshBlock& b = meshBlocks[k];
             if (!b.vbo) glGenBuffers(1, &b.vbo);
             glBindBuffer(GL_ARRAY_BUFFER, b.vbo);
-            if (b.uploaded != b.version) { glBufferData(GL_ARRAY_BUFFER, b.cpu.size() * sizeof(float), b.cpu.data(), GL_STATIC_DRAW); b.uploaded = b.version; b.verts = (int)(b.cpu.size() / 9); }
-            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 36, (void*)0);
-            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 36, (void*)12);
-            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 36, (void*)24);
+            if (b.uploaded != b.version) { glBufferData(GL_ARRAY_BUFFER, b.cpu.size() * sizeof(float), b.cpu.data(), GL_STATIC_DRAW); b.uploaded = b.version; b.verts = (int)(b.cpu.size() / 10); }
+            attribs();
             float age = std::chrono::duration<float>(tn - b.changedAt).count();
             glUniform1f(meshLocPulse, age < 1.0f ? 1.0f - age : 0.0f);
             glDrawArrays(GL_TRIANGLES, 0, b.verts);
@@ -1925,7 +1981,35 @@ struct App {
     // catalog from the Mini (re-fetched each time it opens), the current app highlighted; a pick POSTs
     // /api/screens/<n>/app and the Air's runner changes the window. Extra screens only (never the main screen).
     struct AppEntry { std::string id, name, hint; };
-    std::mutex appsLock; std::vector<AppEntry> appsCatalog; std::map<int, std::string> appsOnScreen; std::string appsErr, appsToast;
+    std::mutex appsLock; std::vector<AppEntry> appsCatalog; std::map<int, std::string> appsOnScreen; std::set<int> webScreens; std::string appsErr, appsToast;
+    // Web-backed screens (an app or an opened URL) ignore pinpin-displays' synthetic clicks (Chrome --app windows), so
+    // their pinch-clicks and scrolls go to the mini-apps runner over CDP: POST /api/screens/<id>/{click,scroll} with
+    // u,v 0..10000 from the top-left (work-ad). One queue, one worker; a 409 (no window) sends that screen back to UDP.
+    std::mutex cdpLock; std::condition_variable cdpCv; std::deque<std::pair<std::string, std::string>> cdpQueue; bool cdpThread = false;
+    std::chrono::steady_clock::time_point cdpMoveAt{};
+    std::map<int, std::chrono::steady_clock::time_point> cdpNoWindow; long cdpSent = 0, cdpFailed = 0; std::chrono::steady_clock::time_point appsRefreshAt{};
+    bool webScreen(int id) {
+        std::lock_guard<std::mutex> g(appsLock);
+        auto it = cdpNoWindow.find(id); if (it != cdpNoWindow.end() && std::chrono::steady_clock::now() - it->second < std::chrono::seconds(10)) return false;
+        return webScreens.count(id) > 0;
+    }
+    void cdpPost(int id, const std::string& what, const std::string& body) {
+        std::lock_guard<std::mutex> g(cdpLock);
+        if ((what == "scroll" || what == "move") && cdpQueue.size() > 8) return;  // drop scroll bursts the LAN can't keep up with
+        cdpQueue.push_back({"/api/screens/" + std::to_string(id) + "/" + what, body}); cdpCv.notify_one();
+        if (cdpThread) return;
+        cdpThread = true;
+        std::thread([this] {
+            for (;;) {
+                std::pair<std::string, std::string> job;
+                { std::unique_lock<std::mutex> g(cdpLock); cdpCv.wait(g, [&] { return !cdpQueue.empty(); }); job = cdpQueue.front(); cdpQueue.pop_front(); }
+                house::Response r = house::http("192.168.0.50", 57830, "POST", job.first, job.second, {"Content-Type: application/json"});
+                std::lock_guard<std::mutex> g(appsLock);
+                if (r.status == 200) cdpSent++;
+                else { cdpFailed++; if (r.status == 404 || r.status == 409 || r.status == 502 || r.status == 0) cdpNoWindow[atoi(job.first.c_str() + 13)] = std::chrono::steady_clock::now(); }  // no window / runner down: UDP for 10 s
+            }
+        }).detach();
+    }
     long appsVersion = 0, appsSeen = 0; std::atomic<bool> appsBusy{false};
     static std::string fontSafe(std::string t, size_t max) {  // the menu font: A-Z 0-9 % - . : ! and space
         for (auto& c : t) { c = (char)toupper((unsigned char)c); if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strchr("%-.:! ", c))) c = ' '; }
@@ -1947,7 +2031,14 @@ struct App {
                 }
                 appsErr.clear();
             } else appsErr = a.error.empty() ? "HTTP " + std::to_string(a.status) : a.error;
-            if (sc.status == 200 && ok2) { appsOnScreen.clear(); for (auto& x : scr.a) if (x["app"].type == json::Value::Str) appsOnScreen[x["screen"].integer()] = x["app"].str(); }
+            if (sc.status == 200 && ok2) {
+                appsOnScreen.clear(); webScreens.clear();
+                for (auto& x : scr.a) {
+                    int sid = x["screen"].integer();
+                    if (x["app"].type == json::Value::Str) appsOnScreen[sid] = x["app"].str();
+                    if (x["app"].type == json::Value::Str || x["url"].type == json::Value::Str) webScreens.insert(sid);
+                }
+            }
             appsVersion++; appsBusy = false;
         }).detach();
     }
@@ -2708,8 +2799,18 @@ void main(){
             float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : std::fmin(0.08f + speed * 0.9f, 0.7f);
             eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
             int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
-            if (iu != sentU || iv != sentV) { sendMouse('m', extras[i].id, eu, ev); sentU = iu; sentV = iv; extraMoves++; }
-            if (p1 && !pinchPrev[1]) { sendMouse('c', extras[i].id, eu, ev); extraClicks++; extraClickAt = std::chrono::steady_clock::now(); }
+            if (iu != sentU || iv != sentV) {
+                if (!webScreen(extras[i].id)) sendMouse('m', extras[i].id, eu, ev);
+                else if (std::chrono::steady_clock::now() - cdpMoveAt > std::chrono::milliseconds(66)) {  // hover over CDP, 15/s at most
+                    cdpMoveAt = std::chrono::steady_clock::now(); cdpPost(extras[i].id, "move", "{\"u\":" + std::to_string(iu) + ",\"v\":" + std::to_string(iv) + "}");
+                }
+                sentU = iu; sentV = iv; extraMoves++;
+            }
+            if (p1 && !pinchPrev[1]) {
+                if (webScreen(extras[i].id)) cdpPost(extras[i].id, "click", "{\"u\":" + std::to_string((int)(eu * 10000)) + ",\"v\":" + std::to_string((int)(ev * 10000)) + "}");
+                else sendMouse('c', extras[i].id, eu, ev);
+                extraClicks++; extraClickAt = std::chrono::steady_clock::now();
+            }
             return true;
         }
         extraPtr = -1;
@@ -3663,6 +3764,7 @@ void main(){
             relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
             geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
             updateReloc();
+            if (!extras.empty() && std::chrono::steady_clock::now() - appsRefreshAt > std::chrono::seconds(10)) { appsRefreshAt = std::chrono::steady_clock::now(); appsFetch(); }
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
@@ -3736,7 +3838,7 @@ void main(){
                 glUseProgram(program); glBindVertexArray(vao);
             }
             if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
-            if ((geometryOn() || scanning()) && !meshDraw.empty()) { drawRoomMesh(vp.m); glUseProgram(program); glBindVertexArray(vao); }
+            if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m); glUseProgram(program); glBindVertexArray(vao); }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }
@@ -3852,6 +3954,10 @@ void main(){
         { std::lock_guard<std::mutex> g(assistLock);
           j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
         j << ",\"placement\":" << placementJson();
+        { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
+        { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }
+          j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris
+            << ",\"fuseMs\":" << meshFuseMs.load() << ",\"frames\":" << meshFrames.load() << ",\"changed\":" << meshChanged.load() << ",\"refused\":" << meshVol.refusedBlocks << ",\"rawMs\":" << rawMs.load() << ",\"flatMs\":" << flatMs.load() << ",\"flatTris\":" << flatTris.load() << "}"; }
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
