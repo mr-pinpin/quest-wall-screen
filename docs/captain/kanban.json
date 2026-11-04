@@ -1,6 +1,6 @@
 {
- "rev": 26,
- "next": 13,
+ "rev": 33,
+ "next": 16,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -278,15 +278,26 @@
    "links": [],
    "id": "K8",
    "created": "2026-11-04T09:58:48Z",
-   "updated": "2026-11-04T09:58:48Z",
+   "updated": "2026-11-04T10:05:20Z",
    "by": "work-df",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T10:05:20Z",
+     "by": "work-df",
+     "text": "frame fix done (8db4341+960d7ff, in v0.65): room frame from consensus of located Meta planes; floor check; tests pass. Device scratch test pending after prox065"
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T09:58:48Z",
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T10:05:20Z",
+     "by": "work-df",
+     "what": "commented"
     }
    ]
   },
@@ -314,13 +325,13 @@
   {
    "title": "SETTINGS panel as a texture (fps 43-53 when open)",
    "details": "panel_texture.h header; c4 integrates",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K10",
    "created": "2026-11-04T09:59:28Z",
-   "updated": "2026-11-04T09:59:28Z",
+   "updated": "2026-11-04T10:06:34Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -329,6 +340,14 @@
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T10:06:34Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "panel_texture.h 351a4b2 (work-0e)"
     }
    ]
   },
@@ -374,18 +393,99 @@
   {
    "title": "Air cost per extra screen",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-42",
    "area": "perf",
    "links": [],
    "id": "K12",
    "created": "2026-11-04T10:03:19Z",
-   "updated": "2026-11-04T10:03:19Z",
+   "updated": "2026-11-04T10:06:02Z",
+   "by": "work-42",
+   "comments": [
+    {
+     "at": "2026-11-04T10:05:59Z",
+     "by": "work-42",
+     "text": "Profiled: dominant per-screen cost = aerial wallpaper + colorsync (scales w/ displays), NOT atlas capture/encode (~5% for all 6). #1 win: STATIC wallpaper (UI-only, user). Report: bench/results/air-cost-per-screen-2026-11-04.md"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-11-04T10:03:19Z",
+     "by": "work-42",
+     "what": "created",
+     "column": "doing"
+    },
+    {
+     "at": "2026-11-04T10:05:59Z",
+     "by": "work-42",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T10:06:02Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "doing",
+     "to": "review"
+    }
+   ]
+  },
+  {
+   "title": "Video focus policy: cap/pause unseen web video",
+   "details": "",
+   "column": "doing",
+   "owner": "work-42",
+   "area": "perf",
+   "links": [],
+   "id": "K13",
+   "created": "2026-11-04T10:06:23Z",
+   "updated": "2026-11-04T10:06:23Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:06:23Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
+  },
+  {
+   "title": "Integrate STEADY, CTLTOP, select outline, panel texture, dictation into v0.66",
+   "details": "branch k5-v066, c4 reviews and installs",
+   "column": "next",
+   "owner": "work-0e",
+   "area": "headset",
+   "links": [],
+   "id": "K14",
+   "created": "2026-11-04T10:06:37Z",
+   "updated": "2026-11-04T10:06:37Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:06:37Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "Video focus: pause/cap unseen web video",
+   "details": "",
+   "column": "doing",
+   "owner": "work-42",
+   "area": "perf",
+   "links": [],
+   "id": "K15",
+   "created": "2026-11-04T10:10:00Z",
+   "updated": "2026-11-04T10:10:00Z",
    "by": "work-42",
    "comments": [],
    "history": [
     {
-     "at": "2026-11-04T10:03:19Z",
+     "at": "2026-11-04T10:10:00Z",
      "by": "work-42",
      "what": "created",
      "column": "doing"
@@ -393,5 +493,5 @@
    ]
   }
  ],
- "updated": "2026-11-04T10:03:19Z"
+ "updated": "2026-11-04T10:10:00Z"
 }
