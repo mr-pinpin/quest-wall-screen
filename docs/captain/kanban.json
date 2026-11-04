@@ -1,6 +1,6 @@
 {
- "rev": 46,
- "next": 19,
+ "rev": 49,
+ "next": 22,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -641,7 +641,70 @@
      "to": "doing"
     }
    ]
+  },
+  {
+   "title": "PinPin Displays input injection under PinPin Host (no Accessibility re-prompt on rebuild)",
+   "details": "",
+   "column": "backlog",
+   "owner": "work-42",
+   "area": "platform",
+   "links": [],
+   "id": "K19",
+   "created": "2026-11-04T10:47:21Z",
+   "updated": "2026-11-04T10:47:21Z",
+   "by": "work-42",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:47:21Z",
+     "by": "work-42",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
+  },
+  {
+   "title": "Mini Claude button: run brain on VPS/Air, Mini exposes only screen tools over token LAN API; drop Mini claude + Mini assistant plugin; supersede docs/mini-assistant-reauth.md",
+   "details": "",
+   "column": "backlog",
+   "owner": "work-42",
+   "area": "platform",
+   "links": [],
+   "id": "K20",
+   "created": "2026-11-04T10:47:25Z",
+   "updated": "2026-11-04T10:47:25Z",
+   "by": "work-42",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:47:25Z",
+     "by": "work-42",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
+  },
+  {
+   "title": "Static wallpaper on the Air (aerial + colorsync ~1.3 cores) — proposal, later",
+   "details": "user: low priority; the CLI routes failed; options: user picks it in Settings, or a privileged helper later",
+   "column": "backlog",
+   "owner": "",
+   "area": "perf",
+   "links": [],
+   "id": "K21",
+   "created": "2026-11-04T10:47:47Z",
+   "updated": "2026-11-04T10:47:47Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:47:47Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T10:43:07Z"
+ "updated": "2026-11-04T10:47:47Z"
 }
