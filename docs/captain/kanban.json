@@ -1,6 +1,6 @@
 {
- "rev": 50,
- "next": 22,
+ "rev": 54,
+ "next": 23,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -39,7 +39,7 @@
   {
    "title": "White control under each screen always visible",
    "details": "Even where the screen meets the floor.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "next",
+   "column": "review",
    "owner": "work-c4",
    "area": "headset",
    "links": [
@@ -47,7 +47,7 @@
    ],
    "id": "K2",
    "created": "2026-11-04T09:55:22Z",
-   "updated": "2026-11-04T09:59:15Z",
+   "updated": "2026-11-04T11:05:58Z",
    "by": "work-ad",
    "comments": [
     {
@@ -67,6 +67,14 @@
      "at": "2026-11-04T09:59:15Z",
      "by": "work-df",
      "what": "commented"
+    },
+    {
+     "at": "2026-11-04T11:05:58Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "review",
+     "note": "CTLTOP in k5-next ee94966 (off until seen)"
     }
    ]
   },
@@ -653,21 +661,39 @@
   {
    "title": "PinPin Displays input injection under PinPin Host (no Accessibility re-prompt on rebuild)",
    "details": "",
-   "column": "backlog",
+   "column": "doing",
    "owner": "work-42",
    "area": "platform",
    "links": [],
    "id": "K19",
    "created": "2026-11-04T10:47:21Z",
-   "updated": "2026-11-04T10:47:21Z",
+   "updated": "2026-11-04T11:08:40Z",
    "by": "work-42",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T11:08:36Z",
+     "by": "work-42",
+     "text": "Scope (work-df): PinPin Host's plugin start is the SINGLE path for pinpin-displays — survives reboot, Host restart policy has backoff, and the binary must not recreate displays on a failed bind (bind-first; debug on a SCRATCH copy, different port+label). Done so far (b296d20): installer no longer bootstraps the retired io.mr-pinpin.displays agent + retires it; AGENTS.md documents one-owner rule; rebuild doc marked superseded. Remaining: bind-first binary change (scratch), confirm reboot-survival + Host backoff. Context: 3-owner incident 2026-11-04 (load 246), stabilized by work-df to one Host-child instance."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T10:47:21Z",
      "by": "work-42",
      "what": "created",
      "column": "backlog"
+    },
+    {
+     "at": "2026-11-04T11:08:36Z",
+     "by": "work-42",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T11:08:40Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "backlog",
+     "to": "doing"
     }
    ]
   },
@@ -712,7 +738,28 @@
      "column": "backlog"
     }
    ]
+  },
+  {
+   "title": "Headset fps: batch mesh draws, cheaper VT bezel, frameCost instrumentation",
+   "details": "",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "perf",
+   "links": [],
+   "id": "K22",
+   "created": "2026-11-04T11:06:02Z",
+   "updated": "2026-11-04T11:06:02Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:06:02Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T10:54:30Z"
+ "updated": "2026-11-04T11:08:40Z"
 }
