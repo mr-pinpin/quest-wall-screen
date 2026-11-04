@@ -8,3 +8,4 @@
 - 02:10 rebase collision in the shared checkout resolved by c4/42; suggest per-agent worktrees
 - 02:20 c4: v0.47 built (WALLTOOL, ASSIST UI, SCROLL; flags off); NOSLEEP active since 01:50 with root; v0.47 session GO
 - 02:10 check: all four active. User woke briefly: screens misplaced = Meta relocalised in the dark (lights on fixed it); perf flags were back on in settings.json, now off. New user rule: deploy/restart any time unless the user says not to disturb
+- 02:30 check: all four active. v0.47 installed (P0 fix, ASSIST on); campaign block A running; apps runner test pass; Safari cleanup put on the morning list

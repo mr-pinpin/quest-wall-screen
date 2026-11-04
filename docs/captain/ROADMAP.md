@@ -30,8 +30,8 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 
 
 ## User feedback 2026-11-04 ~02:20 UTC
-- [ ] P0 placements never disappear (scene re-query, last-known pose, own anchors as the record, regression suite) (c4) -> v0.48
-- [ ] v0.47 installed with ASSIST on for the user (c4)
+- [x] P0 placements never disappear (v0.47 e3f5487; headset regress deferred to day)
+- [x] v0.47 installed with ASSIST on (02:26; not yet seen running)
 - [ ] screens made from the menu get the move bar like the main one (c4)
 - [ ] screens can be created on walls in rooms we scanned (multi-room placement) (c4)
 - [ ] close button on unlocked screens with a double-press confirm (c4)
