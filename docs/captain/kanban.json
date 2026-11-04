@@ -1,5 +1,5 @@
 {
- "rev": 77,
+ "rev": 78,
  "next": 29,
  "cards": [
   {
@@ -977,9 +977,15 @@
    "links": [],
    "id": "K26",
    "created": "2026-11-04T11:58:06Z",
-   "updated": "2026-11-04T12:15:31Z",
+   "updated": "2026-11-04T12:32:59Z",
    "by": "work-df",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T12:32:59Z",
+     "by": "work-df",
+     "text": "phase 2 (rooms, doors, heights) k5-consolidate 3207044 v0.73; next: live scan-quality score hint"
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T11:58:06Z",
@@ -994,6 +1000,11 @@
      "from": "doing",
      "to": "review",
      "note": "k5-consolidate e8746f3 (v0.72, CLEANLIVE off): consolidate.h exact vs python on 12 fixtures, 0.1 ms; placement hook keeps ids"
+    },
+    {
+     "at": "2026-11-04T12:32:59Z",
+     "by": "work-df",
+     "what": "commented"
     }
    ]
   },
@@ -1040,5 +1051,5 @@
    ]
   }
  ],
- "updated": "2026-11-04T12:19:43Z"
+ "updated": "2026-11-04T12:32:59Z"
 }
