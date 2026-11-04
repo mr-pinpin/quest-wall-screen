@@ -45,6 +45,7 @@ BENCH_CHIP, BENCH_MODEL = 'Apple M1', 'MacBookAir10,1'  # the pinned benchmark h
 # Older than LOCK_STALE_S means its holder died: taken over.
 BENCH_LOCK = '~/.local/share/pinpin-bench.lock'
 LOCK_STALE_S = 1800
+POOL0 = 80  # the test-display pool: screen ids 80..(80 + n - 1); the user's own screens are 2..~50
 HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
 TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731', '--stat-secs', '5'],
                'log': '~/.local/share/pinpin-atlas/atlas-sim.log', 'truncateLog': True, 'restartDelay': 1.5}
@@ -478,7 +479,9 @@ def main():
     ap.add_argument('--n', type=int, default=10); ap.add_argument('--secs', type=int, default=120)
     ap.add_argument('--sweep', type=float, default=3.0, help='seconds the virtual gaze stays on each screen')
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
-    ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
+    ap.add_argument('--keep', action='store_true', help='(no effect: sck test displays are a kept pool now)')
+    ap.add_argument('--pool-down', action='store_true', help='remove the pool test displays (screen ids >= POOL0) once, '
+                    'e.g. at the end of a campaign; every removal raises colorsync polling until a reboot, so rarely')
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'], help='stand-in demand pattern (see headset_sim.py)')
     ap.add_argument('--encprobe', type=int, default=0, help='run bench/encprobe.swift (a game encode) on the Air for this many seconds during the measurement')
     ap.add_argument('--sim-extra', default='', help='extra stand-in options (headset_sim.py), e.g. "--v2 --hero --keyreq 15"')
@@ -506,6 +509,16 @@ def main():
     ap.add_argument('--cinema-size', default='', help='WxH for screen 2 (the cinema screen), e.g. 2560x1600: wider than one '
                     '1920 cell, so vt tiles it (3840x2160 was not capturable on the Air). Pair runs with the same size')
     a = ap.parse_args()
+    if a.pool_down:
+        pool = sorted(d['screen'] for d in displays() if d['screen'] >= POOL0)
+        if not pool: sys.exit('stress: no pool test displays to remove')
+        held = lock_take(f'stress.py --pool-down since {time.strftime("%H:%M:%S")}')
+        if held: sys.exit(f'stress: not running, the bench lock is held ({held})')
+        try:
+            for i in pool: air(f"curl -s -m40 -X POST 'localhost:57710/remove?id={i}'", timeout=60)
+            activity(f'removed pool test displays {pool}')
+        finally: lock_release()
+        print('removed', pool); return
     cinema = tuple(int(v) for v in a.cinema_size.split('x')) if a.cinema_size else None
     if a.n > 20 and not a.allow_over_20:
         sys.exit('refusing --n %d: 30 concurrent captures wedged the laptop on 2026-11-03; pass --allow-over-20 once visibility-only capture is proven' % a.n)
@@ -537,17 +550,21 @@ def main():
     except subprocess.TimeoutExpired: laptop_channel = ''
     if laptop_channel and '5GHz' not in laptop_channel:  # the benchmark network is 5 GHz: wait, do not measure the wrong band
         sys.exit(f'stress: not running, the bench lock is held (the laptop is on {laptop_channel}, not 5 GHz: waiting for it to rejoin)')
-    ids = list(range(2, a.n + 2))
+    # sck: our own test displays from a fixed pool (screen ids POOL0..), created once and kept across runs. Every
+    # virtual display create/remove permanently raises colorsync's polling on the Air until a reboot (work-ad,
+    # 2026-11-04: 92 -> 203 req/min over 4 events). Before this, runs used ids 2..N+1, which are the user's own
+    # screens (captured as they were) and created/removed the rest every run. synth: no displays at all.
+    ids = list(range(POOL0, POOL0 + a.n)) if a.source == 'sck' else list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     phase('setup')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
 
-    shown = {'cinema': [2, 3, a.n + 1], 'vr': []}.get(a.scenario, ids)
+    shown = {'cinema': [ids[0], ids[1], ids[-1]], 'vr': []}.get(a.scenario, ids)
     if a.source == 'synth':
         # The pipeline benchmark (docs/sources.md): the test sender renders the screens itself at 60 Hz, no virtual
         # displays and no ScreenCaptureKit, so the result measures encoder + network + receiver, not macOS capture.
         if not sim: sys.exit('stress: --source synth needs the stand-in (sim mode)')
-        size = lambda i: f'{cinema[0]}x{cinema[1]}' if i == 2 and cinema else '1920x1200'
+        size = lambda i: f'{cinema[0]}x{cinema[1]}' if i == ids[0] and cinema else '1920x1200'
         moving = [i for i in ids if i in shown]; moving = moving[:max(0, len(moving) - a.static)]
         test_plugin['args'] += ['--synth', ','.join(f'{i}:{size(i)}' for i in ids), '--synth-animate', ','.join(map(str, moving)) or 'none']
         ds, created, pattern, cover = {}, [], [], []
@@ -562,11 +579,12 @@ def main():
         atexit.register(lambda: air("pkill -f 'caffeinate -u -d -t' || true"))
         # 1. displays and pattern
         have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
-        if cinema and 2 in have and have[2] != cinema:  # a leftover screen 2 of another size: recreate it
-            air("curl -s -m40 -X POST 'localhost:57710/remove?id=2'", timeout=60); del have[2]
-        created = [i for i in ids if i not in have]
+        if cinema and ids[0] in have and have[ids[0]] != cinema:  # never recreated (churn): the pool screen as it is
+            print(f'  note: pool screen {ids[0]} is {have[ids[0]]}, not the asked {cinema}; used as it is')
+        created = [i for i in ids if i not in have]  # only the first run (or a bigger --n) creates; nothing is removed
+        if created: activity(f'creating pool test displays {created} (kept for later runs: colorsync churn rule)')
         for i in created:
-            w, h = cinema if i == 2 and cinema else (1920, 1200)
+            w, h = cinema if i == ids[0] and cinema else (1920, 1200)
             air(f"curl -s -m40 -X POST 'localhost:57710/displays?id={i}&w={w}&h={h}&scale=1'", timeout=60)
         time.sleep(3)
         ds = {d['screen']: d['display'] for d in displays()}
@@ -645,7 +663,7 @@ def main():
         air_proc = None
         if sim:
             sim_cmd = (f"python3 - {'127.0.0.1' if a.sim_on == 'air' else lap_ip} --port 57730 --demand-port 57731 --n {a.n} "
-                       f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}")
+                       f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario} --base {ids[0]}")
             if 'vt' in a.flags.split(','): sim_cmd += ' --v2'  # the vt flag only acts on v2 demand
             if a.sim_extra: sim_cmd += ' ' + a.sim_extra  # e.g. "--v2 --hero --keyreq 15": the same demand for every config of an A/B
             stdin = (HERE / 'headset_sim.py').read_text()
@@ -729,8 +747,7 @@ def main():
             simulate_wear(False)  # back to the real sensor: an unworn headset goes to sleep as usual
         if a.wan: air("pkill -f 'speed.cloudflare.com/__down' || true")
         if pattern or cover: air('pkill -f stresspattern || true')
-        if not a.keep:
-            for i in created: air(f"curl -s -m40 -X POST 'localhost:57710/remove?id={i}'", timeout=60)
+        # the pool test displays stay (colorsync churn rule); bench/stress.py --pool-down removes them, once, by hand
     if aborted:
         sys.exit(f'stress: aborted after {int(time.time() - st0)} s, {aborted}; everything was cleaned up')
 
