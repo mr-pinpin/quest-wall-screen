@@ -1,0 +1,145 @@
+{
+ "rev": 6,
+ "next": 7,
+ "cards": [
+  {
+   "title": "Select + draw primitives",
+   "details": "A gold outline + number on a screen (select/clear); draw a label or shape on a wall; compose higher actions from atomic primitives. Headset side c4, assistant tools 42.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K1",
+   "created": "2026-11-04T09:55:17Z",
+   "updated": "2026-11-04T09:55:17Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:17Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "White control under each screen always visible",
+   "details": "Even where the screen meets the floor.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K2",
+   "created": "2026-11-04T09:55:22Z",
+   "updated": "2026-11-04T09:55:22Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:22Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "Dictation always on and queued (headset)",
+   "details": "Keep listening while the assistant replies, queue it, never lock up; don't cut a sentence at a breath. Server side: the dictation-server card (work-42).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K3",
+   "created": "2026-11-04T09:55:27Z",
+   "updated": "2026-11-04T09:55:27Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:27Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "Dictation server: queue, never lock up",
+   "details": "The server half of always-on dictation: accept phrases while a reply is running, queue them in order, never drop or lock up; join a sentence split at a breath. Headset side: the dictation card (work-c4).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-42",
+   "area": "assistant",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K4",
+   "created": "2026-11-04T09:55:31Z",
+   "updated": "2026-11-04T09:55:31Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:31Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "Pointer stabilization flag (STEADY)",
+   "details": "Dead zone + smoothing, adjustable, off by default, for the screen cursor and the wrist UI.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K5",
+   "created": "2026-11-04T09:55:35Z",
+   "updated": "2026-11-04T09:55:35Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:35Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "Room assistant fixes",
+   "details": "Room screenshot crash; a \"nudge\" that moves far; house_info missing y; an add_card tool (now: POST /api/kanban, see pinpin-apps docs/KANBAN.md).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
+   "column": "next",
+   "owner": "work-42",
+   "area": "assistant",
+   "links": [
+    "qws:d5a9376"
+   ],
+   "id": "K6",
+   "created": "2026-11-04T09:55:41Z",
+   "updated": "2026-11-04T09:55:41Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:55:41Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  }
+ ],
+ "updated": "2026-11-04T09:55:41Z"
+}
