@@ -1585,6 +1585,37 @@ struct App {
         }
         glActiveTexture(GL_TEXTURE0); glBindBuffer(GL_ARRAY_BUFFER, vbo);
     }
+    // ---- files/ui-demo (self-test hook for screenshots with nobody wearing the headset): the file's one word opens
+    // that UI state synthetically, then the file is removed. Only menus/tool/panel state; nothing is sent anywhere.
+    //   shoulder | settings | walls (WALLS palette + a dashed line preview on the wall in view) | wrist | assist
+    //   (a local demo chat beside the main screen) | close
+    void uiDemo(const std::string& scene) {
+        V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
+        if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
+        if (scene == "shoulder" || scene == "settings" || scene == "walls") {
+            sm.stack.clear(); sm.toggle(sp(hp), sp(gaze));
+            if (scene == "settings") sm.push("SETTINGS");
+            if (scene == "walls") {
+                sm.push("WALLS"); wallToolWalls(); wt.begin(wallshape::Mode::Line);
+                float hx, hy; Entity* w = rayWall(hp, gaze, hx, hy);
+                if (w) {
+                    auto at = [&](float dx) { V3 t = xform(w->pose, {hx + dx, hy, 0}); V3 d = norm(t - hp); wallshape::Input in; in.origin = {hp.x, hp.y, hp.z}; in.dir = {d.x, d.y, d.z}; return in; };
+                    wallshape::Input a = at(-0.4f), b = at(0.4f);
+                    wt.update(a); a.pinch = true; wt.update(a); a.pinch = false; wt.update(a); wt.update(b);
+                }
+            }
+        } else if (scene == "wrist") {
+            sm.stack.clear(); V3 up = rot(head.orientation, {0, 1, 0});
+            sm.openRadial(sp(hp), sp(hp + gaze * 0.45f - up * 0.12f));
+        } else if (scene == "assist") {
+            std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[1];
+            c.user("Open YouTube and search for lofi", "demo");
+            json::Value e = json::parse("{\"type\":\"text\",\"turnId\":\"demo\",\"delta\":\"Opening **YouTube** and searching for *lofi*.\\n- found a 24/7 stream\\n- playing it now\"}"); c.apply(e);
+            c.apply(json::parse("{\"type\":\"action\",\"turnId\":\"demo\",\"action\":\"open_url\",\"detail\":\"youtube.com\",\"status\":\"begin\"}"));
+            c.apply(json::parse("{\"type\":\"done\",\"turnId\":\"demo\"}"));
+        } else if (scene == "close") { sm.stack.clear(); wt.cancel(); std::lock_guard<std::mutex> g(assistLock); chats.erase(1); }
+        event("ui-demo: " + scene + " (" + wallshape::stateName(wt.state()) + ")");
+    }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
         float aspect = placed.h / placed.w, m = 0.03f;
@@ -3229,6 +3260,7 @@ void main(){
             scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
             wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
             assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
+            { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
