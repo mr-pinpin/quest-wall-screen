@@ -59,6 +59,24 @@ os.makedirs(os.path.join(D, 'pinpin-bench.lock'))
 check(bl.try_shared('s-legacy', 'apps', 60).startswith('busy exclusive'), 'legacy mkdir lock respected')
 os.rmdir(os.path.join(D, 'pinpin-bench.lock'))
 
+# regression (2026-11-04, randomised run): a release that runs late must not free the NEXT holder's lock
+t1 = bl.take('exclusive', 'first', 60, 5); bl.release(t1)
+t2 = bl.take('exclusive', 'second', 60, 5)
+bl.release(t1)  # the first holder's release, arriving late
+check(os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'a late release freed the next holder\'s lock')
+check(bl.try_shared('s-late2', 'apps', 60).startswith('busy exclusive'), 'shared got in after a late release')
+bl.release(t2)
+check(not os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'own release did not free the lock')
+# regression: a failed stat (the lock vanished between the checks) must never count as stale and move a live lock
+fake = tempfile.mkdtemp(prefix='fakestat-'); open(os.path.join(fake, 'stat'), 'w').write('#!/bin/sh\nexit 1\n'); os.chmod(os.path.join(fake, 'stat'), 0o755)
+t3 = bl.take('exclusive', 'held', 60, 5); path = os.environ['PATH']; os.environ['PATH'] = fake + ':' + path
+try:
+    check(bl.try_shared('s-statfail', 'apps', 60).startswith('busy exclusive'), 'failed stat treated a live lock as stale')
+finally:
+    os.environ['PATH'] = path
+check(os.path.isdir(os.path.join(D, 'pinpin-bench.lock')), 'failed stat moved a live lock')
+bl.release(t3)
+
 # CLI: runs the command holding the lock, then releases
 out = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'benchlock.py'), 'shared', '--who', 'cli',
                       '--max', '30', '--', 'bash', '-c', f'ls {D}/pinpin-bench.shared | wc -l'], capture_output=True, text=True, timeout=60)
@@ -81,9 +99,10 @@ def worker(k):
         time.sleep(rnd.uniform(0, 0.05))
 
 
-ts = [threading.Thread(target=worker, args=(k,)) for k in range(6)]
-for t in ts: t.start()
-for t in ts: t.join(timeout=300)
+for rnd_round in range(3):  # three rounds; each worker's choices are seeded (k), the interleaving is the OS's
+    ts = [threading.Thread(target=worker, args=(k + 10 * rnd_round,)) for k in range(6)]
+    for t in ts: t.start()
+    for t in ts: t.join(timeout=300)
 inside = {}; bad = 0; shared_peak = 0
 for _, kind, mode, k in sorted(events):
     if kind == 'in':
@@ -94,7 +113,7 @@ for _, kind, mode, k in sorted(events):
         shared_peak = max(shared_peak, sum(1 for m in inside.values() if m == 'shared'))
     else:
         inside.pop(k, None)
-check(bad == 0 and len(events) == 72, f'randomised: {bad} overlaps, {len(events)} events')
+check(bad == 0 and len(events) == 216, f'randomised: {bad} overlaps, {len(events)} events')
 check(shared_peak >= 2, f'shared holders did run together (peak {shared_peak})')
-print(f'benchlock: {fails} failures (randomised: 36 holds, shared peak {shared_peak}, {bad} overlaps)')
+print(f'benchlock: {fails} failures (randomised: 108 holds, shared peak {shared_peak}, {bad} overlaps)')
 sys.exit(1 if fails else 0)

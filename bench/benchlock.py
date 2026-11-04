@@ -44,7 +44,9 @@ L=$D/pinpin-bench.lock; S=$D/pinpin-bench.shared; W=$D/pinpin-bench.wantx; now=$
 for f in $S/* $W/*; do [ -f "$f" ] || continue; e=$(sed -n 2p "$f"); [ -n "$e" ] && [ "$e" -lt $now ] && rm -f "$f"; done
 xheld() {
   [ -d $L ] || return 1
-  m=$(stat -c %Y $L 2>/dev/null || stat -f %m $L); if [ $(( now - m )) -gt %(stale)d ]; then mv $L $L.stale-$now-$$; return 1; fi
+  m=$(stat -c %Y $L 2>/dev/null || stat -f %m $L 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) [ -d $L ]; return; esac   # vanished between the checks: never treat a failed stat as stale
+  if [ $(( now - m )) -gt %(stale)d ]; then mv $L $L.stale-$now-$$; return 1; fi
   return 0
 }
 live() { ls -A "$1" 2>/dev/null | grep -v "^$2\$" | wc -l | tr -d ' '; }
@@ -77,7 +79,7 @@ def try_exclusive(tid, who, max_s):
 printf '%s\\n%s\\n' {shlex.quote(who)} $(( now + {WANT_TTL} )) > $W/{tid}
 if [ $(live $S) -gt 0 ]; then echo "busy shared: $(for f in $S/*; do head -1 "$f"; done | tr '\\n' ' ')"; exit; fi
 if xheld; then echo "busy exclusive: $(cat $L/owner 2>/dev/null)"; exit; fi
-if mkdir $L 2>/dev/null; then printf '%s\\n' {shlex.quote(who)} > $L/owner; rm -f $W/{tid}; echo taken; else echo "busy exclusive: $(cat $L/owner 2>/dev/null)"; fi
+if mkdir $L 2>/dev/null; then printf '%s\\n' {tid} > $L/id; printf '%s\\n' {shlex.quote(who)} > $L/owner; rm -f $W/{tid}; echo taken; else echo "busy exclusive: $(cat $L/owner 2>/dev/null)"; fi
 ''')
     return out.strip().splitlines()[-1] if out.strip() else 'busy unreachable'
 
@@ -105,7 +107,8 @@ def release(token):
     if mode == 'shared':
         _run(f'rm -f $D/pinpin-bench.shared/{tid}')
     else:
-        _run(f'L=$D/pinpin-bench.lock; rm -f $D/pinpin-bench.wantx/{tid}; [ -d $L ] && mv $L $L.done-$(date +%s)-$$; '
+        # only our own lock: a release that runs late must never free the next holder's (found by the randomised test)
+        _run(f'L=$D/pinpin-bench.lock; rm -f $D/pinpin-bench.wantx/{tid}; [ -d $L ] && [ "$(cat $L/id 2>/dev/null)" = {tid} ] && mv $L $L.done-$(date +%s)-$$; '
              f'ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf')
 
 
