@@ -53,11 +53,11 @@ int main(int argc, char** argv) {
     long quads = Panel::quadsPerFrame(c, glyph);
     printf("  SETTINGS: %zu items, %.2f x %.2f m -> %d x %d texture (%.0f texels/m), rendered in %.1f ms; replaces %ld quads/frame\n",
            items.size(), 2 * g.halfW, 2 * g.halfH, P.w, P.h, P.tpm, ms, quads);
-    check(img.size() == (size_t)P.w * P.h && P.w <= 4096 && P.h <= 4096, "texture within 4096");
+    check(img.size() == (size_t)P.w * P.h && P.w <= 8192 && P.h <= 8192 && (double)P.w * P.h <= 8e6 + 2 * (P.w + P.h), "texture within 8192 and 8 Mpx");
     check(std::fabs((float)P.w / P.h - g.halfW / g.halfH) < 0.01f, "texture aspect = panel aspect");
     float minPx = 1; for (auto& t : c.texts) minPx = std::min(minPx, t.px);
     printf("  smallest text (hints): %.1f texels per font pixel\n", minPx * P.tpm);
-    check(minPx * P.tpm >= 1.95f, "every item shown: the hints still get >= 2 texels per font pixel");
+    check(minPx * P.tpm >= 2.4f, "every item shown: the hints still get ~2.5 texels per font pixel");
     {   std::vector<UiGrid::Item> few(items.begin(), items.begin() + 15); std::vector<std::string> fl(labels.begin(), labels.begin() + 15);
         UiGrid gf; gf.layout(few); Panel pf; Content cf = fromGrid(gf, fl, std::vector<bool>(15, false), "SETTINGS"); pf.set(cf); pf.render(glyph);
         float mp = 1; for (auto& t : cf.texts) mp = std::min(mp, t.px);

@@ -46,7 +46,8 @@ struct Content {
 };
 
 struct Panel {
-    int maxTexels = 4096;         // either side (Quest 3's GL_MAX_TEXTURE_SIZE is far above; the full 45-item panel is 3 m tall)
+    int maxTexels = 8192;         // either side (Quest 3's GL_MAX_TEXTURE_SIZE is 16384; the full 49-item panel is 3.7 m tall)
+    float maxPixels = 8e6f;       // and at most 32 MB of RGBA
     float texelsPerGlyphPx = 2.5f;// the smallest text gets at least this many texels per font pixel
     float minTexelsPerM = 600;
     Content c; std::string ckey; bool dirty_ = true; long version = 0, renders = 0;
@@ -61,7 +62,7 @@ struct Panel {
     void size() {
         float minPx = 1; for (auto& t : c.texts) if (t.px > 0) minPx = std::min(minPx, t.px);
         tpm = std::max(minTexelsPerM, texelsPerGlyphPx / minPx);
-        tpm = std::min({tpm, maxTexels / (2 * c.halfW), maxTexels / (2 * c.halfH)});
+        tpm = std::min({tpm, maxTexels / (2 * c.halfW), maxTexels / (2 * c.halfH), std::sqrt(maxPixels / (4 * c.halfW * c.halfH))});
         w = std::max(1, (int)std::ceil(2 * c.halfW * tpm)); h = std::max(1, (int)std::ceil(2 * c.halfH * tpm));
     }
     // Panel metres -> texel coordinates (x right, y down from the top edge).
