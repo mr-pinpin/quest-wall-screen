@@ -1,6 +1,6 @@
 {
- "rev": 74,
- "next": 28,
+ "rev": 77,
+ "next": 29,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -760,9 +760,15 @@
    "links": [],
    "id": "K20",
    "created": "2026-11-04T10:47:25Z",
-   "updated": "2026-11-04T12:01:11Z",
+   "updated": "2026-11-04T12:19:43Z",
    "by": "work-42",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T12:19:43Z",
+     "by": "work-42",
+     "text": "Helper written + work-ad review fully incorporated (5472a9b, 4a26...): shared-cursor 409 guard, serialize, Air parity (button/count, echo x/y/display), /shot headers+?max, 503 re-resolve, audit log, PPMS event tag. Contract reviewed by work-ad (docs/mini-screen-tools.md). NEXT: compile on Mini + launchd-safe packaging + one-time grant; VPS brain (assistant sonnet+MCP pattern); then GATED test on display 'PinPin Atlas Owned' in a quiet window (headset off/Moonlight idle, ping work-df). Idle-guard test (work-ad, no headset): post a mouse move from a one-off proc, /input within 3s -> expect 409, after 4s -> acts; log both here."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T10:47:25Z",
@@ -776,6 +782,11 @@
      "what": "moved",
      "from": "backlog",
      "to": "doing"
+    },
+    {
+     "at": "2026-11-04T12:19:43Z",
+     "by": "work-42",
+     "what": "commented"
     }
    ]
   },
@@ -960,13 +971,13 @@
   {
    "title": "Real-time consolidation on the headset (consolidate.h)",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "geometry",
    "links": [],
    "id": "K26",
    "created": "2026-11-04T11:58:06Z",
-   "updated": "2026-11-04T11:58:06Z",
+   "updated": "2026-11-04T12:15:31Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -975,6 +986,14 @@
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T12:15:31Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "k5-consolidate e8746f3 (v0.72, CLEANLIVE off): consolidate.h exact vs python on 12 fixtures, 0.1 ms; placement hook keeps ids"
     }
    ]
   },
@@ -998,7 +1017,28 @@
      "column": "doing"
     }
    ]
+  },
+  {
+   "title": "Nightly health suite",
+   "details": "Cron ~01:40Z after work-42's eval: apps render checks + sandbox probe; house round trip on scratch :57801 (put/get/409/rollback to tag); kanban add/move/delete test card; backups <2 h + restore diff clean; network rows; receptionist health. One /status line per check. Read-only on everything live.",
+   "column": "doing",
+   "owner": "work-ad",
+   "area": "ops",
+   "links": [],
+   "id": "K28",
+   "created": "2026-11-04T12:18:17Z",
+   "updated": "2026-11-04T12:18:17Z",
+   "by": "work-ad",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T12:18:17Z",
+     "by": "work-ad",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T12:01:50Z"
+ "updated": "2026-11-04T12:19:43Z"
 }
