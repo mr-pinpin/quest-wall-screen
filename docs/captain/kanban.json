@@ -1,6 +1,6 @@
 {
- "rev": 39,
- "next": 16,
+ "rev": 41,
+ "next": 17,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -477,13 +477,13 @@
   {
    "title": "Integrate STEADY, CTLTOP, select outline, panel texture, dictation into v0.66",
    "details": "branch k5-v066, c4 reviews and installs",
-   "column": "next",
+   "column": "review",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K14",
    "created": "2026-11-04T10:06:37Z",
-   "updated": "2026-11-04T10:06:37Z",
+   "updated": "2026-11-04T10:30:48Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -492,6 +492,14 @@
      "by": "work-df",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T10:30:48Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "review",
+     "note": "k5-v066 head 0231e11 ready for c4 review (ships as v0.67 after c4's HOUSE v0.66)"
     }
    ]
   },
@@ -546,7 +554,28 @@
      "what": "commented"
     }
    ]
+  },
+  {
+   "title": "SETTINGS redesign: categories, cascade, hide hidden flags, ≤1.2 m panels",
+   "details": "",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "headset",
+   "links": [],
+   "id": "K16",
+   "created": "2026-11-04T10:30:51Z",
+   "updated": "2026-11-04T10:30:51Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:30:51Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T10:22:10Z"
+ "updated": "2026-11-04T10:30:51Z"
 }
