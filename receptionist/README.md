@@ -1,65 +1,59 @@
 # Headset Receptionist
 
-A voice front desk in the headset that connects the person speaking to one of the user's
-live Claude Code sessions (or starts a new one), relaying words in and replies out. Design:
-`docs/prd/receptionist.md`.
+A simple voice front desk in the headset. Everything the user says is relayed **verbatim** to
+the captain session **work-df**, and work-df's reply is streamed back. work-df is the single
+entry point and delegates non-engineering topics itself (recipes, household questions) by
+spawning sessions with `spawn_session.sh`. The user can say "talk to work-c4" to switch the
+destination for a chat; otherwise there is no "who's speaking" and no per-message confirm.
+Design: `docs/prd/receptionist.md`.
 
 ## Pieces
 
 | File | Role |
 |---|---|
-| `recept_core.py` | Session index (reads `~/.claude/sessions/*.json` + transcripts), `deliver()` via `sudo tmux send-keys`, `tail_reply()` from the transcript, `spawn_engineering()`. |
-| `pinpin_receptionist.py` | HTTP service (:57850). Auth, dual-bind loopback+Tailscale, `/api/sessions`, `/api/propose`, `/api/route` (SSE), `/api/new`, `/api/turn` (the warm brain), audit log, confirm gate, block-list. |
-| `receptionist_mcp.py` | MCP stdio server giving the warm brain its tools (`list_sessions`, `propose_route`, `route`, `new_session`) — all through the service. |
-| `receptionist-prompt.txt` | The brain's system prompt (front-desk behaviour, speaker safety, verbatim, confirm). |
-| `receptionist-mcp.json` | `--mcp-config` wiring for the warm `claude -p` process. |
-| `test_receptionist.py` | Offline tests (fixtures; no live sessions/network/tmux). 22 checks. |
+| `recept_core.py` | Session index (`~/.claude/sessions/*.json` + transcripts), `deliver()` via `sudo tmux send-keys`, `tail_reply()` from the transcript, `spawn_engineering()` (launches in the TRUSTED workspace so a fresh session doesn't stall on the trust prompt). |
+| `pinpin_receptionist.py` | HTTP service (:57850): token auth, dual-bind loopback+Tailscale, `/health`, `/api/sessions`, `/api/turn` (relay, with "talk to X" switching), `/api/spawn`, audit log, block-list. |
+| `spawn_session.sh` | `spawn_session.sh "<topic>" "<brief>"` — start a new session like the existing ones; prints `<name> <id>` once it registers. work-df's hand-off helper. |
+| `test_receptionist.py` | Offline tests (fixtures; no live sessions/network/tmux). 21 checks. |
+| `run.sh` | Launch the service. |
 
 ## Topology
 
-The index (sockets, `~/.claude/sessions`, transcripts, root's tmux server) is local to the
-**VPS**, so this service runs on the VPS as `pinpin-claude`. The headset reaches it through
-the Air assistant's `/api/reception/*` reverse-proxy over Tailscale — see
-`docs/receptionist-air-proxy.md` (staged; needs an Air deploy).
+Index (sockets, `~/.claude/sessions`, transcripts, root's tmux) is local to the **VPS**, so the
+service runs there as `pinpin-claude`. The headset reaches it via the Air assistant's
+`/api/reception/*` reverse-proxy over Tailscale — see `docs/receptionist-air-proxy.md`.
 
 ```
-headset ──SSE──▶ Air pinpin_assistant :57840 /api/reception/* ──Tailscale──▶ VPS :57850
+headset ──SSE──▶ Air :57840 /api/reception/{turn,sessions} ──Tailscale──▶ VPS :57850
 ```
 
-## Security (per work-df)
+## /api/turn
 
-1. **Verbatim only** — `route()` sends the user's words unchanged, prefixed `[via headset] `.
-   The brain chooses the destination, never the text; `-l` literal send never interprets it.
-2. **Auth + binding** — every request needs the bearer token
-   (`~/.local/share/pinpin-receptionist/token`, 600); bound to 127.0.0.1 and the Tailscale IP
-   only, never 0.0.0.0.
-3. **Spoken confirm** — engineering routes require `/api/propose` then a spoken yes
-   (`confirmed:true`). The brain reads the confirmation line aloud first.
-4. **Audit** — every routing appends to `routing.log` (time, speaker, session, text hash).
-5. **Speaker safety** — only `speaker:"user"` may reach engineering sessions; others are 403.
-6. **Block-list** — `PINPIN_RECEPT_BLOCK=<names/ids>` hard-refuses listed sessions
-   (used in testing to make work-df unreachable).
+`POST /api/turn {conversation_id, text}` → SSE. If `text` says "talk/switch/connect to <a live
+session name>", the destination for that chat switches (event `switched` + a spoken ack).
+Otherwise `text` is delivered VERBATIM (`[via headset] ` prefix, `-l` literal) to the current
+destination (work-df by default) and the reply streams back as `delta` events.
 
-## Gates (do not cross without approval)
+## Security
 
-- **Household profile** is stubbed (423). Creating the separate unprivileged unix user needs
-  work-df's OK (`PINPIN_RECEPT_HOUSEHOLD=1` only after it exists).
-- **First real routing to work-df** — keep the service off the headset path / work-df blocked
-  until work-df is pinged.
+- Bearer token (`~/.local/share/pinpin-receptionist/token`, 600) on every request.
+- Bound to 127.0.0.1 and the Tailscale IP only, never 0.0.0.0.
+- Relays words unchanged; the service never rewrites routed text.
+- Append-only `routing.log`: time, action (route/switch/spawn/blocked), session, text hash.
+- `PINPIN_RECEPT_BLOCK=<names/ids>` hard-refuses sessions (used in testing to keep work-df
+  unreachable until the first-real-message gate is cleared).
+- `PINPIN_RECEPT_DEFAULT=<name>` overrides the default destination (default `work-df`; set to a
+  scratch session for testing).
 
 ## Run / test
 
 ```sh
-# offline tests
-python3 receptionist/test_receptionist.py
-
-# service (production: no block-list; the user WANTS the captain reachable)
-python3 receptionist/pinpin_receptionist.py
-
-# service (testing: work-df unreachable)
-PINPIN_RECEPT_BLOCK="work-df" python3 receptionist/pinpin_receptionist.py
+python3 receptionist/test_receptionist.py                 # offline
+python3 receptionist/pinpin_receptionist.py               # production (default -> work-df)
+PINPIN_RECEPT_DEFAULT=work-d5 PINPIN_RECEPT_BLOCK=work-df \
+    python3 receptionist/pinpin_receptionist.py            # testing against a scratch session
 ```
 
-Proven end-to-end against a disposable scratch session: index → propose → confirm gate →
-verbatim delivery → transcript reply relayed back, and the warm haiku brain driving it over
-`/api/turn`.
+Proven end-to-end against disposable scratch sessions: verbatim relay (exact text in the
+target's transcript), multi-turn straight-through with no confirm, "talk to X" switching,
+and audit. Gate held: work-df received no test traffic (structurally blocked throughout).

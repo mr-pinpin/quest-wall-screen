@@ -1,5 +1,17 @@
 # PRD — Headset Receptionist
 
+> **UPDATE 2026-11-04 (user directive — supersedes the brain/confirm/household design below).**
+> Keep it simple. There is **no separate household account** (dropped entirely) and **no warm
+> haiku brain / MCP tools / per-message confirm / "who's speaking"**. The receptionist relays
+> every spoken turn **verbatim** to the captain **work-df** by default and streams the reply back;
+> work-df is the single entry point and delegates non-engineering topics itself via
+> `receptionist/spawn_session.sh`. The user may say "talk to work-c4" to switch the destination
+> for a chat. Kept from below: VPS-side service, Tailscale+loopback binding, bearer token,
+> verbatim `[via headset] ` delivery over `sudo tmux send-keys`, transcript reply-tail, and the
+> append-only audit log. See `receptionist/README.md` for the shipped design. The sections below
+> are retained for context on the mechanism and the topology, which are unchanged.
+
+
 Owner: work-42. Coordinator: work-df. Status: DRAFT (design), 2026-11-04.
 
 ## 1. Goal

@@ -47,8 +47,9 @@ def _proxy_reception(self, suffix, body):
 ```
 
 Route `self.path.startswith("/api/reception/")` → `_proxy_reception(path[len("/api/reception/"):], raw_body)`.
-The headset opens an SSE on `POST /api/reception/turn {conversation_id, text}` for the brain, and
-the brain's `route` tool streams the destination session's reply through the same pipe.
+The headset opens an SSE on `POST /api/reception/turn {conversation_id, text}`; the receptionist
+relays the text verbatim to work-df (or a switched destination) and streams the reply back
+through the same pipe. `GET /api/reception/sessions` is also proxied (for an optional roster view).
 
 ## 3. Entry point (coordinate with work-c4)
 

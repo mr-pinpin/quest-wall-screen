@@ -125,8 +125,13 @@ def deliver(session_id, text):
     return watermark
 
 
+WORKDIR = "/home/pinpin-claude/work"   # the trusted workspace the real sessions run in
+
+
 def spawn_engineering(brief, session_id=None):
-    """Start a new engineering session exactly like the existing ones (user-only)."""
+    """Start a new session exactly like the existing ones. Must launch in the TRUSTED workspace
+    (tmux -c), else a fresh session gets stuck on Claude's 'trust this folder?' prompt and never
+    registers."""
     import uuid
     sid = session_id or str(uuid.uuid4())
     inner = (
@@ -135,8 +140,8 @@ def spawn_engineering(brief, session_id=None):
         "claude --dangerously-skip-permissions --session-id %s %s"
         % (sid, _shquote(brief or "New session from the headset receptionist."))
     )
-    subprocess.run(["sudo", "-n", "tmux", "new-session", "-d", "-s", "claude-" + sid, inner],
-                   check=True, timeout=15)
+    subprocess.run(["sudo", "-n", "tmux", "new-session", "-d", "-s", "claude-" + sid,
+                    "-c", WORKDIR, inner], check=True, timeout=15)
     return sid
 
 
