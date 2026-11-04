@@ -8,7 +8,7 @@ rejects it). Transport: newline-delimited JSON-RPC 2.0 over stdio (Claude Code's
 
 Python stdlib only. Runs on the Mac as a child of PinPin Host (inherits Screen Recording + Accessibility).
 """
-import os, sys, json, base64, pathlib
+import os, sys, json, base64, pathlib, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pinpin_assistant as pa
