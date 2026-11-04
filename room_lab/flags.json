@@ -819,6 +819,19 @@
      "commit": "204da8d"
     }
    ]
+  },
+  {
+   "name": "RECKEEP",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "The CLAUDE chat survives app restarts (kanban K18): the last 8 exchanges come back from the receptionist's history or a local cache, a chat open at shutdown reopens, and a strip under it shows whether the mic really hears anything (pinch to restart; a stalled mic restarts itself every 5 s). On as a fix: the user's last speech did not arrive.",
+   "evidence": [
+    {
+     "commit": "2dbd004"
+    }
+   ]
   }
  ]
 }

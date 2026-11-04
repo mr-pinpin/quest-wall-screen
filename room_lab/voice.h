@@ -34,12 +34,13 @@ struct Dictation {
     std::deque<std::vector<int16_t>> queue;  // segments waiting for the speech service
     std::deque<std::string> results;
     std::thread worker; std::atomic<bool> quit{false};
+    std::atomic<long> callbacks{0};  // audio callbacks ever (never reset): a mic that records but gets none is stalled
     std::atomic<long> segments{0}, sent{0}, failures{0}, busyRetries{0}; std::atomic<float> lastMs{0}, level{0};
     std::string state = "idle", lastText, lastError;
     std::chrono::steady_clock::time_point lastWarm{};
 
     static aaudio_data_callback_result_t onData(AAudioStream*, void* user, void* data, int32_t n) {
-        auto* d = (Dictation*)user; d->feed((const int16_t*)data, n); return AAUDIO_CALLBACK_RESULT_CONTINUE;
+        auto* d = (Dictation*)user; d->callbacks++; d->feed((const int16_t*)data, n); return AAUDIO_CALLBACK_RESULT_CONTINUE;
     }
     void feed(const int16_t* x, int n) {
         if (!recording) return;

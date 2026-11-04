@@ -49,6 +49,7 @@ run "always-on dictation: breath vs end, queue behind replies, one mic owner, wa
 run "SETTINGS panel as one texture: dirty flag, pixels on the layout, hit-test = UiGrid (room_lab/panel_texture.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/panel_texture_test.cpp -o $T/ptex && (ulimit -v 1500000; timeout 60 $T/ptex room_lab/room_lab.cpp)"
 run "SETCAT: SETTINGS in categories, pages under 1 m, flags.json hidden/greyed, cascade hit-test (room_lab/settings_menu.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/settings_menu_test.cpp -o $T/setm && (ulimit -v 1500000; timeout 60 $T/setm room_lab/room_lab.cpp room_lab/flags.json)"
 run "flags_data.h (the registry compiled into the app) matches flags.json" python3 bench/gen_flags_data.py --check
+run "RECKEEP: CLAUDE chat history cache, last N exchanges, mic self-check (room_lab/reception_persist.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/reception_persist_test.cpp -o $T/recp && (ulimit -v 1500000; timeout 60 $T/recp)"
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py

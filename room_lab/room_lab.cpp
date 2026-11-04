@@ -30,6 +30,7 @@
 #include "dictation.h"
 #include "settings_menu.h"
 #include "flags_data.h"
+#include "reception_persist.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -258,7 +259,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -545,7 +546,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 50;
+    static constexpr int kMenuItems = 51;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -571,7 +572,7 @@ struct App {
         {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"},
         {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
-        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}};
+        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -615,6 +616,7 @@ struct App {
         if (l == "PANELTEX") return panelTexMenu;
         if (l == "DICTQ") return dictQMenu;
         if (l == "SETCAT") return setCatMenu;
+        if (l == "RECKEEP") return recKeepMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -712,7 +714,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -784,7 +786,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -843,6 +845,7 @@ struct App {
         else if (l == "CTLTOP") ctlTopMenu = !ctlTopMenu;                       // screen controls on top
         else if (l == "PANELTEX") panelTexMenu = !panelTexMenu;                 // SETTINGS as one texture
         else if (l == "DICTQ") dictQMenu = !dictQMenu;                          // queued assistant dictation
+        else if (l == "RECKEEP") recKeepMenu = !recKeepMenu;                    // CLAUDE chat across restarts
         else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -2029,6 +2032,84 @@ struct App {
             dictation.stop(); dmic.release(dictsm::Owner::Button, t); assistArmed = -1; event("dictq: 60 s quiet, mic closed");
         }
     }
+    // ---- RECKEEP (kanban K18, room_lab/reception_persist.h): the CLAUDE chat survives app restarts. Its turns are
+    // cached in files/reception-history.json whenever they settle; opening the chat shows the last kRecExchanges
+    // exchanges behind the greeting, from the receptionist's history (work-42) or else the cache; if the panel was open
+    // at shutdown (files/reception-open) it reopens in front of you 3 s after start. Under the panel a strip says
+    // whether the mic really hears anything (audio callbacks arriving): LISTENING, or NOT LISTENING - PINCH TO
+    // RESTART; a stall also restarts the mic by itself every 5 s.
+    static constexpr int kRecExchanges = 8;
+    recpersist::MicCheck recMic; bool recStartDone = false, recStripHover = false; long recSavedVersion = -1, recRestores = 0, recMicRestarts = 0;
+    std::string recHistorySource;
+    static constexpr const char* kRecGreeting = "Hi, this goes to work-df. Speak, and pause when you are done.";
+    void recRestoreHistory() {
+        std::string host = assistHost, conv = receptionId(), cache = gDir + "/reception-history.json";
+        std::thread([this, host, conv, cache] {
+            house::Response r = house::http(host, 57840, "GET", "/api/reception/history?conversation_id=" + conv + "&limit=" + std::to_string(kRecExchanges * 4));
+            bool ok = false; json::Value v = json::parse(r.body, &ok);
+            std::vector<recpersist::Msg> server = r.status == 200 && ok ? recpersist::fromJson(v) : std::vector<recpersist::Msg>{}, local;
+            { std::ifstream f(cache); std::stringstream ss; ss << f.rdbuf(); bool lok = false; json::Value lv = json::parse(ss.str(), &lok); if (lok) local = recpersist::fromJson(lv); }
+            auto msgs = recpersist::pick(server, local, kRecExchanges);
+            std::lock_guard<std::mutex> g(assistLock);
+            recHistorySource = !server.empty() ? "server" : !local.empty() ? "cache" : r.status == 200 ? "none" : "none (server " + std::to_string(r.status) + ")";
+            if (msgs.empty()) return;
+            assist::Chat& c = chats[0]; std::vector<assist::Turn> live = c.turns, turns;  // history goes behind what is there now
+            for (auto& m : msgs) turns.push_back({m.role, m.text, "", {}, true, false});
+            turns.insert(turns.end(), live.begin(), live.end()); c.turns.swap(turns); c.version++; recRestores++;
+        }).detach();
+    }
+    // Returns true when the right hand pinched the mic strip this frame.
+    bool updateRecKeep() {
+        float t = now();
+        if (!recStartDone && t > 3) {  // reopen what was open at shutdown, in front of you like the CLAUDE button
+            recStartDone = true; std::ifstream f(gDir + "/reception-open"); std::string s;
+            if (f >> s && s == "1" && !chatOpen.count(0)) { event("reception: reopening the chat that was open at shutdown"); shoulderAction("restore", "ask"); }
+        }
+        if (!chatOpen.count(0)) { recMic.state = recpersist::MicCheck::Off; return false; }
+        {   long ver; std::string st; std::vector<recpersist::Msg> msgs;  // cache the turns once they settle
+            { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[0]; ver = c.version; st = c.state;
+              if (ver != recSavedVersion && st != "sending" && st != "streaming") for (auto& tr : c.turns) if (tr.text != kRecGreeting) msgs.push_back({tr.role, tr.text}); }
+            if (ver != recSavedVersion && st != "sending" && st != "streaming") {
+                recSavedVersion = ver;
+                if (!msgs.empty()) house::writeAtomic(gDir + "/reception-history.json", recpersist::toJson(recpersist::lastExchanges(msgs, kRecExchanges * 3), receptionId()));
+            }
+        }
+        if (assistArmed == 0 && recMic.update(t, dictation.recording, dictation.callbacks.load())) {
+            recMicRestarts++; event("reception: mic stalled, restarting"); dictation.stop(); dictation.start();
+        }
+        recStripHover = false;
+        if (!(handActive[1] && ray[1].valid)) return false;
+        float sx, sy; if (!recStripHit(ray[1].o, ray[1].d, sx, sy)) return false;
+        recStripHover = true;
+        if (ray[1].pinch && !pinchPrev[1]) {
+            recMic.restarted(t); recMicRestarts++; event("reception: mic restarted by hand");
+            if (dictation.recording) dictation.stop();
+            if (assistArmed != 0) assistListen(0); else dictation.start();
+        }
+        return true;
+    }
+    // The strip: kChatW wide, 4 cm tall, 3 cm under the CLAUDE panel (0.7 m tall, centred at roomChatAt).
+    void recStripFrame(V3& c, V3& r, V3& n) const { r = {std::cos(roomChatYaw), 0, -std::sin(roomChatYaw)}; n = {std::sin(roomChatYaw), 0, std::cos(roomChatYaw)}; c = roomChatAt - V3{0, 0.35f + 0.05f, 0}; }
+    bool recStripHit(V3 o, V3 d, float& x, float& y) const {
+        V3 c, r, n; recStripFrame(c, r, n); float dn = dot(d, n); if (std::fabs(dn) < 1e-5f) return false;
+        float t = dot(c - o, n) / dn; if (t <= 0) return false;
+        V3 p = o + d * t - c; x = dot(p, r); y = p.y;
+        return std::fabs(x) < kChatW / 2 && std::fabs(y) < 0.02f + 0.01f;
+    }
+    void drawRecStrip(Batch& b) {
+        if (!(recKeepMenu && receptionOn() && chatOpen.count(0))) return;
+        V3 c, r, n; recStripFrame(c, r, n);
+        Entity e; e.pose.orientation = {0, std::sin(roomChatYaw / 2), 0, std::cos(roomChatYaw / 2)}; e.pose.position = {c.x, c.y, c.z};
+        bool ok = recMic.state == recpersist::MicCheck::Listening;
+        float bg[4] = {0.05f, 0.06f, 0.08f, recStripHover ? 0.95f : 0.8f}; const float green[4] = {0.3f, 0.9f, 0.45f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1}, white[4] = {0.95f, 0.97f, 1.0f, 1};
+        if (recStripHover) for (int k = 0; k < 3; k++) bg[k] += 0.12f;
+        float hw = kChatW / 2, hh = 0.02f;
+        b.quad(xform(e.pose, {-hw, -hh, 0}), xform(e.pose, {hw, -hh, 0}), xform(e.pose, {hw, hh, 0}), xform(e.pose, {-hw, hh, 0}), bg);
+        float dr = ok ? 0.006f + 0.004f * std::fmin(dictation.level.load() / 3000.0f, 1.0f) : 0.007f, dx = -hw + 0.03f;
+        b.quad(xform(e.pose, {dx - dr, -dr, 0.002f}), xform(e.pose, {dx + dr, -dr, 0.002f}), xform(e.pose, {dx + dr, dr, 0.002f}), xform(e.pose, {dx - dr, dr, 0.002f}), ok ? green : red);
+        const char* label = recMic.label();
+        text(b, e, 0.015f, 0, 0.002f, UiGrid::fit(label, 0.0035f, kChatW - 0.09f, 0.025f), label, white);
+    }
     void updateReceptionMic(std::chrono::steady_clock::time_point tn) {
         // Never stuck: while the chat is open the mic is on; if it stopped (or a stop never drained) start it again.
         if (!dictation.recording && tn - recRestartAt > std::chrono::seconds(2)) {
@@ -2087,7 +2168,11 @@ struct App {
         bool rec = id == 0 && receptionOn();
         { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear();
           c.greet(rec ? "Hi, this goes to work-df. Speak, and pause when you are done." : id == 0 ? "Hi, what should I do with the room?" : "Hi, what do you want on this screen?"); }
-        if (rec) { receptionQueue.clear(); recLoudAt = recRestartAt = std::chrono::steady_clock::now(); assistListen(id); event("reception: chat opened (" + receptionId() + ")"); return; }
+        if (rec) {
+            receptionQueue.clear(); recLoudAt = recRestartAt = std::chrono::steady_clock::now(); assistListen(id); event("reception: chat opened (" + receptionId() + ")");
+            if (recKeepMenu) { house::writeAtomic(gDir + "/reception-open", "1"); recRestoreHistory(); }
+            return;
+        }
         std::string host = assistHost;
         std::thread([this, id, host] {  // the conversation so far, behind the greeting
             house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
@@ -2106,6 +2191,7 @@ struct App {
     }
     void assistClose(int id) {
         chatOpen.erase(id);
+        if (id == 0 && recKeepMenu) house::writeAtomic(gDir + "/reception-open", "0");
         if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; dqReset(); dmic.release(dictsm::Owner::Button, now()); }
         event("assist: chat closed for screen " + std::to_string(id));
     }
@@ -2115,6 +2201,7 @@ struct App {
         if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; dmic.release(dictsm::Owner::Button, now()); } chatOpen.clear(); return false; }
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
+        bool recStrip = recKeepMenu && receptionOn() && updateRecKeep();  // the mic strip took the hand (after the mic logic below)
         if (dictQMenu && assistArmed >= 0) updateDictQ();
         else if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
         else {
@@ -2133,6 +2220,7 @@ struct App {
             if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = -1; assistWaiting = false; } }
         }
         }
+        if (recStrip) return true;
         if (!(handActive[1] && ray[1].valid)) return false;
         float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
         std::vector<int> ids; assistScreens(ids);
@@ -2155,7 +2243,7 @@ struct App {
     void drawAssist(Batch& b) {
         chatQuads.clear();
         if (!assistOn()) return;
-        drawRoomChat();
+        drawRoomChat(); drawRecStrip(b);
         std::vector<int> ids; assistScreens(ids); float t = now();
         for (int id : ids) {
             Placement p; Entity* w; if (!screenFor(id, p, w)) continue;
@@ -4657,6 +4745,9 @@ void main(){
             << ",\"heard\":" << assistBuffer.size() << ",\"dictq\":{\"on\":" << (dictQMenu ? 1 : 0) << ",\"state\":\"" << dictsm::name(dqState) << "\",\"queued\":" << dqQueued
             << ",\"owner\":\"" << dictsm::name(dmic.owner) << "\",\"sent\":" << dqSent << ",\"restarts\":" << dqRestarts << ",\"cuts\":" << dqCuts
             << ",\"replyTimeouts\":" << dq.replyTimeouts << ",\"closeTimeouts\":" << dq.closeTimeouts << ",\"forcedCuts\":" << dq.forcedCuts << "}}"; }
+        { std::string src; { std::lock_guard<std::mutex> g(assistLock); src = recHistorySource; }
+          j << ",\"reckeep\":{\"on\":" << (recKeepMenu ? 1 : 0) << ",\"mic\":\"" << recMic.label() << "\",\"micRestarts\":" << recMicRestarts << ",\"autoRestarts\":" << recMic.autoRestarts
+            << ",\"restores\":" << recRestores << ",\"history\":\"" << jsonEscape(src) << "\",\"callbacks\":" << dictation.callbacks.load() << "}"; }
         j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
