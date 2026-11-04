@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         float mp = 1; for (auto& t : cf.texts) mp = std::min(mp, t.px);
         check(mp * pf.tpm >= 2.5f - 1e-3f, "15 items: smallest text gets the full 2.5 texels per font pixel"); }
     check(quads > 5000, "the quad path it replaces is large");
-    check(ms < 200, "render well under a frame budget's worth of seconds (done once per change)");
+    check(ms < 1000, "render under 1 s (once per change, on a worker thread: never in a frame)");
 
     // 2. Dirty flag: same content no; a toggled item, a changed label or hint yes; render only when dirty.
     check(!P.set(fromGrid(g, labels, on, "SETTINGS")) && !P.dirty(), "same content: not dirty");

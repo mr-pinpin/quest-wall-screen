@@ -841,6 +841,32 @@
           "commit": "2dbd004"
         }
       ]
+    },
+    {
+      "name": "MESHBATCH",
+      "where": "headset",
+      "default": false,
+      "state": "off",
+      "category": "perf",
+      "reason": "Room mesh blocks in one sub-allocated vertex buffer (room_lab/mesh_arena.h): changed blocks rewrite only their range and the visible blocks draw as a few merged runs instead of one draw per block (hundreds per eye with GEOMETRY or a scan). Off until frameCost on the headset shows the gain; bench/mesh_arena_test.cpp checks exactness over 600 scan frames.",
+      "evidence": [
+        {
+          "commit": "7350d55"
+        }
+      ]
+    },
+    {
+      "name": "BEZELFEW",
+      "where": "headset",
+      "default": true,
+      "state": "on",
+      "category": "perf",
+      "reason": "The AMBI frame under VT cut only where the tile under it changes (room_lab/vt_strip.h) instead of 16 pieces per strip: 392 quads instead of 3136 for 7 screens, same picture (bench/vt_strip_test.cpp). On as a fix.",
+      "evidence": [
+        {
+          "commit": "7350d55"
+        }
+      ]
     }
   ]
 }
