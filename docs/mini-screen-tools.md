@@ -1,5 +1,18 @@
 # Mini screen-tools contract (K20)
 
+> **SHELVED 2026-11-04 (work-df + work-c4).** The MINI screen turned out to be the Atlas Chrome
+> kiosk (chrome-atlas-profile, atlas-webgpu.html) with remote debugging on 127.0.0.1:9612 — not a
+> native-desktop display. So K20 is done the way the Air web screens work: **CDP** —
+> `Page.captureScreenshot` for /shot, `Input.dispatchMouseEvent` + `insertText` for input, reusing
+> work-ad's runner CDP code. That needs **no Screen Recording or Accessibility grant** (the user's
+> "no further permissions"). The native helper below (built, compiles on the Air targeting macos14,
+> runs on the Mini) is KEPT for a future native-desktop case but is NOT used for K20. The VPS brain
+> is built against the CDP path instead. Button entry unchanged: the MINI Claude button posts to
+> /session/1.
+
+---
+
+
 Token-protected HTTP on the Mini, served by `pinpin-mini-screen` (a small helper with its own
 Screen-Recording + Accessibility grant). It exposes screenshot + input of ONE display — the MINI
 wall screen, the virtual display named **"PinPin Atlas Owned"** (the one Sunshine streams). The
