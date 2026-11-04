@@ -3,7 +3,8 @@
     python3 house/migrate.py DIR [--walls walls.json] [--out house.json]
 
 DIR holds the pulled files (any may be missing). --walls: optional scene wall list from the headset,
-[{"uuid": 32-hex, "label": "WALL_FACE", "w": m, "h": m}], to fill wall extents and kinds. Without it a wall is known
+[{"uuid": 32-hex, "label": "WALL_FACE", "w": m, "h": m}] or {"walls": [...]}, to fill wall extents and kinds; every
+scene plane in it becomes a wall of the house (GLOBAL_MESH, a mesh rather than a plane, is skipped). Without it a wall is known
 only by its scene uuid, which is all today's files carry; the headset fills in the rest on its first sync.
 Nothing is dropped: every value the old files hold has a place in the house (checked by house/test_house.py).
 """
@@ -29,7 +30,9 @@ def build(placement=None, screens=None, settings=None, walls=None, when=''):
     doc = schema.empty()
     doc['updated'], doc['by'] = when, 'migrate'
     doc['rooms'] = [{'id': 'r1', 'name': 'home', 'anchors': []}]
-    scene = {w['uuid']: w for w in (walls or [])}
+    if isinstance(walls, dict):
+        walls = walls.get('walls', [])
+    scene = {w['uuid']: w for w in (walls or []) if w.get('label') != 'GLOBAL_MESH'}
     wall_of = {}
 
     def wall(uuid):
@@ -76,6 +79,8 @@ def build(placement=None, screens=None, settings=None, walls=None, when=''):
     if isinstance(st.get('toggles'), dict):
         out['toggles'] = {k: bool(v) for k, v in st['toggles'].items()}
     doc['settings'] = out
+    for uuid in scene:  # the rest of the house: planes nothing references yet
+        wall(uuid)
     return doc
 
 

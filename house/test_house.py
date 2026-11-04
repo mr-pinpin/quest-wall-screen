@@ -110,6 +110,17 @@ class Migration(unittest.TestCase):
         w = [w for w in d['walls'] if w['scene'] == [PLACEMENT['wall']]][0]
         self.assertEqual((w['kind'], w['w'], w['h']), ('wall', 4.1, 2.6))
 
+    def test_all_scene_planes_become_walls(self):
+        walls = {'walls': [{'uuid': PLACEMENT['wall'], 'label': 'WALL_FACE', 'w': 4.1, 'h': 2.6},
+                           {'uuid': 'c' * 32, 'label': 'FLOOR', 'w': 5, 'h': 4},
+                           {'uuid': 'd' * 32, 'label': 'GLOBAL_MESH'}]}
+        d = migrate.build(PLACEMENT, SCREENS, SETTINGS, walls)
+        self.assertEqual(schema.validate(d), [])
+        kinds = {w['scene'][0]: w['kind'] for w in d['walls']}
+        self.assertEqual(kinds.get('c' * 32), 'floor')
+        self.assertNotIn('d' * 32, kinds)
+        self.assertEqual(len(d['walls']), 4)
+
     def test_missing_files(self):
         self.assertEqual(schema.validate(migrate.build()), [])
 
