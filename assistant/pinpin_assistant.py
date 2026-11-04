@@ -41,6 +41,24 @@ def pick_model(text, think):
     return MODEL_FAST if _ACTION_RE.search(text or "") else MODEL_CHAT
 
 
+def context_note(msgs):
+    """A compact preamble so a warm (chat) process learns what happened in cold (action/build) turns it didn't
+    run — the user's words, the actions taken, and the reply. Keeps mixed conversations coherent."""
+    if not msgs:
+        return ""
+    lines = []
+    for m in msgs:
+        txt = (m.get("content") or "").strip().replace("\n", " ")[:280]
+        if m.get("role") == "user":
+            lines.append(f"User: {txt}")
+        else:
+            acts = m.get("actions") or []
+            did = (" [did: " + "; ".join(acts) + "]") if acts else ""
+            lines.append(f"You: {txt}{did}")
+    return ("[Earlier in this conversation, for context — use it, don't repeat it:\n"
+            + "\n".join(lines) + "\n]\n\n")
+
+
 def chat_system_prompt(screen):
     return (
         f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
@@ -317,6 +335,7 @@ class WarmProc:
         self.last = time.time()
         self.lock = threading.Lock()
         self.session_id = None
+        self.seen = 0  # transcript messages already in this process's context (watermark)
         argv = [claude_bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                 "--include-partial-messages", "--model", MODEL_CHAT, "--verbose",
                 "--append-system-prompt", chat_system_prompt(screen),
@@ -461,7 +480,15 @@ class ClaudeCliBackend(ModelBackend):
         # (dead/spawn fail before any output), fall back to the cold path below. Action/build/think use cold.
         if not think and pick_model(text, think) == MODEL_CHAT:
             try:
-                return self.pool.get(str(screen)).run_turn(text, emit, deadline)
+                wp = self.pool.get(str(screen))
+                # Catch the warm process up on transcript it didn't run (cold turns, pre-spawn history). The
+                # current user message is already appended at the tail, so exclude it from the preamble.
+                msgs = session.get("messages", [])
+                lo = max(wp.seen, len(msgs) - 1 - 10)  # at most the last ~10 unseen messages (seed/catch-up)
+                preamble = context_note(msgs[lo:len(msgs) - 1]) if len(msgs) > 1 else ""
+                stop = wp.run_turn(preamble + text if preamble else text, emit, deadline)
+                wp.seen = len(msgs) + 1  # +1 for the assistant reply handle_message appends after this returns
+                return stop
             except Exception as e:
                 sys.stderr.write(f"{NOW()} warm turn failed ({e}); falling back to cold\n")
         argv, env = self._argv(session, text, think, screen)
@@ -580,6 +607,50 @@ class Assistant:
         self.store.log_action(screen or "ask", {"type": "ask", "app": app, "prompt": prompt[:200], "model": model})
         return self.backend.ask(prompt, system=system, want_json=want_json, model=model)
 
+    def _apps_ids(self):
+        try:
+            with urllib.request.urlopen(APPS_BASE + "/api/apps", timeout=10) as r:
+                data = json.load(r)
+            rows = data if isinstance(data, list) else data.get("apps", [])
+            return {x.get("id") for x in rows if isinstance(x, dict)}
+        except Exception:
+            return set()
+
+    def _app_commit(self, app):
+        try:
+            with urllib.request.urlopen(f"{APPS_BASE}/api/apps/{app}", timeout=10) as r:
+                return json.load(r).get("commit")
+        except Exception:
+            return None
+
+    def build_app(self, prompt, app=None, screen=None):
+        """Control-page 'ask Claude to build an app'. Runs a build turn (sonnet + app tools) in a dedicated
+        'build' session so it never touches per-screen chat; then WE assign it to the screen (if given) so the
+        model stays out of screen state. Returns {text, app, commit, assigned?}."""
+        before = self._apps_ids()
+        text = (prompt or "").strip()
+        if app:
+            text += f'\n\n(Modify the existing app "{app}".)'
+        text += "\n\n(Build it and make sure it render-checks clean with put_app. Do NOT assign it to a screen.)"
+        self.store.log_action("build", {"type": "build", "prompt": text[:200], "app": app, "screen": screen})
+        parts = []
+        self.handle_message("build", text, False,
+                            lambda ev: parts.append(ev["delta"]) if ev.get("type") == "text" else None,
+                            turn="build")
+        after = self._apps_ids()
+        new_app = app or next(iter(after - before), None)
+        res = {"text": "".join(parts).strip(), "app": new_app, "commit": self._app_commit(new_app) if new_app else None}
+        if new_app and screen is not None and str(screen) != "":
+            try:
+                req = urllib.request.Request(f"{APPS_BASE}/api/screens/{screen}/app",
+                                             data=json.dumps({"app": new_app}).encode(),
+                                             headers={"Content-Type": "application/json"}, method="POST")
+                urllib.request.urlopen(req, timeout=10).read()
+                res["assigned"] = screen
+            except Exception as e:
+                res["assign_error"] = str(e)
+        return res
+
 
 # ---- HTTP -------------------------------------------------------------------
 def make_handler(assistant):
@@ -638,6 +709,9 @@ def make_handler(assistant):
                     r = assistant.ask(b.get("app"), b.get("screen"), b.get("prompt", ""),
                                       b.get("system"), bool(b.get("json")), b.get("model"))
                     return self._json(200, r)
+                if u.path == "/api/build":
+                    b = self._body()
+                    return self._json(200, assistant.build_app(b.get("prompt", ""), b.get("app"), b.get("screen")))
                 if len(parts) == 3 and parts[0] == "session" and parts[2] == "reset":
                     assistant.store.reset(parts[1]); return self._json(200, {"ok": True})
                 if len(parts) == 3 and parts[0] == "session" and parts[2] == "message":
