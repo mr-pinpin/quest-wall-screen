@@ -24,7 +24,7 @@ def atlas(r):
 def game(r):
     """Numbers behind gate.gaming(): frame latency p50/p99 (ms), host ms, fps, stalls over 100 ms."""
     series = r.get('series') or []
-    g = [x.get('game') or {} for x in series]
+    g = [(x.get('game') or {}) if isinstance(x, dict) else {} for x in series]  # sim runs record plain numbers
     if not g or not any('displayed' in x for x in g): return {}
     first, last = g[0], g[-1]
     span = max(1e-6, series[-1]['t'] - series[0]['t'])

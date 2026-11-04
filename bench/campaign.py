@@ -67,6 +67,7 @@ def main():
     ap.add_argument('--block', required=True); ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--configs', required=True, help='name=flags,... (base= for no flags)')
     ap.add_argument('--pairs', required=True, help='rule:on:off,... (verdict.py rule, config names)')
+    ap.add_argument('--runs', help='report only: a JSON {config: [result path per round]} from an earlier run of this block')
     a = ap.parse_args(argv)
     # configs: "base=,longgop=longgop,vthero=vt+hero" (+ joins flags inside one config)
     configs = [(c.split('=', 1)[0], c.split('=', 1)[1].replace('+', ',')) for c in a.configs.split(',')]
@@ -75,9 +76,12 @@ def main():
     for rule, on, off in pairs:
         if on not in names or off not in names: sys.exit(f'pair {rule}:{on}:{off} names an unknown config')
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M')
-    log(f'campaign[{os.getpid()}] START block {a.block}: {a.rounds} rounds x {len(configs)} configs ({", ".join(names)}); stress {" ".join(extra)}')
     results = {n: [None] * a.rounds for n in names}
-    for r in range(a.rounds):
+    if a.runs:
+        results.update(json.load(open(a.runs)))
+    else:
+        log(f'campaign[{os.getpid()}] START block {a.block}: {a.rounds} rounds x {len(configs)} configs ({", ".join(names)}); stress {" ".join(extra)}')
+    for r in range(0 if a.runs else a.rounds):
         order = configs[r % len(configs):] + configs[:r % len(configs)]
         for name, flags in order:
             path, out = run(flags, extra)
@@ -116,7 +120,7 @@ def main():
     for k, v in report['verdicts'].items():
         md.append(f'| {k} | **{v["verdict"]}** | ' + '<br>'.join(f'{x["verdict"]}: {x["why"]}' for x in v['rounds']) + ' |')
     (res / f'campaign-{a.block}-{stamp}.md').write_text('\n'.join(md) + '\n')
-    log(f'campaign[{os.getpid()}] END block {a.block}: ' + ', '.join(f'{k.split(" ")[0]} {v["verdict"]}' for k, v in report['verdicts'].items())
+    log(f'campaign[{os.getpid()}] {"REPORT" if a.runs else "END"} block {a.block}: ' + ', '.join(f'{k.split(" ")[0]} {v["verdict"]}' for k, v in report['verdicts'].items())
         + f'; bench/results/campaign-{a.block}-{stamp}.md')
     print('\n'.join(md))
 
