@@ -37,6 +37,7 @@
 #include "rawsurface.h"
 #include "roomplanes.h"
 #include "pointer_seq.h"
+#include "wallmerge.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -1386,22 +1387,23 @@ struct App {
             o.o["id"] = house::str(id); o.o["room"] = house::str("r1"); o.o["kind"] = house::str(wallfit::kindName(w.kind));
             if (!o.has("source")) o.o["source"] = house::str(uuid.empty() ? "depth" : "scene");
             if (!uuid.empty() && !o.has("scene")) { json::Value sc = house::arr(); sc.a.push_back(house::str(uuid)); o.o["scene"] = sc; }
-            o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), w.pose())); o.o["w"] = house::num(w.w); o.o["h"] = house::num(w.h);
-            json::Value fit = house::obj(); fit.o["rms_m"] = house::num(w.rms_m); fit.o["samples"] = house::num((double)w.samples); fit.o["updated"] = house::str(stamp);
-            o.o["fit"] = fit;
+            // A Meta scene wall keeps its pose and size (the fit only goes under "fit"); our depth walls only grow (wallmerge.h).
+            bool sceneWall = !uuid.empty() || o["source"].str() == "scene";
+            o = wallmerge::merge(o, sceneWall, poseJson(anchors::compose(anchors::inverse(room), w.pose())), w.w, w.h, w.rms_m, (double)w.samples, stamp);
             edits.push_back({"walls", id, o});
         }
-        // Every located scene wall whose house wall has no fitted pose gets its scene pose in the room frame, so one
-        // SCAN orients the whole floor plan; depth-fitted poses (with fit) are kept.
-        std::set<std::string> fitted; for (auto& e : edits) fitted.insert(e.id);
-        for (auto& hw : doc["walls"].a) if (hw.has("fit")) fitted.insert(hw["id"].str());
+        // Every located scene wall without a pose gets Space Setup's own pose and size in the room frame, so one SCAN
+        // orients the whole floor plan. A wall that already has a pose is left as it is.
         for (size_t i = 0; i < scene.size(); i++) {
             std::string id; for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == sceneIds[i]) id = hw["id"].str();
-            if (id.empty() || fitted.count(id)) continue;
-            json::Value o = house::obj(); for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
+            if (id.empty()) continue;
+            house::Edit* ed = nullptr; for (auto& e : edits) if (e.id == id) ed = &e;
+            json::Value o = house::obj();
+            if (ed) o = ed->obj; else for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
+            if (o.has("pose")) continue;
             o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), scene[i].pose)); o.o["w"] = house::num(scene[i].w); o.o["h"] = house::num(scene[i].h);
             if (!o.has("source")) o.o["source"] = house::str("scene");
-            edits.push_back({"walls", id, o});
+            if (ed) ed->obj = o; else edits.push_back({"walls", id, o});
         }
         json::Value r1 = house::obj(); r1.o["id"] = house::str("r1"); r1.o["name"] = house::str("home");
         for (auto& r : doc["rooms"].a) if (r["id"].str() == "r1") r1 = r;

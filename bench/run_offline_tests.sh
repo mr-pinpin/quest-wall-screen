@@ -29,6 +29,7 @@ run "assistant backend (offline model + screen mocks)" python3 bench/assistant_m
 run "assistant client: SSE, chat, wrapping (room_lab/assist.h)" bash bench/assist_test.sh
 run "placements never disappear (room_lab/placement_guard.h, simulated scene timing)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/placement_guard_test.cpp -o $T/pg && $T/pg"
 run "main-screen pointer: position before every button (room_lab/pointer_seq.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/pointer_seq_test.cpp -o $T/ps && $T/ps"
+run "SCAN never shrinks or moves a house wall (room_lab/wallmerge.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/wallmerge_test.cpp -o $T/wm && $T/wm"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "depth wall fitting on a real Quest depth frame (both eyes agree on the wall)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_replay.cpp -o $T/wfreplay && $T/wfreplay house/fixtures/depth-47041720"
