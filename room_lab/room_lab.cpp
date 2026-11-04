@@ -1739,7 +1739,7 @@ struct App {
     // ---- files/ui-demo (self-test hook for screenshots with nobody wearing the headset): the file's one word opens
     // that UI state synthetically, then the file is removed. Only menus/tool/panel state; nothing is sent anywhere.
     //   shoulder | settings | walls (WALLS palette + a dashed line preview on the wall in view) | wrist | assist
-    //   (a local demo chat beside the main screen) | close
+    //   (a local demo chat beside the main screen) | scan | scan-done | click:<id>:<u>:<v> | scroll:<id>:<dy> | close
     void uiDemo(const std::string& scene) {
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
@@ -1765,6 +1765,14 @@ struct App {
             json::Value e = json::parse("{\"type\":\"text\",\"turnId\":\"demo\",\"delta\":\"Opening **YouTube** and searching for *lofi*.\\n- found a 24/7 stream\\n- playing it now\"}"); c.apply(e);
             c.apply(json::parse("{\"type\":\"action\",\"turnId\":\"demo\",\"action\":\"open_url\",\"detail\":\"youtube.com\",\"status\":\"begin\"}"));
             c.apply(json::parse("{\"type\":\"done\",\"turnId\":\"demo\"}"));
+        } else if (scene == "scan") { scanStart();
+        } else if (scene == "scan-done") { scanFinish();
+        } else if (scene.rfind("click:", 0) == 0 || scene.rfind("scroll:", 0) == 0) {  // click:<id>:<u>:<v> / scroll:<id>:<dy>, the same routing as a pinch / wave
+            int id = 0, a = 0, b = 0; bool click = scene[1] == 'l';
+            sscanf(scene.c_str() + (click ? 6 : 7), "%d:%d:%d", &id, &a, &b);
+            if (click) { if (webScreen(id)) cdpPost(id, "click", "{\"u\":" + std::to_string(a) + ",\"v\":" + std::to_string(b) + "}"); else sendMouse('c', id, a / 10000.0f, b / 10000.0f); }
+            else if (webScreen(id)) cdpPost(id, "scroll", "{\"u\":5000,\"v\":5000,\"dx\":0,\"dy\":" + std::to_string(a) + "}");
+            event(std::string("ui-demo: ") + (click ? "click" : "scroll") + " on screen " + std::to_string(id) + (webScreen(id) ? " via CDP" : " via UDP"));
         } else if (scene == "close") { sm.stack.clear(); wt.cancel(); chatOpen.erase(1); std::lock_guard<std::mutex> g(assistLock); chats.erase(1); }
         event("ui-demo: " + scene + " (" + wallshape::stateName(wt.state()) + ")");
     }
