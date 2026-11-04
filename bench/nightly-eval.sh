@@ -19,7 +19,8 @@ if [ -z "$L1" ] || awk "BEGIN{exit !($L1 > 4)}"; then log "SKIP: Air load=${L1:-
 
 log "START (Air load $L1)"
 # fresh scratch house
-$SSH pinpin-mini 'pkill -f "server.py --data.*pinpin-house-scratch" 2>/dev/null; sleep 1; rm -rf ~/pinpin-house-scratch; cp -R ~/pinpin-house ~/pinpin-house-scratch; cd ~/pinpin-house-server; nohup python3 server.py --data ~/pinpin-house-scratch --port 57801 >/tmp/house-scratch.log 2>&1 & disown' 2>/dev/null; sleep 3
+# scratch house is a Mini LaunchAgent (io.mr-pinpin.house-scratch, one owner): bootout, refresh data, bootstrap (work-ad)
+$SSH pinpin-mini 'U=gui/$(id -u); launchctl bootout $U/io.mr-pinpin.house-scratch 2>/dev/null; pkill -f "server.py --data.*pinpin-house-scratch" 2>/dev/null; sleep 1; rm -rf ~/pinpin-house-scratch; cp -R ~/pinpin-house ~/pinpin-house-scratch; launchctl bootstrap $U ~/Library/LaunchAgents/io.mr-pinpin.house-scratch.plist; for i in 1 2 3 4 5 6 7 8; do curl -s -m2 127.0.0.1:57801/health >/dev/null && break; sleep 1; done' 2>/dev/null
 scp -q -o BatchMode=yes "$REPO/bench/assistant_eval.py" pinpin-air:/tmp/assistant_eval.py 2>/dev/null
 OUT=$($SSH pinpin-air 'bash -s' < "$REPO/bench/eval_run.sh" 2>&1)
 SUMMARY=$(echo "$OUT" | grep -m1 '^PASS [0-9]')
