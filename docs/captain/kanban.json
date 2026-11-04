@@ -1,5 +1,5 @@
 {
- "rev": 70,
+ "rev": 74,
  "next": 28,
  "cards": [
   {
@@ -754,13 +754,13 @@
   {
    "title": "Mini Claude button: run brain on VPS/Air, Mini exposes only screen tools over token LAN API; drop Mini claude + Mini assistant plugin; supersede docs/mini-assistant-reauth.md",
    "details": "",
-   "column": "backlog",
+   "column": "doing",
    "owner": "work-42",
    "area": "platform",
    "links": [],
    "id": "K20",
    "created": "2026-11-04T10:47:25Z",
-   "updated": "2026-11-04T10:47:25Z",
+   "updated": "2026-11-04T12:01:11Z",
    "by": "work-42",
    "comments": [],
    "history": [
@@ -769,6 +769,13 @@
      "by": "work-42",
      "what": "created",
      "column": "backlog"
+    },
+    {
+     "at": "2026-11-04T12:01:11Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "backlog",
+     "to": "doing"
     }
    ]
   },
@@ -882,21 +889,50 @@
   {
    "title": "colorsync CPU on the Air: which display/event drives it",
    "details": "30-min read-only correlation of colorsyncd + colorsync.displayservices CPU against the pinpin-displays log, atlas capture restarts and per-display config (scale, HDR, profile); find the driver and propose a fix; then air_smoke under the exclusive lock in a gap of work-34's campaign. Follows K21 (wallpaper ruled out).",
-   "column": "doing",
+   "column": "review",
    "owner": "work-ad",
    "area": "perf",
    "links": [],
    "id": "K24",
    "created": "2026-11-04T11:25:31Z",
-   "updated": "2026-11-04T11:25:31Z",
+   "updated": "2026-11-04T12:01:50Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T12:01:35Z",
+     "by": "work-ad",
+     "text": "FINDINGS (30 min read-only, 11:27–11:57 UTC; data: Air ~/.local/share/pinpin-apps/colorsync-study-20261104T112707Z).\n- colorsyncd + displayservices averaged 38% of a core (p90 58%) and GREW over the 30 min: displayservices 19.7 -> 28.2%, colorsyncd 11.9 -> 17.1%. No other process grew.\n- The work is XPC display-info requests; each one rebuilds the profiles of all 7 displays. The rate went from 92/min to 203/min (4428 in total).\n- DRIVER: virtual-display churn. The rate steps up whenever a virtual display is created and removed, and never comes back down:\n  - 11:29 display 10: +15/min\n  - 11:39 display 11: +11/min\n  - 11:43 display 11 removed: 140 -> 156\n  - 11:51 display 12: +12/min\n  - 11:55 display 13: +18/min\n  Each one was pinpin-displays 'screen 63 -> display N (1600x1000 @1x)', living 12 s to 4 min.\n- Not the driver: the 29 atlas restarts (a step of about 0), the per-display config (all sRGB, 60 Hz, no HDR, no profile changes), or the wallpaper.\n- Extrapolation: about +100 req/min and +13 CPU points per half hour at this churn, reaching a full core after hours of uptime. That matches the ~100% before the reboot."
+    },
+    {
+     "at": "2026-11-04T12:01:50Z",
+     "by": "work-ad",
+     "text": "WHO MAKES SCREEN 63: unknown. It isn't stress.py (synth now; sck uses ids 2–11), eval_run.sh (60) or the apps tests (47). PinPin Host closes a status-bar window at the same moments, so it's probably something Host- or headset-driven.\nPROPOSED FIX:\nA) No churn. Create virtual displays once from a fixed pool of scratch ids and never remove them per run; tests reuse them (60, 47, 63...). The macOS display ids stop counting up.\nB) Mitigation until then. Restart colorsync.displayservices when it stays above ~40% for 10 min. It's in the system launchd domain, so this needs root (a privileged helper in PinPin Host); launchd relaunches it with fresh state. Test it once under an exclusive lock.\nC) Visibility. A colorsync line on /status (CPU and requests/min), red above 40%, so the creep shows before air_smoke fails. I can do C now."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T11:25:31Z",
      "by": "work-ad",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T12:01:17Z",
+     "by": "work-ad",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "driver found: virtual-display create/remove permanently raises colorsync display-info polling; fix A no churn, B privileged restart, C /status line"
+    },
+    {
+     "at": "2026-11-04T12:01:35Z",
+     "by": "work-ad",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T12:01:50Z",
+     "by": "work-ad",
+     "what": "commented"
     }
    ]
   },
@@ -964,5 +1000,5 @@
    ]
   }
  ],
- "updated": "2026-11-04T11:58:11Z"
+ "updated": "2026-11-04T12:01:50Z"
 }
