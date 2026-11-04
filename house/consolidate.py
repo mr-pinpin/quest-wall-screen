@@ -757,7 +757,10 @@ def duplicates(walls):
 
 
 def src_hash(doc):
-    return hashlib.sha256(json.dumps({'walls': doc.get('walls', []), 'rooms': doc.get('rooms', []), 'algo': ALGO},
+    """What the plan depends on: walls and rooms, without their mesh blobs (a new room mesh every few minutes must
+    not recompute the plan)."""
+    strip = lambda items: [{k: v for k, v in it.items() if k != 'mesh'} if isinstance(it, dict) else it for it in items]
+    return hashlib.sha256(json.dumps({'walls': strip(doc.get('walls', [])), 'rooms': strip(doc.get('rooms', [])), 'algo': ALGO},
                                      sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 

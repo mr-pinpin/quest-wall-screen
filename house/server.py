@@ -17,6 +17,12 @@ refuses truncated, corrupt, invalid or stale writes.
   GET  /house/rev/N            the house as it was at revision N
   POST /house/rollback?rev=N   new revision with revision N's content (If-Match: current rev)
   PUT  /blob/<sha256>          a mesh or other binary; the body must hash to the name. GET /blob/<sha256>.
+                               Blobs live outside git (blobs/ is git-ignored) and are garbage-collected: kept are the
+                               ones the house uses now, the newest KEEP (5) per owner (a room's or wall's mesh), the
+                               ones any tagged revision uses, and any uploaded in the last GRACE (15 min, the gap
+                               between a blob PUT and the house write naming it). The rest are deleted.
+  POST /house/tag?rev=N&name=X a milestone: pins revision N (and its blobs) as git tag house/X. GET /house/tags.
+  GET  /blobs                  {count, bytes, kept, deleted (last gc)}
   GET  /legacy/placement.json | screens.json | settings.json   the house in today's headset file formats
   GET  /house/plan.svg[?layer=raw|clean|both]  top-down floor plan (house/floorplan.py): the walls as stored (raw,
                                default), the consolidated plan (clean) or both
@@ -36,6 +42,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -82,15 +89,133 @@ def encode(doc):
 class Store:
     """The data directory: house.json + blobs/, under git. All writes go through one lock."""
 
-    def __init__(self, root):
+    KEEP = 5        # newest meshes kept per owner (room or wall)
+    GRACE = 900     # s: a fresh blob is kept this long before a house write names it
+
+    def __init__(self, root, keep=None, grace=None):
         self.root = os.path.abspath(os.path.expanduser(root))
         self.path = os.path.join(self.root, 'house.json')
         self.blobdir = os.path.join(self.root, 'blobs')
+        self.meshlog = os.path.join(self.root, 'meshlog.jsonl')
+        self.keep = self.KEEP if keep is None else keep
+        self.grace = self.GRACE if grace is None else grace
         self.lock = threading.Lock()
+        self.gc_report = {}
         os.makedirs(self.blobdir, exist_ok=True)
         if not os.path.isdir(os.path.join(self.root, '.git')):
             self.git('init', '-q')
+        self._untrack_blobs()
         self.doc = self.load()
+        self.mlog = self._load_meshlog()
+        self.gc()
+
+    # ---- blobs: outside git, garbage-collected (meshes arrive every few minutes, MB each)
+
+    def _untrack_blobs(self):
+        """blobs/ and the mesh log are not in git (history stays bounded); a store from before stops tracking them."""
+        gi = os.path.join(self.root, '.gitignore')
+        want = ['blobs/', 'meshlog.jsonl']
+        have = open(gi).read().split() if os.path.exists(gi) else []
+        if any(w not in have for w in want):
+            with open(gi, 'a') as f:
+                f.write(''.join(w + '\n' for w in want if w not in have))
+            self.git('add', '.gitignore')
+            if self.git('ls-files', 'blobs', check=False).strip():
+                self.git('rm', '-r', '-q', '--cached', 'blobs')
+            self.git('commit', '-q', '-m', 'blobs leave git (kept on disk, garbage-collected by the server)', check=False)
+
+    @staticmethod
+    def mesh_refs(doc):
+        """{owner: sha} for every mesh the house names: room:<id> and wall:<id>."""
+        out = {}
+        for kind in ('rooms', 'walls'):
+            for it in doc.get(kind, []) or []:
+                if isinstance(it, dict) and isinstance(it.get('mesh'), str):
+                    out[f'{kind[:-1]}:{it.get("id")}'] = it['mesh']
+        return out
+
+    def _load_meshlog(self):
+        """[(rev, owner, sha)] in revision order: each time an owner's mesh changed. Rebuilt from git if missing."""
+        log = []
+        try:
+            with open(self.meshlog) as f:
+                for line in f:
+                    r = json.loads(line); log.append((r['rev'], r['owner'], r['sha']))
+            return log
+        except (OSError, ValueError, KeyError):
+            pass
+        last = {}
+        for h in reversed(self.history(100000)):
+            try:
+                doc = json.loads(self.git('show', f'{h["commit"]}:house.json'))
+            except (RuntimeError, ValueError):
+                continue
+            for owner, sha_ in self.mesh_refs(doc).items():
+                if last.get(owner) != sha_:
+                    log.append((h['rev'], owner, sha_)); last[owner] = sha_
+        self._atomic(self.meshlog, ''.join(json.dumps({'rev': r, 'owner': o, 'sha': x}) + '\n' for r, o, x in log).encode())
+        return log
+
+    def _log_meshes(self, doc):
+        last = {}
+        for r, o, x in self.mlog:
+            last[o] = x
+        new = [(doc['rev'], o, x) for o, x in self.mesh_refs(doc).items() if last.get(o) != x]
+        if new:
+            self.mlog += new
+            with open(self.meshlog, 'a') as f:
+                for r, o, x in new:
+                    f.write(json.dumps({'rev': r, 'owner': o, 'sha': x}) + '\n')
+
+    def tags(self):
+        out = []
+        for line in self.git('tag', '-l', 'house/*', '--format=%(refname:short)%09%(objectname)', check=False).splitlines():
+            name, commit = line.split('\t')
+            try:
+                rev = json.loads(self.git('show', f'{commit}:house.json'))['rev']
+            except (RuntimeError, ValueError, KeyError):
+                continue
+            out.append({'name': name[6:], 'rev': rev, 'commit': commit})
+        return out
+
+    def tag(self, rev, name):
+        for h in self.history(100000):
+            if h['rev'] == rev:
+                self.git('tag', '-f', f'house/{name}', h['commit'])
+                return True
+        return False
+
+    def gc(self):
+        """Delete the blobs nothing needs (see the module doc). Returns {count, bytes, kept, deleted}."""
+        keep = set(self.mesh_refs(self.doc).values())
+        for t in self.tags():
+            try:
+                keep |= set(self.mesh_refs(json.loads(self.git('show', f'{t["commit"]}:house.json'))).values())
+            except (RuntimeError, ValueError):
+                pass
+        per = {}
+        for r, o, x in reversed(self.mlog):  # newest first
+            lst = per.setdefault(o, [])
+            if x not in lst and len(lst) < self.keep:
+                lst.append(x)
+        for lst in per.values():
+            keep |= set(lst)
+        now_ = time.time(); deleted = []; count = size = 0
+        for n in sorted(self.blobs()):
+            path = os.path.join(self.blobdir, n)
+            try:
+                st_ = os.stat(path)
+            except OSError:
+                continue
+            if n not in keep and now_ - st_.st_mtime > self.grace:
+                try:
+                    os.remove(path); deleted.append(n); continue
+                except OSError:
+                    pass
+            count += 1; size += st_.st_size
+        self.gc_report = {'count': count, 'bytes': size, 'kept': sorted(keep & self.blobs()), 'deleted': deleted,
+                          'keepPerOwner': self.keep, 'graceS': self.grace}
+        return self.gc_report
 
     def git(self, *a, check=True):
         r = subprocess.run(['git', *AUTHOR, *a], cwd=self.root, capture_output=True, text=True)
@@ -160,6 +285,8 @@ class Store:
     def put(self, doc, note):
         self.write(doc, note)
         self.doc = doc
+        self._log_meshes(doc)
+        self.gc()
 
     def history(self, limit=50):
         out = []
@@ -182,8 +309,9 @@ class Store:
         path = os.path.join(self.blobdir, name)
         if not os.path.exists(path):
             self._atomic(path, data)
-            self.git('add', os.path.join('blobs', name))
-            self.git('commit', '-q', '-m', f'blob {name[:12]} ({len(data)} bytes)')
+        else:
+            os.utime(path)  # uploaded again: its grace starts over
+        self.gc()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -242,7 +370,12 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path); q = parse_qs(u.query); p = u.path.rstrip('/')
         st = self.store
         if p == '/health':
-            return self.send(200, {'ok': True, 'rev': st.doc['rev'], 'schema': schema.CURRENT, 'oldest': schema.oldest_readable()})
+            return self.send(200, {'ok': True, 'rev': st.doc['rev'], 'schema': schema.CURRENT, 'oldest': schema.oldest_readable(),
+                                   'blobs': st.gc_report.get('count'), 'blobBytes': st.gc_report.get('bytes')})
+        if p == '/blobs':
+            return self.send(200, st.gc_report)
+        if p == '/house/tags':
+            return self.send(200, st.tags())
         if p == '/house':
             k = self.schema_param(q)
             if k is None:
@@ -348,6 +481,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path); q = parse_qs(u.query); p = u.path.rstrip('/')
         st = self.store
+        if p == '/house/tag' and q.get('rev', [''])[0].isdigit():
+            name = q.get('name', [''])[0]
+            if not schema.ID.match(name):
+                return self.send(400, {'error': 'name: [A-Za-z0-9_.-]{1,64}'})
+            self.close_connection = True
+            with st.lock:
+                if not st.tag(int(q['rev'][0]), name):
+                    return self.send(404, {'error': 'no such revision'})
+            return self.send(200, {'tag': name, 'rev': int(q['rev'][0])})
         if p != '/house/rollback' or not q.get('rev', [''])[0].isdigit():
             return self.send(404, {'error': 'not found'})
         base = self.check_match()
@@ -370,8 +512,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, {'rev': old['rev'], 'restored': int(q['rev'][0])})
 
 
-def serve(data, port=57800, bind='0.0.0.0'):
-    Handler.store = Store(data)
+def serve(data, port=57800, bind='0.0.0.0', keep=None, grace=None):
+    Handler.store = Store(data, keep, grace)
     srv = ThreadingHTTPServer((bind, port), Handler)
     srv.daemon_threads = True
     return srv

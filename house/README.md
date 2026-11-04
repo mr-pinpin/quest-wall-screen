@@ -10,7 +10,7 @@ from its cached copy.
 | `schema.py` | validation, schema conversion (old readers and writers), today's headset file formats |
 | `server.py` | the sync server on the Mini (LAN, no internet): atomic writes, one git commit per change, conflicts refused |
 | `migrate.py` | imports today's `files/placement.json`, `screens.json`, `settings.json` (+ optional scene wall list) |
-| `test_house.py` | round trip, corrupt and partial writes, conflicts, disk corruption, rollback, blobs, old schemas |
+| `test_house.py` | round trip, corrupt and partial writes, conflicts, disk corruption, rollback, blobs + their garbage collection, old schemas |
 | `consolidate.py` | raw walls -> clean floor plan + score (the `plan` layer, below); `test_consolidate.py` |
 | `floorplan.py` | `GET /house/plan.svg?layer=raw|clean|both` |
 
@@ -87,6 +87,12 @@ on `plan.walls`.
   - Older writer: its body is converted up, and every field it could not see is kept from the current house.
 - `GET /house/history`, `GET /house/rev/N`, `POST /house/rollback?rev=N` (If-Match: current rev; makes a new revision).
 - `PUT|GET /blob/<sha256>`: meshes and other binaries. The body must hash to the name, and a wall's `mesh` must name a stored blob.
+  - Blobs are not in git: `blobs/` is ignored, so history stays small. They are garbage-collected on every write.
+  - Kept: what the house uses now; the newest 5 meshes per room or wall (from `meshlog.jsonl`, rebuilt from git if lost);
+    what any tagged revision uses; and anything uploaded in the last 15 min, since the headset PUTs the blob before
+    the house write that names it.
+  - A rollback to a revision whose mesh was collected is refused (400).
+- `POST /house/tag?rev=N&name=X` pins a milestone (git tag `house/X`, and its blobs); `GET /house/tags`; `GET /blobs`.
 - `GET /legacy/placement.json|screens.json|settings.json`: the house in today's headset formats.
 - `GET /house/plan` (the plan layer, computed on the fly if missing or stale), `GET /house/plan.svg?layer=raw|clean|both`.
 

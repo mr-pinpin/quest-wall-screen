@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -313,6 +314,65 @@ class Server(unittest.TestCase):
         self.assertEqual(self.put(d, 2)[0], 400)  # a room mesh must be an uploaded blob too
         d['rooms'][0]['mesh'] = h
         self.assertEqual(self.put(d, 2)[0], 200)
+
+    def test_blob_gc(self):
+        """MESHSAVE uploads a room mesh every few minutes: only the newest KEEP per owner, the ones tagged revisions
+        use and fresh uploads stay; blobs never enter git."""
+        self.stop(); self.srv = server.serve(self.dir, 0, '127.0.0.1', keep=3, grace=2)
+        self.port = self.srv.server_address[1]; threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        rev = self.seed()
+        meshes = []
+        for i in range(10):  # the headset's order: PUT the blob, then the house naming it
+            m = os.urandom(20000 + i); h = hashlib.sha256(m).hexdigest(); meshes.append(h)
+            self.assertEqual(self.req('PUT', '/blob/' + h, m)[0], 200)
+            d = self.get()[0]; d['rooms'][0]['mesh'] = h
+            if i == 0:
+                d['walls'][0]['mesh'] = h  # a wall mesh too: its own owner
+            st, r = self.put(d, rev); self.assertEqual(st, 200, r); rev = r['rev']
+            if i == 2:
+                self.assertEqual(self.req('POST', f'/house/tag?rev={rev}&name=first-scan')[0], 200)
+        time.sleep(2.2)  # past the grace: the next write collects
+        d = self.get()[0]; d['settings']['resume'] = True
+        st, r = self.put(d, rev); self.assertEqual(st, 200, r)
+        on_disk = set(os.listdir(os.path.join(self.dir, 'blobs')))
+        self.assertEqual(on_disk, {meshes[0], meshes[2]} | set(meshes[7:]))  # wall's, tagged, newest 3 of the room
+        self.assertEqual(self.req('GET', '/blob/' + meshes[4])[0], 404)
+        gl = subprocess.run(['git', 'ls-files', 'blobs'], cwd=self.dir, capture_output=True, text=True).stdout
+        self.assertEqual(gl.strip(), '', 'no blob in git')
+        tags = json.loads(self.req('GET', '/house/tags')[2])
+        self.assertEqual([(t['name'], t['rev']) for t in tags], [('first-scan', 4)])
+        info = json.loads(self.req('GET', '/blobs')[2]); self.assertEqual(info['count'], 5)
+        # a rollback to a revision whose mesh was collected is refused; to a tagged one it works
+        cur = self.get()[0]['rev']
+        self.assertEqual(self.req('POST', '/house/rollback?rev=6', headers={'If-Match': str(cur)})[0], 400)
+        self.assertEqual(self.req('POST', '/house/rollback?rev=4', headers={'If-Match': str(cur)})[0], 200)
+        self.assertEqual(self.get()[0]['rooms'][0]['mesh'], meshes[2])
+        # a fresh blob not yet named by the house survives its grace; the mesh log is rebuilt from git if lost
+        self.stop(); os.remove(os.path.join(self.dir, 'meshlog.jsonl'))
+        self.srv = server.serve(self.dir, 0, '127.0.0.1', keep=3, grace=60)
+        self.port = self.srv.server_address[1]; threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        fresh = os.urandom(1000); fh = hashlib.sha256(fresh).hexdigest()
+        self.assertEqual(self.req('PUT', '/blob/' + fh, fresh)[0], 200)
+        self.assertIn(fh, os.listdir(os.path.join(self.dir, 'blobs')))
+        # the rollback made meshes[2] the room's newest again, so its 3 newest are now 2, 9, 8 (7 went)
+        self.assertEqual(set(os.listdir(os.path.join(self.dir, 'blobs'))) - {fh}, on_disk - {meshes[7]})
+        self.assertTrue(os.path.exists(os.path.join(self.dir, 'meshlog.jsonl')))
+        # mesh changes alone do not recompute the plan
+        d = self.get()[0]; when = d['plan']['updated']; d['rooms'][0]['mesh'] = fh
+        self.assertEqual(self.put(d, d['rev'])[0], 200)
+        self.assertEqual(self.get()[0]['plan']['updated'], when)
+
+    def test_untracks_old_blobs(self):
+        """A store from before (blobs committed to git) stops tracking them on start; the files stay."""
+        self.seed(); self.stop()
+        b = os.path.join(self.dir, 'blobs', 'a' * 64)
+        open(b, 'wb').write(b'x')
+        gi = os.path.join(self.dir, '.gitignore'); os.remove(gi)
+        subprocess.run(['git', 'add', '-f', 'blobs', '.gitignore'], cwd=self.dir, capture_output=True)
+        subprocess.run(['git', *server.AUTHOR, 'commit', '-q', '-am', 'old style'], cwd=self.dir, capture_output=True)
+        self.start()
+        gl = subprocess.run(['git', 'ls-files', 'blobs'], cwd=self.dir, capture_output=True, text=True).stdout
+        self.assertEqual(gl.strip(), '')
 
     def test_legacy_endpoints(self):
         self.seed()
