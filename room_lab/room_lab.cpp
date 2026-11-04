@@ -24,6 +24,8 @@
 #include <sys/stat.h>
 #include "moonlight.h"
 #include "voice.h"
+#include "steady.h"
+#include "select_house.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -249,6 +251,10 @@ struct App {
     // to the captain (work-df). The mic stays on while it is open: an utterance ends after 3.5 s of quiet (5 s when it
     // did not end like a sentence), what is said while the answer comes is queued, and the mic restarts if it stops.
     bool receptionMenu = true; bool receptionOn() const { return receptionMenu && assistOn(); }
+    // v0.66 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
+    // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
+    // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -422,6 +428,7 @@ struct App {
         float gap = 1, thumb = 1, thumbMin = 1, thumbMax = 0; long thumbPresses = 0, pinchPresses = 0, lockBreaks = 0;
     };
     HandRay ray[2];
+    steady::Hand steadyHand[2]; bool steadyKRead = false;  // STEADY: filters ro/rd/tip before the rewind history
 
     PFN_xrQuerySpacesFB xrQuerySpacesFB_ = nullptr;
     PFN_xrRetrieveSpaceQueryResultsFB xrRetrieveSpaceQueryResultsFB_ = nullptr;
@@ -456,6 +463,14 @@ struct App {
     int sizeIndex = 1;
     // Screens stay put. Moving one is deliberate: pinch and hold the grab bar under it, drag, release to drop.
     static constexpr float kHoldToMove = 0.5f, kBarW = 0.36f, kBarH = 0.035f, kBarGap = 0.045f;
+    // The move bar's height on its wall, for every draw and hit test. CTLTOP: never closer than kFloorClear to the
+    // wall's bottom edge (the floor); with no room under the screen it becomes a tab on the screen's bottom edge.
+    static constexpr float kFloorClear = 0.06f;
+    float barY(const Placement& p, const Entity* w) const {
+        float y = p.y - p.h / 2 - kBarGap;
+        if (ctlTopMenu && w && y - kBarH / 2 < w->r2.offset.y + kFloorClear) y = p.y - p.h / 2 + kBarH / 2 + 0.012f;
+        return y;
+    }
     bool moving = false, barHover = false, barHolding = false; float barHold = 0;
     std::chrono::steady_clock::time_point barPinchStart{};
     // Resize: pinch with both hands while pointing at the screen and pull apart, or drag a corner.
@@ -526,7 +541,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 45;
+    static constexpr int kMenuItems = 49;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -549,7 +564,9 @@ struct App {
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
         {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"},
         {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"},
-        {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"}};
+        {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"},
+        {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
+        {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -588,6 +605,10 @@ struct App {
         if (l == "DEPTHPLACE") return depthPlaceOn();
         if (l == "MESHSAVE") return meshSaveOn();
         if (l == "RECEPTION") return receptionMenu;
+        if (l == "STEADY") return steadyMenu;
+        if (l == "CTLTOP") return ctlTopMenu;
+        if (l == "PANELTEX") return panelTexMenu;
+        if (l == "DICTQ") return dictQMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -653,7 +674,8 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -725,6 +747,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -779,6 +802,10 @@ struct App {
         else if (l == "DEPTHPLACE") depthPlaceMenu = !depthPlaceMenu;            // screens on depth-fitted walls
         else if (l == "MESHSAVE") meshSaveMenu = !meshSaveMenu;                 // room mesh saved to the house
         else if (l == "RECEPTION") receptionMenu = !receptionMenu;               // CLAUDE talks to work-df
+        else if (l == "STEADY") steadyMenu = !steadyMenu;                       // pointer stabilization
+        else if (l == "CTLTOP") ctlTopMenu = !ctlTopMenu;                       // screen controls on top
+        else if (l == "PANELTEX") panelTexMenu = !panelTexMenu;                 // SETTINGS as one texture
+        else if (l == "DICTQ") dictQMenu = !dictQMenu;                          // queued assistant dictation
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -2959,11 +2986,11 @@ void main(){
             XrResult r = xrLocateHandJointsEXT_(hands[h], &li, &locs); handResult[h] = (int)r;
             if (XR_SUCCEEDED(r)) handActive[h] = locs.isActive;
             HandRay& hr = ray[h]; hr.valid = false;
-            if (!handActive[h]) { hr.pinch = false; continue; }
+            if (!handActive[h]) { hr.pinch = false; steadyHand[h].reset(); continue; }
             auto& th = joints[h][XR_HAND_JOINT_THUMB_TIP_EXT]; auto& ix = joints[h][XR_HAND_JOINT_INDEX_TIP_EXT];
             auto& kn = joints[h][XR_HAND_JOINT_INDEX_PROXIMAL_EXT]; auto& tm = joints[h][XR_HAND_JOINT_THUMB_PROXIMAL_EXT];
             const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT;
-            if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; continue; }
+            if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; steadyHand[h].reset(); continue; }
             hr.gap = len(v3(th.pose.position) - v3(ix.pose.position));
             hr.tip = (v3(th.pose.position) + v3(ix.pose.position)) * 0.5f;
             hr.pinchDown = hr.pinchDown ? hr.gap < 0.035f : hr.gap < 0.018f;
@@ -2992,6 +3019,13 @@ void main(){
             V3 shoulder = xform(head, {h == 1 ? 0.17f : -0.17f, -0.2f, 0.05f});
             V3 ro = knuckles, rd = norm(knuckles - shoulder);
             hr.valid = len(knuckles - shoulder) > 0.15f;
+            if (steadyMenu) {  // filtered before the history, so the press rewind-and-lock below clicks on the filtered pose
+                if (!steadyKRead) { steadyKRead = true; std::ifstream sf(gDir + "/steady-strength"); float k; if (sf >> k && k >= 0 && k <= 1) steadyK = k; }
+                steady::Input si; si.t = now(); si.tracked = hr.valid; si.pinch = hr.pinch;
+                si.o = {ro.x, ro.y, ro.z}; si.d = {rd.x, rd.y, rd.z}; si.tip = {hr.tip.x, hr.tip.y, hr.tip.z};
+                steadyHand[h].strength = steadyK; steady::Out so = steadyHand[h].update(si);
+                ro = {so.o.x, so.o.y, so.o.z}; rd = {so.d.x, so.d.y, so.d.z}; hr.tip = {so.tip.x, so.tip.y, so.tip.z};
+            } else steadyHand[h].reset();
             int slot = hr.histN % kHist; hr.histO[slot] = ro; hr.histD[slot] = rd; hr.histN++;
             if (hr.pinch && !pinchWas) {
                 int back = std::min(kRewind, hr.histN - 1), i = (hr.histN - 1 - back) % kHist;
@@ -3235,7 +3269,7 @@ void main(){
             const Placement& p = extras[i].p; Entity* pw = wallById(p.wall); float bx, by;
             if (!pw || !pw->located || !planeHit(*pw, ray[1].o, ray[1].d, bx, by)) continue;
             if (!editLocked && closeX() && std::hypot(bx - (p.x + p.w / 2 - 0.045f), by - (p.y + p.h / 2 - 0.045f)) < 0.035f) { closeXHover = (int)i; break; }
-            if ((!editLocked || allBars()) && std::fabs(bx - p.x) < kBarW / 2 + 0.03f && std::fabs(by - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
+            if ((!editLocked || allBars()) && std::fabs(bx - p.x) < kBarW / 2 + 0.03f && std::fabs(by - barY(p, pw)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
         }
         if (closeXHover >= 0) {
             extraPtr = -1;
@@ -3260,7 +3294,7 @@ void main(){
             const Placement& p = extras[i].p;
             float u = (ex - (p.x - p.w / 2)) / p.w, v = 1 - (ey - (p.y - p.h / 2)) / p.h;
             if (prev != i) { eu = u; ev = v; }
-            float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : std::fmin(0.08f + speed * 0.9f, 0.7f);
+            float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : steadyMenu ? 1.0f : std::fmin(0.08f + speed * 0.9f, 0.7f);  // STEADY already smoothed the ray
             eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
             int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
             if (iu != sentU || iv != sentV) {
@@ -3572,7 +3606,7 @@ void main(){
             }
         }
     }
-    void drawExtras(Batch& b) {
+    void drawExtras(Batch& b, Batch& bars) {  // bars: the close X and the move bar (ctl with CTLTOP)
         V3 eye = v3(head.position);
         for (size_t i = 0; i < extras.size(); i++) {
             const Placement& p = extras[i].p; Entity* w = wallById(p.wall); if (!w || !w->located) continue;
@@ -3615,16 +3649,16 @@ void main(){
                 const float bgx[4] = {0.08f, 0.08f, 0.1f, 0.85f}, xc[4] = {armed ? 1.0f : 0.92f, armed ? 0.3f : 0.94f, armed ? 0.25f : 0.98f, 1};
                 float r = closeXHover == (int)i ? 0.03f : 0.025f;
                 for (int q = 0; q < 16; q++) { float a0 = q * 0.3927f, a1 = (q + 1) * 0.3927f;
-                    b.quad(c, c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), c, armed ? xc : bgx); }
+                    bars.quad(c, c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), c, armed ? xc : bgx); }
                 float k = r * 0.5f; const float* lc = armed ? bgx : xc;
-                b.line(c - ax * k - ay * k + n * 0.001f, c + ax * k + ay * k + n * 0.001f, n, 0.004f, lc); b.line(c - ax * k + ay * k + n * 0.001f, c + ax * k - ay * k + n * 0.001f, n, 0.004f, lc);
+                bars.line(c - ax * k - ay * k + n * 0.001f, c + ax * k + ay * k + n * 0.001f, n, 0.004f, lc); bars.line(c - ax * k + ay * k + n * 0.001f, c + ax * k - ay * k + n * 0.001f, n, 0.004f, lc);
             }
             if (!editLocked || allBars()) {  // grab bar (dimmer while locked)
-                float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+                float y = barY(p, w), hw = kBarW / 2, hh = kBarH / 2;
                 const float idle[4] = {0.75f, 0.78f, 0.82f, editLocked ? 0.2f : 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
                 const float* col = extraMoving == (int)i ? fill : extraBarHover == (int)i ? hover : idle;
-                b.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
-                if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); b.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
+                bars.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
+                if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); bars.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
             }
         }
         if (extraMoving >= 0 && candidate.active) if (auto* w = wallById(candidate.wall)) {
@@ -3811,7 +3845,7 @@ void main(){
                 }
             }
             if ((!editLocked || allBars()) && cornerHover < 0 && pw) {  // on the wall's plane: the bar may hang below the scanned rect
-                float px, py, bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
+                float px, py, bx = placed.x, by = barY(placed, pw);
                 if (planeHit(*pw, o, d, px, py) && std::fabs(px - bx) < kBarW / 2 + 0.03f && std::fabs(py - by) < kBarH / 2 + 0.03f) barHover = true;
             }
             if (barHover) {
@@ -3865,7 +3899,10 @@ void main(){
     void buttonCenter(int b, float& x, float& y) {
         x = placed.x + (b == 0 ? -0.17f : 0.17f);
         y = placed.y + placed.h / 2 + 0.075f;
-        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
+        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) {
+            float below = barY(placed, w) - kBarH / 2 - 0.07f;
+            if (!(ctlTopMenu && below - kButtonH / 2 < w->r2.offset.y + kFloorClear)) y = below;  // CTLTOP: above the wall top rather than under the floor
+        }
     }
     // 5x7 pixel font, A-Z, 0-9 and % - . : ! (bit 16 is the leftmost column).
     static const uint8_t* glyph(char c) {
@@ -4027,7 +4064,35 @@ void main(){
         }
     }
 
+    // CTLTOP: screen controls (and the select outline) in their own batch, drawn after everything with no depth test.
+    Batch ctl;
+    // Select outline (kanban: "a gold outline + number on a screen"): house["selected"] (work-42's room tools) drives it.
+    selout::Selection sel; selout::HouseSelect selHouse; const json::Value* selDoc = nullptr;
+    void drawSelection(Batch& b) {
+        { std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+          if (d && d.get() != selDoc) { selDoc = d.get(); selHouse.apply(*d, sel, now()); } }
+        float t = now(); sel.update(t);
+        if (sel.items.empty()) return;
+        auto one = [&](int id, const Placement& p) {
+            auto lk = sel.look(id, t); if (!lk.visible || !p.active) return;
+            Entity* w = wallById(p.wall); if (!w || !w->located) return;
+            selout::Rect r; r.c = {p.x, p.y, 0}; r.w = p.w; r.h = p.h;  // wall-local: right x, up y, normal z
+            r.topRoom = w->r2.offset.y + w->r2.extent.height - (p.y + p.h / 2);
+            selout::Style st; float g[4], ink[4];
+            for (int k = 0; k < 3; k++) { g[k] = std::fmin(1.0f, st.gold[k] * lk.bright); ink[k] = st.ink[k]; }
+            g[3] = lk.alpha; ink[3] = st.ink[3] * lk.alpha;
+            auto W = [&](selout::V v) { return xform(w->pose, {v.x, v.y, v.z}); };
+            selout::Frame f = selout::frame(r, st, lk.thickScale);
+            for (int i = 0; i < 4; i++) { selout::V q[4]; f.quad(i, q); b.quad(W(q[0]), W(q[1]), W(q[2]), W(q[3]), g); }
+            selout::Label L = selout::label(r, st, lk.number);
+            b.quad(W(L.badge[0]), W(L.badge[1]), W(L.badge[2]), W(L.badge[3]), g);
+            text(b, *w, L.centre.x, L.centre.y, L.centre.z, L.px, L.text.c_str(), ink);
+        };
+        one(1, placed);
+        for (auto& e : extras) one(e.id, e.p);
+    }
     void build(Batch& occ, Batch& over) {
+        ctl.v.clear(); Batch& bars = ctlTopMenu ? ctl : occ;
         const float wallCol[4] = {0.3f, 0.85f, 1.0f, 0.55f}, planeCol[4] = {1, 1, 1, 0.35f}, volCol[4] = {1.0f, 0.6f, 0.15f, 0.6f};
         bool placing = moving || !placed.active;
         for (auto& e : entities) {
@@ -4044,7 +4109,7 @@ void main(){
             }
         }
         if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w, placed);
-        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked || allBars()) grabBar(occ, *w); if (!editLocked) corners(occ, *w); }
+        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(bars); if (!editLocked || allBars()) grabBar(bars, *w); if (!editLocked) corners(bars, *w); }
         drawMenu(over);
         drawShoulder(over);
         prepareRoomMesh();
@@ -4052,7 +4117,8 @@ void main(){
         drawWallTool(occ);
         drawAssist(over);
         drawVoice(over);
-        drawExtras(occ);
+        drawExtras(occ, bars);
+        drawSelection(bars);
         drawSpell(over);
         drawToasts(over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
@@ -4167,7 +4233,7 @@ void main(){
         }
     }
     void grabBar(Batch& b, const Entity& w) {
-        float x = placed.x, y = placed.y - placed.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+        float x = placed.x, y = barY(placed, &w), hw = kBarW / 2, hh = kBarH / 2;
         const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
         auto rect = [&](float x0, float x1, const float* col, float z) {
             b.quad(xform(w.pose, {x0, y - hh, z}), xform(w.pose, {x1, y - hh, z}), xform(w.pose, {x1, y + hh, z}), xform(w.pose, {x0, y + hh, z}), col);
@@ -4177,7 +4243,7 @@ void main(){
     }
 
     void render(const XrView* views, const Batch& occ, const Batch& over) {
-        std::vector<Vtx> all(occ.v); all.insert(all.end(), over.v.begin(), over.v.end());
+        std::vector<Vtx> all(occ.v); all.insert(all.end(), over.v.begin(), over.v.end()); all.insert(all.end(), ctl.v.begin(), ctl.v.end());
         glBindBuffer(GL_ARRAY_BUFFER, vbo); glBufferData(GL_ARRAY_BUFFER, all.size() * sizeof(Vtx), all.data(), GL_STREAM_DRAW);
         GLuint depthTex = 0;
         if (depthValid) {
@@ -4321,6 +4387,10 @@ void main(){
             }
             if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
             if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m, screenCorners); glUseProgram(program); glBindVertexArray(vao); }
+            if (!ctl.v.empty()) {  // CTLTOP: after the model, the chats and the room mesh, with no depth test and no env occlusion
+                glUseProgram(program); glBindVertexArray(vao); glUniformMatrix4fv(uViewProj, 1, GL_FALSE, vp.m); glUniform1i(uOcclude, 0);
+                glDisable(GL_DEPTH_TEST); glDrawArrays(GL_TRIANGLES, (GLint)(occ.v.size() + over.v.size()), (GLsizei)ctl.v.size()); glEnable(GL_DEPTH_TEST);
+            }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }
