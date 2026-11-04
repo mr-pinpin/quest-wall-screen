@@ -420,6 +420,10 @@ def _stamp(t):
 # takes more than half a core. campaign.py leaves contaminated pairs out of the verdicts. Ours: the sender, the displays
 # helper, the stand-ins, and what capture itself drives (WindowServer, replayd).
 BENCH_PROCS = re.compile(r'^(pinpin-|encprobe|stresspattern|python3?$|sshd|WindowServer$|replayd$|ps$)')
+# Known steady background, recorded in 'background' but not contamination: colorsync.displayservices has run at ~55-62%
+# since the display churn (K24) and stays there until the Air reboots. It is constant across both arms of a pair, so
+# excluding every pair for it would leave no verdicts at all.
+STEADY_BG = re.compile(r'^colorsync')
 
 
 def air_load():
@@ -461,8 +465,14 @@ def contamination(samples):
     for when, smp in samples.items():
         if 'load1' not in smp: continue
         if smp['load1'] > 4: why.append(f'{when}: load {smp["load1"]}')
-        why += [f'{when}: {c} {cpu:.0f}%' for cpu, c in smp.get('topAll', []) if cpu > 50 and not BENCH_PROCS.match(c)]
+        why += [f'{when}: {c} {cpu:.0f}%' for cpu, c in smp.get('topAll', [])
+                if cpu > 50 and not BENCH_PROCS.match(c) and not STEADY_BG.match(c)]
     return '; '.join(why)
+
+
+def background(samples):
+    return '; '.join(f'{when}: {c} {cpu:.0f}%' for when, smp in samples.items()
+                     for cpu, c in smp.get('topAll', []) if cpu > 50 and STEADY_BG.match(c))
 
 
 def phase(name):
@@ -789,6 +799,7 @@ def main():
         'patternScreens': moving,  # the screens animated (the source); gate.py judges fresh fps against them
         'airLoad': {k: {kk: vv for kk, vv in v.items() if kk != 'topAll'} for k, v in load_samples.items()},
         'contaminated': contamination(load_samples),  # '' = clean
+        'background': background(load_samples),  # known steady load (STEADY_BG): recorded, not excluded
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {

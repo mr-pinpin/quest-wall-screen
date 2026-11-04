@@ -17,6 +17,13 @@ import argparse, datetime, json, os, pathlib, statistics, subprocess, sys, time
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import verdict  # noqa: E402
+from stress import STEADY_BG  # noqa: E402
+
+
+def dirt(r):
+    # Stored 'contaminated' minus the known steady background (stress.STEADY_BG): results written before that rule
+    # listed colorsync too, and judging them again must not exclude them for it
+    return '; '.join(x for x in (r.get('contaminated') or '').split('; ') if x and not STEADY_BG.match(x.split(': ', 1)[-1]))
 
 LOG = '/root/work/quest-wall-screen/bench/activity.log'
 
@@ -107,7 +114,7 @@ def main():
         for r in range(a.rounds):
             A, B = load(results[off][r]), load(results[on][r])
             if not (A and B): per.append(('RERUN', 'missing run')); continue
-            dirty = '; '.join(x for x in ((A.get('contaminated') or ''), (B.get('contaminated') or '')) if x)
+            dirty = '; '.join(x for x in (dirt(A), dirt(B)) if x)
             if dirty: per.append(('EXCLUDED', 'contaminated by background load: ' + dirty)); continue
             per.append(verdict.verdict(rule, A, B))
         votes = [v for v, _ in per]

@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 T=$(mktemp -d); fail=0
 # every test under a memory and time cap: a runaway test must fail, not OOM-kill the VPS's sessions (2026-11-04)
 run() { local name=$1; shift; if out=$( (ulimit -v 4000000; timeout 600 "$@") 2>&1); then echo "ok    $name: $(echo "$out" | tail -1)"; else echo "FAIL  $name"; echo "$out" | tail -20 | sed 's/^/      /'; fail=1; fi; }
-LAYOUTS=$(ls bench/results/*layouts*.jsonl 2>/dev/null | tr "\n" " ")
+# committed recordings only: a running campaign writes untracked layouts here (non-vt flag runs record none)
+LAYOUTS=$(git ls-files 'bench/results/*layouts*.jsonl' | tr "\n" " ")
 ASSETS=$(ls -d /root/.cache/pinpin-assets/out/DamagedHelmet-* 2>/dev/null | grep -v old | tr "\n" " ")  # converted models, when present
 run "budget arbiter (room_lab/budget.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/budget_test.cpp -o $T/budget && $T/budget"
 run "VT headset logic + recorded layouts" bash -c "g++ -std=c++17 -O1 -Wall -Wno-misleading-indentation -I room_lab bench/vt_headset_test.cpp -o $T/vt && $T/vt $LAYOUTS"

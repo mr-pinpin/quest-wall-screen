@@ -86,6 +86,7 @@ status.update(age=1, state=4); check(not stress.headset_in_use(), 'visible but n
 stress.IN_USE_FILE.write_text('{"t": %f}' % (_t.time() - 60))
 check(stress.headset_recently_used(), 'within 2 min of use: still waiting')
 stress.IN_USE_FILE.write_text('{"t": %f}' % (_t.time() - 130))
+stress.air_overloaded = lambda *a, **k: ''  # the real Air may be busy right now (another agent's window): not this check
 check(not stress.headset_recently_used() and stress.busy(False, sim=True) == '', '2 min after use: sim runs resume')
 stress.mini = lambda cmd, **k: (_ for _ in ()).throw(RuntimeError('unreachable'))
 check(not stress.headset_in_use(), 'an unreachable headset is not in use')

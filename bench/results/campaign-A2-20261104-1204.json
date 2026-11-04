@@ -1,0 +1,345 @@
+{
+ "block": "A2",
+ "stress": [
+  "--scenario",
+  "cinema",
+  "--n",
+  "10",
+  "--secs",
+  "60",
+  "--sim-on",
+  "mini",
+  "--source",
+  "synth",
+  "--sim-extra",
+  "--v2 --hero --keyreq 15"
+ ],
+ "configs": {
+  "base": "",
+  "longgop": "longgop",
+  "noperiodic": "noperiodic",
+  "prifps": "prifps",
+  "nodelay": "nodelay",
+  "pend1": "pend1",
+  "pace": "pace",
+  "vt": "vt",
+  "vthero": "vt,hero"
+ },
+ "runs": {
+  "base": [
+   "/root/work/qws-work09/bench/results/stress-20261104-120456-cinema~synth-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-125933-cinema~synth-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-132441-cinema~synth-n10.json"
+  ],
+  "longgop": [
+   "/root/work/qws-work09/bench/results/stress-20261104-120808-cinema~synth+longgop-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-123503-cinema~synth+longgop-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-133047-cinema~synth+longgop-n10.json"
+  ],
+  "noperiodic": [
+   "/root/work/qws-work09/bench/results/stress-20261104-121143-cinema~synth+noperiodic-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-123754-cinema~synth+noperiodic-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-130225-cinema~synth+noperiodic-n10.json"
+  ],
+  "prifps": [
+   "/root/work/qws-work09/bench/results/stress-20261104-121436-cinema~synth+prifps-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-124049-cinema~synth+prifps-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-130546-cinema~synth+prifps-n10.json"
+  ],
+  "nodelay": [
+   "/root/work/qws-work09/bench/results/stress-20261104-121729-cinema~synth+nodelay-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-124338-cinema~synth+nodelay-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-130955-cinema~synth+nodelay-n10.json"
+  ],
+  "pend1": [
+   "/root/work/qws-work09/bench/results/stress-20261104-122017-cinema~synth+pend1-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-124718-cinema~synth+pend1-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-131312-cinema~synth+pend1-n10.json"
+  ],
+  "pace": [
+   "/root/work/qws-work09/bench/results/stress-20261104-122328-cinema~synth+pace-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-125059-cinema~synth+pace-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-131605-cinema~synth+pace-n10.json"
+  ],
+  "vt": [
+   "/root/work/qws-work09/bench/results/stress-20261104-122634-cinema~synth+vt-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-125351-cinema~synth+vt-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-131858-cinema~synth+vt-n10.json"
+  ],
+  "vthero": [
+   "/root/work/qws-work09/bench/results/stress-20261104-123212-cinema~synth+vt,hero-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-125643-cinema~synth+vt,hero-n10.json",
+   "/root/work/qws-work09/bench/results/stress-20261104-132148-cinema~synth+vt,hero-n10.json"
+  ]
+ },
+ "medians": {
+  "base": {
+   "below": 100.0,
+   "cpu": 22.7,
+   "fps": 44,
+   "gapP99": 107.4,
+   "keyframes": 25,
+   "mbps": 29.4,
+   "silence": 0.3,
+   "vtValid": 0
+  },
+  "longgop": {
+   "below": 100.0,
+   "cpu": 24.7,
+   "fps": 45,
+   "gapP99": 106.1,
+   "keyframes": 9,
+   "mbps": 29.5,
+   "silence": 0.2,
+   "vtValid": 0
+  },
+  "noperiodic": {
+   "below": 100.0,
+   "cpu": 24.6,
+   "fps": 45,
+   "gapP99": 108.9,
+   "keyframes": 6,
+   "mbps": 30.1,
+   "silence": 0.1,
+   "vtValid": 0
+  },
+  "prifps": {
+   "below": 100.0,
+   "cpu": 21.6,
+   "fps": 45,
+   "gapP99": 108.1,
+   "keyframes": 26,
+   "mbps": 29.9,
+   "silence": 0.2,
+   "vtValid": 0
+  },
+  "nodelay": {
+   "below": 100.0,
+   "cpu": 30.1,
+   "fps": 46,
+   "gapP99": 107.7,
+   "keyframes": 27,
+   "mbps": 29.9,
+   "silence": 0.3,
+   "vtValid": 0
+  },
+  "pend1": {
+   "below": 100.0,
+   "cpu": 30.4,
+   "fps": 45,
+   "gapP99": 106.7,
+   "keyframes": 26,
+   "mbps": 29.6,
+   "silence": 0.3,
+   "vtValid": 0
+  },
+  "pace": {
+   "below": 100.0,
+   "cpu": 27.6,
+   "fps": 45,
+   "gapP99": 109.5,
+   "keyframes": 26,
+   "mbps": 29.5,
+   "silence": 0.1,
+   "vtValid": 0
+  },
+  "vt": {
+   "below": 0.0,
+   "cpu": 24.5,
+   "fps": 56,
+   "gapP99": 105.9,
+   "keyframes": 31,
+   "mbps": 35.7,
+   "silence": 0.4,
+   "vtValid": 1
+  },
+  "vthero": {
+   "below": 33.3,
+   "cpu": 17.7,
+   "fps": 53,
+   "gapP99": 104.6,
+   "heroFps": 60.1,
+   "heroMbps": 30.1,
+   "keyframes": 31,
+   "mbps": 38.5,
+   "silence": 0.2,
+   "vtValid": 1
+  }
+ },
+ "verdicts": {
+  "longgop (longgop vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; end: colorsync.displayservices 60%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; start: colorsync.displayservices 62%"
+    }
+   ]
+  },
+  "noperiodic (noperiodic vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; start: colorsync.displayservices 53%; end: colorsync.displayservices 61%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 56%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; start: colorsync.displayservices 62%"
+    }
+   ]
+  },
+  "prifps (prifps vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; start: colorsync.displayservices 62%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 61%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; end: colorsync.displayservices 58%"
+    }
+   ]
+  },
+  "nodelay (nodelay vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "pend1 (pend1 vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; start: colorsync.displayservices 61%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; start: mds_stores 86%; end: colorsync.displayservices 62%"
+    }
+   ]
+  },
+  "pace (pace vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; end: colorsync.displayservices 54%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 52%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; start: mds_stores 92%; start: colorsync.displayservices 60%; end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "vt-cinema (vt vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; start: colorsync.displayservices 62%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 58%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "hero (vthero vs vt)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 62%; start: colorsync.displayservices 52%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 55%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "vt-latency (vt vs base)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 60%; start: colorsync.displayservices 62%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 58%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 54%; end: colorsync.displayservices 60%; end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "hero-budget (vthero vs vt)": {
+   "verdict": "INCONCLUSIVE (contaminated)",
+   "rounds": [
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 62%; start: colorsync.displayservices 52%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 58%; start: colorsync.displayservices 55%"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: end: colorsync.displayservices 60%"
+    }
+   ]
+  },
+  "vt (either rule)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": []
+  }
+ }
+}
