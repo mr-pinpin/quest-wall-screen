@@ -35,7 +35,7 @@ cleanup() {
   TOKEN=$(cat ~/.local/share/pinpin-apps/token 2>/dev/null)
   curl -s -m8 -X POST "http://192.168.0.50:57830/api/screens/60/app" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d '{"app":null}' >/dev/null 2>&1
-  curl -s -m5 -X POST "http://127.0.0.1:57710/remove?id=60" >/dev/null 2>&1
+  # fixed-pool rule (K24): never POST /remove (ramps colorsync); the app-unassign above clears content
   [ -d "$L" ] && mv "$L" "$L.done-$(date +%s)"
   echo "CLEANUP: house reverted to real ($(curl -s -m4 http://127.0.0.1:57840/health >/dev/null 2>&1 && echo up)), display 60 removed, lock released"
 }
@@ -45,6 +45,8 @@ caffeinate -u -t 1200 & CAFF=$!
 setbase "http://192.168.0.50:57801"   # point house at scratch
 sleep 6                               # host restarts the plugin with the new env
 echo "health after switch: $(curl -s -m3 http://127.0.0.1:57840/health)"
-curl -s -m5 -X POST "http://127.0.0.1:57710/displays?id=60&w=1600&h=1000&scale=2" >/dev/null; sleep 2
+curl -s -m5 http://127.0.0.1:57710/displays 2>/dev/null | grep -q '"screen":60' || \
+  curl -s -m5 -X POST "http://127.0.0.1:57710/displays?id=60&w=1600&h=1000&scale=2" >/dev/null   # fixed pool: create once, never remove (K24)
+sleep 2
 echo "=== EVAL ==="
 python3 /tmp/assistant_eval.py
