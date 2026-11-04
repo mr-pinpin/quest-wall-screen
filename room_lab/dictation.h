@@ -160,6 +160,8 @@ struct Listener {
         for (auto& u : utts) if (u.voicedSinceSeg) { u.voicedSinceSeg = false; u.segsOut++; segOwner.push_back(u.id); return; }
         segOwner.push_back(-1);
     }
+    // A cut asked for by cutNow found no voice in the audio (voice.h dropped it as silence): nothing to wait for.
+    void unvoiced(float) { for (auto& u : utts) if (u.voicedSinceSeg) { u.voicedSinceSeg = false; return; } }
     // The next segment's transcript (in order). Empty text is fine.
     void text(float now, const std::string& t) {
         if (segOwner.empty()) { droppedTexts++; return; }

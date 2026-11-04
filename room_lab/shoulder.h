@@ -34,11 +34,14 @@ inline P3 forward(float yaw) { return rotY(yaw, {0, 0, -1}); }
 // The yaw of a gaze direction, ignoring pitch (straight up/down: 0).
 inline float yawOf(P3 d) { return (std::fabs(d.x) + std::fabs(d.z) < 1e-6f) ? 0.0f : std::atan2(-d.x, -d.z); }
 
-struct Item { std::string label, hint, action; };  // action: "open:<NAME>", "back", "close", or anything room_lab handles
+// action: "open:<NAME>", "swap:<NAME>" (replace the top panel in place: paging), "back", "close", or anything room_lab
+// handles. section: a UiGrid heading over the items that share it. dim: greyed (an off flag, its reason as the hint).
+struct Item { std::string label, hint, action, section; bool dim = false; };
 struct Level {
     std::string name, title; std::vector<Item> items;
     UiGrid grid; P3 centre; float yaw = 0, scale = 1, dist = 1;  // dist: from the eye, horizontally
     bool radial = false;                                          // a ring of round buttons (grid.cells hold them)
+    bool anchored = false;                                        // opened beside another panel (openBeside)
     float ringR = 0, buttonR = 0;
     P3 toWorld(float x, float y, float z = 0) const { return add(centre, rotY(yaw, mul(P3{x, y, z}, scale))); }
     // Ray against the panel plane: true with panel-local (x, y) when it lands inside the panel.
@@ -87,7 +90,7 @@ struct Menu {
     float angularHalf(const Level& L) const { return L.grid.halfW * L.scale / std::fmax(L.dist, 0.05f); }
     void place(Level& L, int depth) const {
         L.grid.layout(toGrid(L.items));
-        float base = (depth > 0 && stack[0].radial) ? stack[0].dist : reach;
+        float base = (depth > 0 && (stack[0].radial || stack[0].anchored)) ? stack[0].dist : reach;
         float d = depth == 0 ? reach : base + depth * step;
         L.scale = d / reach; L.dist = d;
         // Turn each child away from the shoulder button until it clears its parent (plus a 2 degree gap): the parent is
@@ -98,7 +101,7 @@ struct Menu {
         L.centre.y = eye0.y - 0.12f * L.scale;
     }
     static std::vector<UiGrid::Item> toGrid(const std::vector<Item>& items) {
-        std::vector<UiGrid::Item> g; for (auto& it : items) g.push_back({it.label, "", it.hint}); return g;
+        std::vector<UiGrid::Item> g; for (auto& it : items) g.push_back({it.label, it.section, it.hint}); return g;
     }
     void toggle(P3 head, P3 gaze) {
         if (open()) { stack.clear(); return; }
@@ -114,6 +117,25 @@ struct Menu {
         L.centre = at; L.yaw = yaw0; L.scale = 1; L.dist = std::fmax(std::sqrt(d.x * d.x + d.z * d.z), 0.1f);
         stack.push_back(L);
     }
+    // Open `name` as the root of a cascade beside a panel that is not part of the stack (the standalone SETTINGS):
+    // `step` m further out than that panel, turned away by `side` until it clears it, at the panel's height.
+    void openBeside(P3 eye, P3 panelCentre, float panelHalfW, const std::string& name) {
+        if (!build) return;
+        stack.clear(); eye0 = eye;
+        P3 d = sub(panelCentre, eye); float pd = std::fmax(std::sqrt(d.x * d.x + d.z * d.z), 0.1f);
+        Level L = build(name); L.name = name; L.anchored = true; L.grid.layout(toGrid(L.items));
+        L.dist = pd + step; L.scale = L.dist / reach; yaw0 = yawOf(d);
+        L.yaw = yaw0 + side * (panelHalfW / pd + L.grid.halfW / reach + 0.035f);
+        L.centre = add(eye, mul(forward(L.yaw), L.dist)); L.centre.y = panelCentre.y;
+        stack.push_back(L);
+    }
+    // Replace the top panel with `name`, keeping its place (a page of the same list).
+    void swap(const std::string& name) {
+        if (!build || stack.empty()) return;
+        Level& T = stack.back(); Level L = build(name); L.name = name; L.radial = T.radial; L.anchored = T.anchored;
+        if (L.radial) layoutRadial(L); else L.grid.layout(toGrid(L.items));
+        L.centre = T.centre; L.yaw = T.yaw; L.scale = T.scale; L.dist = T.dist; T = L;
+    }
     void push(const std::string& name) {
         if (!build) return;
         Level L = build(name); L.name = name;
@@ -124,7 +146,7 @@ struct Menu {
     // Re-run the builder for every open level (labels that show state, a screen list that changed), keeping poses.
     void refresh() {
         for (size_t k = 0; k < stack.size(); k++) {
-            Level L = build(stack[k].name); L.name = stack[k].name; L.radial = stack[k].radial;
+            Level L = build(stack[k].name); L.name = stack[k].name; L.radial = stack[k].radial; L.anchored = stack[k].anchored;
             if (L.radial) layoutRadial(L); else L.grid.layout(toGrid(L.items));
             L.centre = stack[k].centre; L.yaw = stack[k].yaw; L.scale = stack[k].scale; L.dist = stack[k].dist;
             stack[k] = L;
@@ -155,6 +177,7 @@ struct Menu {
         if (h.item < 0) return "";
         std::string a = stack[h.level].items[h.item].action;
         if (a.rfind("open:", 0) == 0) { push(a.substr(5)); return ""; }
+        if (a.rfind("swap:", 0) == 0) { swap(a.substr(5)); return ""; }
         if (a == "back") { pop(); return ""; }
         if (a == "close") { stack.clear(); return ""; }
         return a;

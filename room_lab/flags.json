@@ -763,6 +763,84 @@
       "category": "experimental",
       "reason": "Mirror per-screen vis/pri/px to /tmp/pinpin-atlas-vis.json at 2 Hz (off the receive thread, atomic write) for the K15 video-focus controller. Read-only; no effect on streaming.",
       "evidence": []
+    },
+    {
+      "name": "STEADY",
+      "where": "headset",
+      "default": false,
+      "state": "off",
+      "category": "visual-taste",
+      "reason": "Pointer stabilization for tremor: One-Euro filter plus a soft dead zone on the hand ray and pinch point (room_lab/steady.h, strength 0.7 or files/steady-strength). Clicks land on the filtered pose from before the press. Off until the user tries it: bench/steady_test.cpp cuts 4-8 Hz tremor by at least 78% with at most 35 ms lag.",
+      "evidence": [
+        {
+          "commit": "f960dbc"
+        }
+      ]
+    },
+    {
+      "name": "CTLTOP",
+      "where": "headset",
+      "default": false,
+      "state": "off",
+      "category": "visual-taste",
+      "reason": "Screen controls (move bar, buttons, corners, close X, select outline) drawn last with depth test off and never below the floor line: a bar that would hang under the wall becomes a tab on the screen bottom (docs/controls-never-occluded.md). Off until seen on the headset.",
+      "evidence": [
+        {
+          "commit": "f960dbc"
+        }
+      ]
+    },
+    {
+      "name": "PANELTEX",
+      "where": "headset",
+      "default": true,
+      "state": "on",
+      "category": "perf",
+      "reason": "SETTINGS panel rendered once per change into one texture instead of about 21k quads every frame (fps fell to 43-53 with the panel open). On as a fix; bench/panel_texture_test.cpp checks the pixels and hit-test against the layout.",
+      "evidence": [
+        {
+          "commit": "f960dbc"
+        }
+      ]
+    },
+    {
+      "name": "DICTQ",
+      "where": "headset",
+      "default": true,
+      "state": "on",
+      "category": "experimental",
+      "reason": "Assistant mic through room_lab/dictation.h: one owner, an utterance never ends at a breath (up to 1.5 s), ends after 3.5 s (2.2 s after a sentence) or on 'send', what is said during an answer is queued and sent after it, every wait has a watchdog. On as a fix for the user's cut sentences; replaces the reception mic logic.",
+      "evidence": [
+        {
+          "commit": "f960dbc"
+        }
+      ]
+    },
+    {
+      "name": "SETCAT",
+      "where": "headset",
+      "default": false,
+      "state": "off",
+      "category": "visual-taste",
+      "reason": "SETTINGS in categories: a MOST USED row and seven category buttons; each category opens its switches in a cascaded panel beside it, paged under 1 m, hidden flags left out and off flags greyed with their reason (room_lab/settings_menu.h). Off until the user has tried it; the flat panel is 3.7 m tall with 50 switches.",
+      "evidence": [
+        {
+          "commit": "204da8d"
+        }
+      ]
+    },
+    {
+      "name": "RECKEEP",
+      "where": "headset",
+      "default": true,
+      "state": "on",
+      "category": "experimental",
+      "reason": "The CLAUDE chat survives app restarts (kanban K18): the last 8 exchanges come back from the receptionist's history or a local cache, a chat open at shutdown reopens, and a strip under it shows whether the mic really hears anything (pinch to restart; a stalled mic restarts itself every 5 s). On as a fix: the user's last speech did not arrive.",
+      "evidence": [
+        {
+          "commit": "2dbd004"
+        }
+      ]
     }
   ]
 }

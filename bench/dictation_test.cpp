@@ -122,6 +122,12 @@ int main() {
     { Sim s; s.coldLatency = 7; s.speech = {{0.5f, 2.0f, "Cold model."}}; s.run(20);
       check(s.sent.size() == 1 && s.sent[0].text == "Cold model.", "a cold model's 7 s first transcript still makes it"); }
 
+    // A cut that voice.h finds silent (its own voiced test is stricter than ours): the utterance does not wait 12 s for it.
+    { Listener L; L.voice(0, true, Owner::Always); L.voice(0.5f, false, Owner::Always);
+      Out o; float t = 0.5f; for (; t < 5; t += 0.02f) { L.voice(t, false, Owner::Always); o = L.tick(t); if (o.cutNow) { L.unvoiced(t); break; } }
+      bool cleared = true; for (; t < 6; t += 0.02f) { L.voice(t, false, Owner::Always); if (L.tick(t).cutNow) cleared = false; }
+      check(cleared && L.utts.empty(), "a silent forced cut: no endless cut requests, the empty utterance is dropped"); }
+
     // 7. One owner of the mic.
     { Mic m; m.setAlwaysOn(true, 0);
       check(m.tick(0) == Owner::Always, "always-on holds the mic");

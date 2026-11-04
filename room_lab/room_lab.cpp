@@ -24,6 +24,13 @@
 #include <sys/stat.h>
 #include "moonlight.h"
 #include "voice.h"
+#include "steady.h"
+#include "select_house.h"
+#include "panel_texture.h"
+#include "dictation.h"
+#include "settings_menu.h"
+#include "flags_data.h"
+#include "reception_persist.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -249,6 +256,10 @@ struct App {
     // to the captain (work-df). The mic stays on while it is open: an utterance ends after 3.5 s of quiet (5 s when it
     // did not end like a sentence), what is said while the answer comes is queued, and the mic restarts if it stops.
     bool receptionMenu = true; bool receptionOn() const { return receptionMenu && assistOn(); }
+    // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
+    // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
+    // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -422,6 +433,7 @@ struct App {
         float gap = 1, thumb = 1, thumbMin = 1, thumbMax = 0; long thumbPresses = 0, pinchPresses = 0, lockBreaks = 0;
     };
     HandRay ray[2];
+    steady::Hand steadyHand[2]; bool steadyKRead = false;  // STEADY: filters ro/rd/tip before the rewind history
 
     PFN_xrQuerySpacesFB xrQuerySpacesFB_ = nullptr;
     PFN_xrRetrieveSpaceQueryResultsFB xrRetrieveSpaceQueryResultsFB_ = nullptr;
@@ -456,6 +468,14 @@ struct App {
     int sizeIndex = 1;
     // Screens stay put. Moving one is deliberate: pinch and hold the grab bar under it, drag, release to drop.
     static constexpr float kHoldToMove = 0.5f, kBarW = 0.36f, kBarH = 0.035f, kBarGap = 0.045f;
+    // The move bar's height on its wall, for every draw and hit test. CTLTOP: never closer than kFloorClear to the
+    // wall's bottom edge (the floor); with no room under the screen it becomes a tab on the screen's bottom edge.
+    static constexpr float kFloorClear = 0.06f;
+    float barY(const Placement& p, const Entity* w) const {
+        float y = p.y - p.h / 2 - kBarGap;
+        if (ctlTopMenu && w && y - kBarH / 2 < w->r2.offset.y + kFloorClear) y = p.y - p.h / 2 + kBarH / 2 + 0.012f;
+        return y;
+    }
     bool moving = false, barHover = false, barHolding = false; float barHold = 0;
     std::chrono::steady_clock::time_point barPinchStart{};
     // Resize: pinch with both hands while pointing at the screen and pull apart, or drag a corner.
@@ -526,7 +546,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 45;
+    static constexpr int kMenuItems = 51;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -549,7 +569,10 @@ struct App {
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
         {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"},
         {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"},
-        {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"}};
+        {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"},
+        {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
+        {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
+        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -588,6 +611,12 @@ struct App {
         if (l == "DEPTHPLACE") return depthPlaceOn();
         if (l == "MESHSAVE") return meshSaveOn();
         if (l == "RECEPTION") return receptionMenu;
+        if (l == "STEADY") return steadyMenu;
+        if (l == "CTLTOP") return ctlTopMenu;
+        if (l == "PANELTEX") return panelTexMenu;
+        if (l == "DICTQ") return dictQMenu;
+        if (l == "SETCAT") return setCatMenu;
+        if (l == "RECKEEP") return recKeepMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -600,9 +629,40 @@ struct App {
         return -1;
     }
     void layoutMenu() {
-        std::vector<UiGrid::Item> items; menuShown.clear();
-        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) { items.push_back({menuItems[i].label, menuItems[i].section, menuItems[i].hint}); menuShown.push_back(i); }
+        std::vector<UiGrid::Item> items; menuShown.clear(); menuCellLabel.clear(); menuCellAction.clear();
+        if (setCatMenu) {  // SETCAT: MOST USED + a button per category (+ CLOSE); a category cascades beside this panel
+            shoulder::Level root = setTree().root({"CLOSE", "HIDE THIS PANEL", "set:CLOSE"});
+            for (size_t k = 0; k < root.items.size(); k++) {
+                const shoulder::Item& it = root.items[k];
+                if (it.label == "CLOSE" && !itemVisible("CLOSE")) continue;
+                int idx = -2 - (int)menuShown.size();  // not a menuItems switch: a code for menuHover
+                if (it.action.rfind("set:", 0) == 0) for (int i = 0; i < kMenuItems; i++) if (it.action.substr(4) == menuItems[i].label) idx = i;
+                items.push_back({it.label, it.section, it.hint}); menuShown.push_back(idx); menuCellLabel.push_back(it.label); menuCellAction.push_back(it.action);
+            }
+            menuGrid.layout(items); return;
+        }
+        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) {
+            items.push_back({menuItems[i].label, menuItems[i].section, menuItems[i].hint}); menuShown.push_back(i);
+            menuCellLabel.push_back(menuItems[i].label); menuCellAction.push_back(std::string("set:") + menuItems[i].label);
+        }
         menuGrid.layout(items);
+    }
+    // SETCAT: the registry (flags.json, compiled in as flags_data.h) and the category tree over menuItems.
+    flagreg::Registry flagReg; bool flagRegLoaded = false; std::vector<std::string> menuCellLabel, menuCellAction;
+    setmenu::Tree setTree() {
+        if (!flagRegLoaded) { flagRegLoaded = true; if (!flagReg.load(kFlagsJson)) event("settings: flags registry did not parse"); }
+        setmenu::Tree t; t.reg = &flagReg;
+        for (auto& m : menuItems) t.entries.push_back({m.label, m.section, m.hint});
+        return t;
+    }
+    // A cell of the standalone panel that is not a switch (a category button): its cascade opens beside the panel.
+    void menuCellPress(int k) {
+        if (k < 0 || k >= (int)menuCellAction.size()) return;
+        const std::string& a = menuCellAction[k];
+        if (a.rfind("open:", 0) != 0) return;
+        if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
+        sm.openBeside(sp(v3(head.position)), sp(v3(menu.pose.position)), menuHalfW(), a.substr(5));
+        event("settings: " + a.substr(5) + " opened beside the panel");
     }
     bool palmFacing(V3& at) {
         if (!handActive[0]) return false;
@@ -653,7 +713,8 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -725,6 +786,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -779,6 +841,12 @@ struct App {
         else if (l == "DEPTHPLACE") depthPlaceMenu = !depthPlaceMenu;            // screens on depth-fitted walls
         else if (l == "MESHSAVE") meshSaveMenu = !meshSaveMenu;                 // room mesh saved to the house
         else if (l == "RECEPTION") receptionMenu = !receptionMenu;               // CLAUDE talks to work-df
+        else if (l == "STEADY") steadyMenu = !steadyMenu;                       // pointer stabilization
+        else if (l == "CTLTOP") ctlTopMenu = !ctlTopMenu;                       // screen controls on top
+        else if (l == "PANELTEX") panelTexMenu = !panelTexMenu;                 // SETTINGS as one texture
+        else if (l == "DICTQ") dictQMenu = !dictQMenu;                          // queued assistant dictation
+        else if (l == "RECKEEP") recKeepMenu = !recKeepMenu;                    // CLAUDE chat across restarts
+        else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -866,6 +934,7 @@ struct App {
         int cell = menuGrid.hit(x, y);
         if (cell >= 0) menuHover = menuShown[cell];
         if (menuHover >= 0 && ray[1].pinch && !pinchPrev[1]) choose(menuHover);
+        else if (menuHover <= -2 && ray[1].pinch && !pinchPrev[1]) menuCellPress(-2 - menuHover);
         return true;
     }
     // ---- Shoulder menu (flag SHOULDER; room_lab/shoulder.h, docs/house-onboarding.md). A button by the shoulder opens a
@@ -907,6 +976,8 @@ struct App {
             if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
             for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
             L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+        } else if (setCatMenu && (n == "SETTINGS" || n.rfind("SET ", 0) == 0)) {
+            L = setTree().level(n);
         } else if (n == "SETTINGS") {
             L.grid.cols = 5;  // 30 switches: wide rather than tall
             for (auto& m : menuItems) if (std::string(m.label) != "CLOSE") L.items.push_back({m.label, m.hint, std::string("set:") + m.label});
@@ -925,7 +996,8 @@ struct App {
         { std::string msg; long v; { std::lock_guard<std::mutex> g(appsLock); msg.swap(appsToast); v = appsVersion; }
           if (!msg.empty()) { const float c[4] = {0.35f, 0.85f, 1.0f, 1}; toast("apps", msg, c, 3); }
           if (v != appsSeen) { appsSeen = v; if (sm.open() && sm.stack.back().name.rfind("APPS ", 0) == 0) sm.refresh(); } }
-        if (!shoulderOn() && !wristOn()) { sm.stack.clear(); smPokePrev = false; return false; }
+        if (sm.open() && sm.stack[0].anchored && !(menuOpen && setCatMenu)) sm.stack.clear();  // SETCAT: the panel it hangs beside closed
+        if (!shoulderOn() && !wristOn() && !(sm.open() && sm.stack[0].anchored)) { sm.stack.clear(); smPokePrev = false; return false; }
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         bool edge = handActive[1] && ray[1].pinch && !pinchPrev[1];
@@ -1007,7 +1079,7 @@ struct App {
         }
     }
     void drawShoulder(Batch& b) {
-        if (!shoulderOn() && !wristOn()) return;
+        if (!shoulderOn() && !wristOn() && !(sm.open() && sm.stack[0].anchored)) return;
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         const float idleB[4] = {0.75f, 0.8f, 0.9f, 0.85f}, hotB[4] = {0.3f, 0.75f, 1.0f, 1.0f};
         auto menuButton = [&](V3 c, float r, bool hot) {  // a ring with three bars: "menu"
@@ -1045,13 +1117,27 @@ struct App {
                 if (!m2.empty()) text(b, pe, 0, -0.006f, 0.004f, mpx, m2.c_str(), dim);
                 continue;
             }
+            if (panelTexMenu) {  // PANELTEX: this level as one texture (greyed items and the parent fade baked in); hover stays live
+                std::vector<std::string> labels; std::vector<bool> on, dimv;
+                for (auto& it : L.items) { labels.push_back(it.label); on.push_back((it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0) || appIsOn(it.action)); dimv.push_back(it.dim); }
+                UiTex& u = ui(1 + (int)k);
+                if (uiTexUpdate(u, paneltex::fromGrid(L.grid, labels, on, L.title, {}, &dimv, fade))) {
+                    u.c[0] = P(-hw, -hh, 0); u.c[1] = P(hw, -hh, 0); u.c[2] = P(hw, hh, 0); u.c[3] = P(-hw, hh, 0); u.show = true;
+                    if (top && smHover.level == (int)k && smHover.item >= 0 && smHover.item < (int)L.grid.cells.size()) {
+                        const UiGrid::Cell& cl = L.grid.cells[smHover.item]; const float hl[4] = {1, 1, 1, 0.2f};
+                        float x0 = (cl.x - cl.w / 2) * s, x1 = (cl.x + cl.w / 2) * s, y0 = (cl.y - cl.h / 2) * s, y1 = (cl.y + cl.h / 2) * s;
+                        b.quad(P(x0, y0, 0.002f * s), P(x1, y0, 0.002f * s), P(x1, y1, 0.002f * s), P(x0, y1, 0.002f * s), hl);
+                    }
+                    continue;
+                }
+            }
             b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
             text(b, pe, 0, L.grid.titleY * s, 0.003f * s, UiGrid::fit(L.title, L.grid.titlePx, 2 * L.grid.halfW - 2 * L.grid.pad, L.grid.titleH * 0.6f) * s, L.title.c_str(), white);
             for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
                 const UiGrid::Cell& cl = L.grid.cells[i]; const shoulder::Item& it = L.items[i];
                 bool on = (it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0) || appIsOn(it.action);
-                const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
-                float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
+                const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f}, grey[4] = {0.11f, 0.11f, 0.12f, 0.9f};
+                float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : it.dim ? grey[q] : idle[q];  // dim: an off flag (SETCAT)
                 f[3] *= fade;
                 if (top && smHover.level == (int)k && smHover.item == (int)i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
                 float x0 = (cl.x - cl.w / 2) * s, x1 = (cl.x + cl.w / 2) * s, y0 = (cl.y - cl.h / 2) * s, y1 = (cl.y + cl.h / 2) * s;
@@ -1922,6 +2008,122 @@ struct App {
         std::mt19937 rng((unsigned)time(nullptr) ^ (unsigned)(uintptr_t)this); char b[32]; snprintf(b, sizeof b, "headset-%08x%04x", (unsigned)rng(), (unsigned)(rng() & 0xffff));
         receptionConv = b; house::writeAtomic(gDir + "/reception-id", receptionConv); return receptionConv;
     }
+    // ---- DICTQ (room_lab/dictation.h): while a chat is open (a screen's Claude button, or CLAUDE / RECEPTION in the ring)
+    // the mic stays on and dq decides: an utterance never ends at a breath, ends after 3.5 s of quiet (2.2 s after a
+    // finished sentence) or on "send"; what is said while the answer streams is queued and goes after it, in order.
+    // The fist cannot take the mic from an open chat (dmic). Every wait has a watchdog in dictation.h; here the mic is
+    // restarted if it ever stops. Replaces updateReceptionMic and the button's pause logic when DICTQ is on.
+    dictsm::Mic dmic; dictsm::Listener dq; dictsm::State dqState = dictsm::State::Idle; int dqQueued = 0; float dqRestartAt = -10, dqVoiceAt = 0; long dqSent = 0, dqRestarts = 0, dqCuts = 0;
+    void dqReset() { dq = dictsm::Listener{}; dictation.clearEvents(); dqVoiceAt = now(); }
+    void updateDictQ() {
+        float t = now();
+        if (!dmic.acquire(dictsm::Owner::Button, t)) return;
+        if (!dictation.recording && t - dqRestartAt > 2) { dqRestartAt = t; dictation.start(); dqRestarts++; event("dictq: mic (re)started"); }
+        Dictation::Ev ev;
+        while (dictation.takeEvent(ev)) {
+            if (ev.kind == Dictation::Ev::Segment) dq.segment(t);
+            else if (ev.kind == Dictation::Ev::Text) dq.text(t, ev.text);
+            else dq.failed(t);
+        }
+        bool speaking = dictation.recording && dictation.level.load() >= 800;
+        if (speaking) dqVoiceAt = t;
+        dq.voice(t, speaking, dictsm::Owner::Button);
+        if (assistWaiting) {  // the answer is done (or failed): the next queued utterance may go
+            std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[assistArmed].state; }
+            if (st == "idle" || st == "error") { assistWaiting = false; dq.replyDone(t); }
+        }
+        dictsm::Out o = dq.tick(t);
+        if (o.cutNow) { dqCuts++; if (!dictation.cut()) dq.unvoiced(t); }
+        if (!o.caption.empty() && o.caption != assistBuffer) assistHeardAt = std::chrono::steady_clock::now();
+        assistBuffer = o.caption;
+        for (auto& sd : o.sends) {  // one at a time; after a reply's 90 s watchdog this goes even if the old one never ended
+            assistSend(assistArmed, sd.text); assistWaiting = true; dqSent++; event("dictq: sent " + sd.text);
+        }
+        dqState = o.state; dqQueued = o.queued;
+        // A screen's chat (not the always-on reception) closes its mic after 60 s with nothing said; the panel stays.
+        bool always = assistArmed == 0 && receptionOn();
+        if (!always && o.state == dictsm::State::Idle && !assistWaiting && t - dqVoiceAt > 60) {
+            dictation.stop(); dmic.release(dictsm::Owner::Button, t); assistArmed = -1; event("dictq: 60 s quiet, mic closed");
+        }
+    }
+    // ---- RECKEEP (kanban K18, room_lab/reception_persist.h): the CLAUDE chat survives app restarts. Its turns are
+    // cached in files/reception-history.json whenever they settle; opening the chat shows the last kRecExchanges
+    // exchanges behind the greeting, from the receptionist's history (work-42) or else the cache; if the panel was open
+    // at shutdown (files/reception-open) it reopens in front of you 3 s after start. Under the panel a strip says
+    // whether the mic really hears anything (audio callbacks arriving): LISTENING, or NOT LISTENING - PINCH TO
+    // RESTART; a stall also restarts the mic by itself every 5 s.
+    static constexpr int kRecExchanges = 8;
+    recpersist::MicCheck recMic; bool recStartDone = false, recStripHover = false; long recSavedVersion = -1, recRestores = 0, recMicRestarts = 0;
+    std::string recHistorySource;
+    static constexpr const char* kRecGreeting = "Hi, this goes to work-df. Speak, and pause when you are done.";
+    void recRestoreHistory() {
+        std::string host = assistHost, conv = receptionId(), cache = gDir + "/reception-history.json";
+        std::thread([this, host, conv, cache] {
+            house::Response r = house::http(host, 57840, "GET", "/api/reception/history?conv=" + conv + "&limit=" + std::to_string(kRecExchanges * 4));
+            bool ok = false; json::Value v = json::parse(r.body, &ok);
+            std::vector<recpersist::Msg> server = r.status == 200 && ok ? recpersist::fromJson(v) : std::vector<recpersist::Msg>{}, local;
+            { std::ifstream f(cache); std::stringstream ss; ss << f.rdbuf(); bool lok = false; json::Value lv = json::parse(ss.str(), &lok); if (lok) local = recpersist::fromJson(lv); }
+            auto msgs = recpersist::pick(server, local, kRecExchanges);
+            std::lock_guard<std::mutex> g(assistLock);
+            recHistorySource = !server.empty() ? "server" : !local.empty() ? "cache" : r.status == 200 ? "none" : "none (server " + std::to_string(r.status) + ")";
+            if (msgs.empty()) return;
+            assist::Chat& c = chats[0]; std::vector<assist::Turn> live = c.turns, turns;  // history goes behind what is there now
+            for (auto& m : msgs) turns.push_back({m.role, m.text, "", {}, true, false});
+            turns.insert(turns.end(), live.begin(), live.end()); c.turns.swap(turns); c.version++; recRestores++;
+        }).detach();
+    }
+    // Returns true when the right hand pinched the mic strip this frame.
+    bool updateRecKeep() {
+        float t = now();
+        if (!recStartDone && t > 3) {  // reopen what was open at shutdown, in front of you like the CLAUDE button
+            recStartDone = true; std::ifstream f(gDir + "/reception-open"); std::string s;
+            if (f >> s && s == "1" && !chatOpen.count(0)) { event("reception: reopening the chat that was open at shutdown"); shoulderAction("restore", "ask"); }
+        }
+        if (!chatOpen.count(0)) { recMic.state = recpersist::MicCheck::Off; return false; }
+        {   long ver; std::string st; std::vector<recpersist::Msg> msgs;  // cache the turns once they settle
+            { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[0]; ver = c.version; st = c.state;
+              if (ver != recSavedVersion && st != "sending" && st != "streaming") for (auto& tr : c.turns) if (tr.text != kRecGreeting) msgs.push_back({tr.role, tr.text}); }
+            if (ver != recSavedVersion && st != "sending" && st != "streaming") {
+                recSavedVersion = ver;
+                if (!msgs.empty()) house::writeAtomic(gDir + "/reception-history.json", recpersist::toJson(recpersist::lastExchanges(msgs, kRecExchanges * 3), receptionId()));
+            }
+        }
+        if (assistArmed == 0 && recMic.update(t, dictation.recording, dictation.callbacks.load())) {
+            recMicRestarts++; event("reception: mic stalled, restarting"); dictation.stop(); dictation.start();
+        }
+        recStripHover = false;
+        if (!(handActive[1] && ray[1].valid)) return false;
+        float sx, sy; if (!recStripHit(ray[1].o, ray[1].d, sx, sy)) return false;
+        recStripHover = true;
+        if (ray[1].pinch && !pinchPrev[1]) {
+            recMic.restarted(t); recMicRestarts++; event("reception: mic restarted by hand");
+            if (dictation.recording) dictation.stop();
+            if (assistArmed != 0) assistListen(0); else dictation.start();
+        }
+        return true;
+    }
+    // The strip: kChatW wide, 4 cm tall, 3 cm under the CLAUDE panel (0.7 m tall, centred at roomChatAt).
+    void recStripFrame(V3& c, V3& r, V3& n) const { r = {std::cos(roomChatYaw), 0, -std::sin(roomChatYaw)}; n = {std::sin(roomChatYaw), 0, std::cos(roomChatYaw)}; c = roomChatAt - V3{0, 0.35f + 0.05f, 0}; }
+    bool recStripHit(V3 o, V3 d, float& x, float& y) const {
+        V3 c, r, n; recStripFrame(c, r, n); float dn = dot(d, n); if (std::fabs(dn) < 1e-5f) return false;
+        float t = dot(c - o, n) / dn; if (t <= 0) return false;
+        V3 p = o + d * t - c; x = dot(p, r); y = p.y;
+        return std::fabs(x) < kChatW / 2 && std::fabs(y) < 0.02f + 0.01f;
+    }
+    void drawRecStrip(Batch& b) {
+        if (!(recKeepMenu && receptionOn() && chatOpen.count(0))) return;
+        V3 c, r, n; recStripFrame(c, r, n);
+        Entity e; e.pose.orientation = {0, std::sin(roomChatYaw / 2), 0, std::cos(roomChatYaw / 2)}; e.pose.position = {c.x, c.y, c.z};
+        bool ok = recMic.state == recpersist::MicCheck::Listening;
+        float bg[4] = {0.05f, 0.06f, 0.08f, recStripHover ? 0.95f : 0.8f}; const float green[4] = {0.3f, 0.9f, 0.45f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1}, white[4] = {0.95f, 0.97f, 1.0f, 1};
+        if (recStripHover) for (int k = 0; k < 3; k++) bg[k] += 0.12f;
+        float hw = kChatW / 2, hh = 0.02f;
+        b.quad(xform(e.pose, {-hw, -hh, 0}), xform(e.pose, {hw, -hh, 0}), xform(e.pose, {hw, hh, 0}), xform(e.pose, {-hw, hh, 0}), bg);
+        float dr = ok ? 0.006f + 0.004f * std::fmin(dictation.level.load() / 3000.0f, 1.0f) : 0.007f, dx = -hw + 0.03f;
+        b.quad(xform(e.pose, {dx - dr, -dr, 0.002f}), xform(e.pose, {dx + dr, -dr, 0.002f}), xform(e.pose, {dx + dr, dr, 0.002f}), xform(e.pose, {dx - dr, dr, 0.002f}), ok ? green : red);
+        const char* label = recMic.label();
+        text(b, e, 0.015f, 0, 0.002f, UiGrid::fit(label, 0.0035f, kChatW - 0.09f, 0.025f), label, white);
+    }
     void updateReceptionMic(std::chrono::steady_clock::time_point tn) {
         // Never stuck: while the chat is open the mic is on; if it stopped (or a stop never drained) start it again.
         if (!dictation.recording && tn - recRestartAt > std::chrono::seconds(2)) {
@@ -1980,7 +2182,11 @@ struct App {
         bool rec = id == 0 && receptionOn();
         { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear();
           c.greet(rec ? "Hi, this goes to work-df. Speak, and pause when you are done." : id == 0 ? "Hi, what should I do with the room?" : "Hi, what do you want on this screen?"); }
-        if (rec) { receptionQueue.clear(); recLoudAt = recRestartAt = std::chrono::steady_clock::now(); assistListen(id); event("reception: chat opened (" + receptionId() + ")"); return; }
+        if (rec) {
+            receptionQueue.clear(); recLoudAt = recRestartAt = std::chrono::steady_clock::now(); assistListen(id); event("reception: chat opened (" + receptionId() + ")");
+            if (recKeepMenu) { house::writeAtomic(gDir + "/reception-open", "1"); recRestoreHistory(); }
+            return;
+        }
         std::string host = assistHost;
         std::thread([this, id, host] {  // the conversation so far, behind the greeting
             house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
@@ -1994,20 +2200,24 @@ struct App {
     }
     void assistListen(int id) {
         assistArmed = id; assistBuffer.clear(); assistWaiting = false; assistT0 = assistHeardAt = std::chrono::steady_clock::now();
+        if (dictQMenu) { dqReset(); dmic.acquire(dictsm::Owner::Button, now()); }
         if (!dictation.recording) dictation.start();
     }
     void assistClose(int id) {
         chatOpen.erase(id);
-        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; }
+        if (id == 0 && recKeepMenu) house::writeAtomic(gDir + "/reception-open", "0");
+        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; dqReset(); dmic.release(dictsm::Owner::Button, now()); }
         event("assist: chat closed for screen " + std::to_string(id));
     }
     // Returns true when a Claude button takes the right hand this frame.
     bool updateAssist() {
         assistHover = 0; chatHover = 0;
-        if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; } chatOpen.clear(); return false; }
+        if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; dmic.release(dictsm::Owner::Button, now()); } chatOpen.clear(); return false; }
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
-        if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
+        bool recStrip = recKeepMenu && receptionOn() && updateRecKeep();  // the mic strip took the hand (after the mic logic below)
+        if (dictQMenu && assistArmed >= 0) updateDictQ();
+        else if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
         else {
         if (assistArmed >= 0 && dictation.recording && !assistWaiting) {
             // Pause: words were heard, then 3.5 s of nothing new and a quiet microphone -> stop and send.
@@ -2024,6 +2234,7 @@ struct App {
             if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = -1; assistWaiting = false; } }
         }
         }
+        if (recStrip) return true;
         if (!(handActive[1] && ray[1].valid)) return false;
         float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
         std::vector<int> ids; assistScreens(ids);
@@ -2046,7 +2257,7 @@ struct App {
     void drawAssist(Batch& b) {
         chatQuads.clear();
         if (!assistOn()) return;
-        drawRoomChat();
+        drawRoomChat(); drawRecStrip(b);
         std::vector<int> ids; assistScreens(ids); float t = now();
         for (int id : ids) {
             Placement p; Entity* w; if (!screenFor(id, p, w)) continue;
@@ -2133,6 +2344,7 @@ struct App {
     // that UI state synthetically, then the file is removed. Only menus/tool/panel state; nothing is sent anywhere.
     //   shoulder | settings | walls (WALLS palette + a dashed line preview on the wall in view) | wrist | assist
     //   (a local demo chat beside the main screen) | scan | scan-done | click:<id>:<u>:<v> | scroll:<id>:<dy> | close
+    //   | select:<id> (the gold outline, as house["selected"] would) | select-clear
     void uiDemo(const std::string& scene) {
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
@@ -2161,6 +2373,8 @@ struct App {
         } else if (scene == "scan") { scanStart();
         } else if (scene == "ask") { shoulderAction("ui-demo", "ask");   // opens (or closes) the CLAUDE / ASK... chat
         } else if (scene == "scan-done") { scanFinish();
+        } else if (scene.rfind("select:", 0) == 0) { sel.select(atoi(scene.c_str() + 7), now()); event("ui-demo: select " + scene.substr(7));
+        } else if (scene == "select-clear") { sel.clear(now());
         } else if (scene.rfind("click:", 0) == 0 || scene.rfind("scroll:", 0) == 0) {  // click:<id>:<u>:<v> / scroll:<id>:<dy>, the same routing as a pinch / wave
             int id = 0, a = 0, b = 0; bool click = scene[1] == 'l';
             sscanf(scene.c_str() + (click ? 6 : 7), "%d:%d:%d", &id, &a, &b);
@@ -3012,11 +3226,11 @@ void main(){
             XrResult r = xrLocateHandJointsEXT_(hands[h], &li, &locs); handResult[h] = (int)r;
             if (XR_SUCCEEDED(r)) handActive[h] = locs.isActive;
             HandRay& hr = ray[h]; hr.valid = false;
-            if (!handActive[h]) { hr.pinch = false; continue; }
+            if (!handActive[h]) { hr.pinch = false; steadyHand[h].reset(); continue; }
             auto& th = joints[h][XR_HAND_JOINT_THUMB_TIP_EXT]; auto& ix = joints[h][XR_HAND_JOINT_INDEX_TIP_EXT];
             auto& kn = joints[h][XR_HAND_JOINT_INDEX_PROXIMAL_EXT]; auto& tm = joints[h][XR_HAND_JOINT_THUMB_PROXIMAL_EXT];
             const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT;
-            if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; continue; }
+            if (!(th.locationFlags & need) || !(ix.locationFlags & need) || !(kn.locationFlags & need) || !(tm.locationFlags & need)) { hr.pinch = false; steadyHand[h].reset(); continue; }
             hr.gap = len(v3(th.pose.position) - v3(ix.pose.position));
             hr.tip = (v3(th.pose.position) + v3(ix.pose.position)) * 0.5f;
             hr.pinchDown = hr.pinchDown ? hr.gap < 0.035f : hr.gap < 0.018f;
@@ -3045,6 +3259,13 @@ void main(){
             V3 shoulder = xform(head, {h == 1 ? 0.17f : -0.17f, -0.2f, 0.05f});
             V3 ro = knuckles, rd = norm(knuckles - shoulder);
             hr.valid = len(knuckles - shoulder) > 0.15f;
+            if (steadyMenu) {  // filtered before the history, so the press rewind-and-lock below clicks on the filtered pose
+                if (!steadyKRead) { steadyKRead = true; std::ifstream sf(gDir + "/steady-strength"); float k; if (sf >> k && k >= 0 && k <= 1) steadyK = k; }
+                steady::Input si; si.t = now(); si.tracked = hr.valid; si.pinch = hr.pinch;
+                si.o = {ro.x, ro.y, ro.z}; si.d = {rd.x, rd.y, rd.z}; si.tip = {hr.tip.x, hr.tip.y, hr.tip.z};
+                steadyHand[h].strength = steadyK; steady::Out so = steadyHand[h].update(si);
+                ro = {so.o.x, so.o.y, so.o.z}; rd = {so.d.x, so.d.y, so.d.z}; hr.tip = {so.tip.x, so.tip.y, so.tip.z};
+            } else steadyHand[h].reset();
             int slot = hr.histN % kHist; hr.histO[slot] = ro; hr.histD[slot] = rd; hr.histN++;
             if (hr.pinch && !pinchWas) {
                 int back = std::min(kRewind, hr.histN - 1), i = (hr.histN - 1 - back) % kHist;
@@ -3288,7 +3509,7 @@ void main(){
             const Placement& p = extras[i].p; Entity* pw = wallById(p.wall); float bx, by;
             if (!pw || !pw->located || !planeHit(*pw, ray[1].o, ray[1].d, bx, by)) continue;
             if (!editLocked && closeX() && std::hypot(bx - (p.x + p.w / 2 - 0.045f), by - (p.y + p.h / 2 - 0.045f)) < 0.035f) { closeXHover = (int)i; break; }
-            if ((!editLocked || allBars()) && std::fabs(bx - p.x) < kBarW / 2 + 0.03f && std::fabs(by - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
+            if ((!editLocked || allBars()) && std::fabs(bx - p.x) < kBarW / 2 + 0.03f && std::fabs(by - barY(p, pw)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
         }
         if (closeXHover >= 0) {
             extraPtr = -1;
@@ -3313,7 +3534,7 @@ void main(){
             const Placement& p = extras[i].p;
             float u = (ex - (p.x - p.w / 2)) / p.w, v = 1 - (ey - (p.y - p.h / 2)) / p.h;
             if (prev != i) { eu = u; ev = v; }
-            float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : std::fmin(0.08f + speed * 0.9f, 0.7f);
+            float speed = std::hypot(u - eu, v - ev) * 72.0f, a = ray[1].locked ? 0 : steadyMenu ? 1.0f : std::fmin(0.08f + speed * 0.9f, 0.7f);  // STEADY already smoothed the ray
             eu += (u - eu) * a; ev += (v - ev) * a; extraPtr = i;
             int iu = (int)(eu * 10000), iv = (int)(ev * 10000);
             if (iu != sentU || iv != sentV) {
@@ -3644,7 +3865,7 @@ void main(){
             }
         }
     }
-    void drawExtras(Batch& b) {
+    void drawExtras(Batch& b, Batch& bars) {  // bars: the close X and the move bar (ctl with CTLTOP)
         V3 eye = v3(head.position);
         for (size_t i = 0; i < extras.size(); i++) {
             const Placement& p = extras[i].p; Entity* w = wallById(p.wall); if (!w || !w->located) continue;
@@ -3687,16 +3908,16 @@ void main(){
                 const float bgx[4] = {0.08f, 0.08f, 0.1f, 0.85f}, xc[4] = {armed ? 1.0f : 0.92f, armed ? 0.3f : 0.94f, armed ? 0.25f : 0.98f, 1};
                 float r = closeXHover == (int)i ? 0.03f : 0.025f;
                 for (int q = 0; q < 16; q++) { float a0 = q * 0.3927f, a1 = (q + 1) * 0.3927f;
-                    b.quad(c, c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), c, armed ? xc : bgx); }
+                    bars.quad(c, c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), c, armed ? xc : bgx); }
                 float k = r * 0.5f; const float* lc = armed ? bgx : xc;
-                b.line(c - ax * k - ay * k + n * 0.001f, c + ax * k + ay * k + n * 0.001f, n, 0.004f, lc); b.line(c - ax * k + ay * k + n * 0.001f, c + ax * k - ay * k + n * 0.001f, n, 0.004f, lc);
+                bars.line(c - ax * k - ay * k + n * 0.001f, c + ax * k + ay * k + n * 0.001f, n, 0.004f, lc); bars.line(c - ax * k + ay * k + n * 0.001f, c + ax * k - ay * k + n * 0.001f, n, 0.004f, lc);
             }
             if (!editLocked || allBars()) {  // grab bar (dimmer while locked)
-                float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+                float y = barY(p, w), hw = kBarW / 2, hh = kBarH / 2;
                 const float idle[4] = {0.75f, 0.78f, 0.82f, editLocked ? 0.2f : 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
                 const float* col = extraMoving == (int)i ? fill : extraBarHover == (int)i ? hover : idle;
-                b.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
-                if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); b.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
+                bars.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
+                if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); bars.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
             }
         }
         if (extraMoving >= 0 && candidate.active) if (auto* w = wallById(candidate.wall)) {
@@ -3737,12 +3958,14 @@ void main(){
         }
         // While a Claude button is armed it owns the microphone: the fist gesture neither starts nor stops it (v0.47 bug:
         // the open hand stopped the button's recording 150 ms after every press).
-        if (assistArmed < 0 && !dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
-        if (assistArmed < 0 && dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
+        if (assistArmed < 0 && !dictation.recording && fistTime >= kFistHold && (!dictQMenu || dmic.acquire(dictsm::Owner::Fist, now()))) { dictation.start(); event("dictation started"); }
+        if (dictQMenu && assistArmed < 0 && dictation.recording) dmic.touch(dictsm::Owner::Fist, now());
+        if (assistArmed < 0 && dictation.recording && openTime >= kFistRelease) { dictation.stop(); dmic.release(dictsm::Owner::Fist, now()); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
             if (assistArmed >= 0) {  // the Claude button (or ASK..., id 0) is armed: the words go to that screen's assistant, not the stream
-                assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
+                if (!dictQMenu) assistBuffer += (assistBuffer.empty() ? "" : " ") + t;  // DICTQ assembles utterances from its events
+                caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
                 event("assist: heard " + t); continue;
             }
             if (streamInput()) {
@@ -3883,7 +4106,7 @@ void main(){
                 }
             }
             if ((!editLocked || allBars()) && cornerHover < 0 && pw) {  // on the wall's plane: the bar may hang below the scanned rect
-                float px, py, bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
+                float px, py, bx = placed.x, by = barY(placed, pw);
                 if (planeHit(*pw, o, d, px, py) && std::fabs(px - bx) < kBarW / 2 + 0.03f && std::fabs(py - by) < kBarH / 2 + 0.03f) barHover = true;
             }
             if (barHover) {
@@ -3937,7 +4160,10 @@ void main(){
     void buttonCenter(int b, float& x, float& y) {
         x = placed.x + (b == 0 ? -0.17f : 0.17f);
         y = placed.y + placed.h / 2 + 0.075f;
-        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) y = placed.y - placed.h / 2 - kBarGap - kBarH / 2 - 0.07f;
+        if (auto* w = wallById(placed.wall)) if (y + kButtonH / 2 > w->r2.offset.y + w->r2.extent.height) {
+            float below = barY(placed, w) - kBarH / 2 - 0.07f;
+            if (!(ctlTopMenu && below - kButtonH / 2 < w->r2.offset.y + kFloorClear)) y = below;  // CTLTOP: above the wall top rather than under the floor
+        }
     }
     // 5x7 pixel font, A-Z, 0-9 and % - . : ! (bit 16 is the leftmost column).
     static const uint8_t* glyph(char c) {
@@ -4099,7 +4325,62 @@ void main(){
         }
     }
 
+    // CTLTOP: screen controls (and the select outline) in their own batch, drawn after everything with no depth test.
+    Batch ctl;
+    // Select outline (kanban: "a gold outline + number on a screen"): house["selected"] (work-42's room tools) drives it.
+    selout::Selection sel; selout::HouseSelect selHouse; const json::Value* selDoc = nullptr;
+    void drawSelection(Batch& b) {
+        { std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+          if (d && d.get() != selDoc) { selDoc = d.get(); selHouse.apply(*d, sel, now()); } }
+        float t = now(); sel.update(t);
+        if (sel.items.empty()) return;
+        auto one = [&](int id, const Placement& p) {
+            auto lk = sel.look(id, t); if (!lk.visible || !p.active) return;
+            Entity* w = wallById(p.wall); if (!w || !w->located) return;
+            selout::Rect r; r.c = {p.x, p.y, 0}; r.w = p.w; r.h = p.h;  // wall-local: right x, up y, normal z
+            r.topRoom = w->r2.offset.y + w->r2.extent.height - (p.y + p.h / 2);
+            selout::Style st; float g[4], ink[4];
+            for (int k = 0; k < 3; k++) { g[k] = std::fmin(1.0f, st.gold[k] * lk.bright); ink[k] = st.ink[k]; }
+            g[3] = lk.alpha; ink[3] = st.ink[3] * lk.alpha;
+            auto W = [&](selout::V v) { return xform(w->pose, {v.x, v.y, v.z}); };
+            selout::Frame f = selout::frame(r, st, lk.thickScale);
+            for (int i = 0; i < 4; i++) { selout::V q[4]; f.quad(i, q); b.quad(W(q[0]), W(q[1]), W(q[2]), W(q[3]), g); }
+            selout::Label L = selout::label(r, st, lk.number);
+            b.quad(W(L.badge[0]), W(L.badge[1]), W(L.badge[2]), W(L.badge[3]), g);
+            text(b, *w, L.centre.x, L.centre.y, L.centre.z, L.px, L.text.c_str(), ink);
+        };
+        one(1, placed);
+        for (auto& e : extras) one(e.id, e.p);
+    }
+    // Frame cost (status.json "frameCost", read-only, always on): CPU time and vertices each part of build() adds, as a
+    // moving average, plus render()'s CPU time and draw calls per eye. For the fps question (work-df, 2026-11-04).
+    struct CostPart { const char* name; double us = 0; double verts = 0; };
+    std::vector<CostPart> costParts; double costBuildUs = 0, costRenderUs = 0, costDraws = 0, costVerts = 0, costBuildMaxUs = 0, costMaxWindow = 0;
+    std::chrono::steady_clock::time_point costT; size_t costV = 0; int costK = 0;
+    void costMark(const char* name, const Batch& a, const Batch& b2) {  // closes the part that started at the previous mark
+        auto t = std::chrono::steady_clock::now(); size_t v = a.v.size() + b2.v.size() + ctl.v.size();
+        if (costK >= (int)costParts.size()) costParts.push_back({name});
+        CostPart& c = costParts[costK++]; c.name = name;
+        double us = std::chrono::duration<double, std::micro>(t - costT).count(), dv = (double)(v - costV);
+        c.us = c.us ? c.us * 0.95 + us * 0.05 : us; c.verts = c.verts ? c.verts * 0.95 + dv * 0.05 : dv;
+        costT = t; costV = v;
+    }
+    std::string frameCostJson() {
+        std::ostringstream j; j.setf(std::ios::fixed); j.precision(1);
+        j << "{\"buildUs\":" << costBuildUs << ",\"buildMaxUs\":" << costBuildMaxUs << ",\"renderCpuUs\":" << costRenderUs << ",\"drawsPerEye\":" << costDraws << ",\"verts\":" << costVerts << ",\"parts\":[";
+        for (size_t i = 0; i < costParts.size(); i++) j << (i ? "," : "") << "{\"name\":\"" << costParts[i].name << "\",\"us\":" << costParts[i].us << ",\"verts\":" << costParts[i].verts << "}";
+        j << "]}"; return j.str();
+    }
     void build(Batch& occ, Batch& over) {
+        auto buildT0 = std::chrono::steady_clock::now(); costT = buildT0; costV = 0; costK = 0;
+        build2(occ, over);
+        double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - buildT0).count();
+        costBuildUs = costBuildUs ? costBuildUs * 0.95 + us * 0.05 : us; costVerts = (double)(occ.v.size() + over.v.size() + ctl.v.size());
+        if (now() - costMaxWindow > 5) { costMaxWindow = now(); costBuildMaxUs = 0; } costBuildMaxUs = std::max(costBuildMaxUs, us);
+    }
+    void build2(Batch& occ, Batch& over) {
+        ctl.v.clear(); Batch& bars = ctlTopMenu ? ctl : occ;
+        for (auto& [k, u] : uiTex) u->show = false;  // each panel that is drawn this frame sets it again
         const float wallCol[4] = {0.3f, 0.85f, 1.0f, 0.55f}, planeCol[4] = {1, 1, 1, 0.35f}, volCol[4] = {1.0f, 0.6f, 0.15f, 0.6f};
         bool placing = moving || !placed.active;
         for (auto& e : entities) {
@@ -4115,18 +4396,21 @@ void main(){
                 for (auto& ed : edges) occ.ray(c[ed[0]], c[ed[1]], 0.008f, volCol);
             }
         }
+        costMark("scene outlines", occ, over);
         if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w, placed);
-        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked || allBars()) grabBar(occ, *w); if (!editLocked) corners(occ, *w); }
-        drawMenu(over);
-        drawShoulder(over);
-        prepareRoomMesh();
+        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(bars); if (!editLocked || allBars()) grabBar(bars, *w); if (!editLocked) corners(bars, *w); }
+        costMark("main screen", occ, over);
+        drawMenu(over); costMark("settings panel", occ, over);
+        drawShoulder(over); costMark("shoulder/wrist menus", occ, over);
+        prepareRoomMesh(); costMark("room mesh prep", occ, over);
         drawScan(occ);
-        drawWallTool(occ);
-        drawAssist(over);
+        drawWallTool(occ); costMark("scan + wall tool", occ, over);
+        drawAssist(over); costMark("assistant buttons + chats", occ, over);
         drawVoice(over);
-        drawExtras(occ);
+        drawExtras(occ, bars); costMark("extra screens", occ, over);
+        drawSelection(bars);
         drawSpell(over);
-        drawToasts(over);
+        drawToasts(over); costMark("outline, spell, toasts", occ, over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
             const float good[4] = {0.2f, 1.0f, 0.4f, 0.9f}, bad[4] = {1.0f, 0.25f, 0.2f, 0.9f};
             panelQuad(occ, candidate, *w, 0.03f, candidate.valid ? good : bad, false);
@@ -4173,6 +4457,58 @@ void main(){
             }
         }
     }
+    // PANELTEX: text panels as one texture each (room_lab/panel_texture.h): the SETTINGS panel (key 0) and every
+    // non-radial level of the shoulder / wrist / SETCAT cascade (key 1 + depth). The content is compared every frame
+    // (cheap); a change is rasterised on a worker thread and uploaded on the render thread, which draws the textures
+    // before the batches so hover highlights sit on top. Until a panel's first upload its quads draw as before.
+    struct UiTex {
+        paneltex::Panel P; std::mutex m; std::shared_ptr<std::vector<uint32_t>> ready; int rw = 0, rh = 0;
+        std::atomic<bool> busy{false}, fresh{false}; GLuint tex = 0; bool valid = false, show = false; V3 c[4];
+    };
+    std::map<int, std::unique_ptr<UiTex>> uiTex; long menuTexRenders = 0; int uiTexShown = 0;  // entries are never erased: workers hold them
+    UiTex& ui(int k) { auto& p = uiTex[k]; if (!p) p.reset(new UiTex); return *p; }
+    bool uiTexUpdate(UiTex& u, const paneltex::Content& c) {
+        u.P.set(c);
+        if (u.P.dirty() && !u.busy) {
+            u.busy = true; auto job = std::make_shared<paneltex::Panel>(u.P); u.P.dirty_ = false; UiTex* up = &u;
+            std::thread([up, job] {
+                job->render(glyph);
+                std::lock_guard<std::mutex> g(up->m);
+                up->ready = std::make_shared<std::vector<uint32_t>>(std::move(job->img)); up->rw = job->w; up->rh = job->h;
+                up->fresh = true; up->busy = false;
+            }).detach();
+        }
+        return u.valid || u.fresh;
+    }
+    bool menuTexture(UiTex& u) {
+        std::vector<std::string> labels; std::vector<bool> on;
+        for (auto& l : menuCellLabel) { labels.push_back(l); on.push_back(itemOn(l) > 0); }
+        return uiTexUpdate(u, paneltex::fromGrid(menuGrid, labels, on, "SETTINGS"));
+    }
+    bool uiTexWanted() const { for (auto& [k, u] : uiTex) if (u->show || u->fresh) return true; return false; }
+    void drawUiTextures(const float* vpm) {  // render thread: upload finished rasters, then the shown panels' quads
+        std::vector<int> keep; keep.swap(chatQuads); chatQuads.clear();
+        for (auto& [k, up] : uiTex) {
+            UiTex& u = *up; std::shared_ptr<std::vector<uint32_t>> img; int w = 0, h = 0;
+            if (u.fresh) { std::lock_guard<std::mutex> g(u.m); img.swap(u.ready); w = u.rw; h = u.rh; u.fresh = false; }
+            if (img) {
+                if (!u.tex) glGenTextures(1, &u.tex);
+                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, u.tex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img->data()); glGenerateMipmap(GL_TEXTURE_2D);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glActiveTexture(GL_TEXTURE0); u.valid = true; menuTexRenders++;
+            }
+            if (!u.show || !u.valid) continue;
+            int slot = kMenuTexQuad - k; ChatQuad& Q = chatTex[slot]; Q.id = slot; Q.tex = u.tex;
+            for (int q = 0; q < 4; q++) Q.c[q] = u.c[q];
+            chatQuads.push_back(slot);
+        }
+        uiTexShown = (int)chatQuads.size();
+        if (!chatQuads.empty()) drawChatPanels(vpm);
+        chatQuads.swap(keep);
+    }
+    static constexpr int kMenuTexQuad = -100;  // slots in chatTex: -100 - key (screen ids are >= 0)
     void drawMenu(Batch& b) {
         V3 palm;
         if (palmHold > 0 && !(editLocked && menuSaved) && palmFacing(palm)) {  // the ring fills while summoning
@@ -4188,9 +4524,13 @@ void main(){
         float hw = menuHalfW(), hh = menuHalfH();
         const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
         const float dim[4] = {0.62f, 0.68f, 0.78f, 1.0f};
+        UiTex& mt = ui(0); bool tex = panelTexMenu && menuTexture(mt);  // PANELTEX: the static panel is one texture, drawn before the UI in render()
+        if (tex) { mt.c[0] = P(-hw, -hh, 0); mt.c[1] = P(hw, -hh, 0); mt.c[2] = P(hw, hh, 0); mt.c[3] = P(-hw, hh, 0); mt.show = true; }
+        else {
         b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
         text(b, menu, 0, menuGrid.titleY, 0.003f, UiGrid::fit("SETTINGS", menuGrid.titlePx, 2 * hw - 2 * menuGrid.pad, menuGrid.titleH * 0.6f), "SETTINGS", white);
         for (auto& h : menuGrid.headings) text(b, menu, h.x, h.y, 0.003f, h.px, h.text.c_str(), dim);
+        }
         if (!editLocked) {
             float y = menuBarY(), bw = 0.3f, bh = 0.025f;
             const float idle[4] = {0.75f, 0.78f, 0.82f, 0.45f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.8f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
@@ -4204,13 +4544,18 @@ void main(){
         std::string current = video.source;
         for (size_t k = 0; k < menuShown.size(); k++) {
             int i = menuShown[k]; const UiGrid::Cell& c = menuGrid.cells[k];
-            bool on = itemOn(menuItems[i].label) > 0;
+            if (tex) {  // only the hover highlight is live
+                const float hl[4] = {1, 1, 1, 0.2f};
+                if (menuHover == i) b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), hl);
+                continue;
+            }
+            const char* label = menuCellLabel[k].c_str(); bool on = itemOn(label) > 0;
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
             if (menuHover == i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
             b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f),
                    P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), f);
-            text(b, menu, c.x, c.labelY, 0.004f, c.px, menuItems[i].label, white);
+            text(b, menu, c.x, c.labelY, 0.004f, c.px, label, white);
             if (!c.hint1.empty()) text(b, menu, c.x, c.hint1Y, 0.004f, c.hintPx, c.hint1.c_str(), dim);
             if (!c.hint2.empty()) text(b, menu, c.x, c.hint2Y, 0.004f, c.hintPx, c.hint2.c_str(), dim);
         }
@@ -4239,7 +4584,7 @@ void main(){
         }
     }
     void grabBar(Batch& b, const Entity& w) {
-        float x = placed.x, y = placed.y - placed.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
+        float x = placed.x, y = barY(placed, &w), hw = kBarW / 2, hh = kBarH / 2;
         const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
         auto rect = [&](float x0, float x1, const float* col, float z) {
             b.quad(xform(w.pose, {x0, y - hh, z}), xform(w.pose, {x1, y - hh, z}), xform(w.pose, {x1, y + hh, z}), xform(w.pose, {x0, y + hh, z}), col);
@@ -4249,7 +4594,9 @@ void main(){
     }
 
     void render(const XrView* views, const Batch& occ, const Batch& over) {
-        std::vector<Vtx> all(occ.v); all.insert(all.end(), over.v.begin(), over.v.end());
+        costMark("pointer + rays", occ, over);
+        auto renderT0 = std::chrono::steady_clock::now(); int draws = 0;
+        std::vector<Vtx> all(occ.v); all.insert(all.end(), over.v.begin(), over.v.end()); all.insert(all.end(), ctl.v.begin(), ctl.v.end());
         glBindBuffer(GL_ARRAY_BUFFER, vbo); glBufferData(GL_ARRAY_BUFFER, all.size() * sizeof(Vtx), all.data(), GL_STREAM_DRAW);
         GLuint depthTex = 0;
         if (depthValid) {
@@ -4381,21 +4728,34 @@ void main(){
                 glUniform3f(uDepthParams, depthImage.nearZ, std::isinf(depthImage.farZ) ? 0.0f : depthImage.farZ, 0.05f);
                 glUniform1f(uLayer, (float)i);
             } else glUniformMatrix4fv(uDepthViewProj, 1, GL_FALSE, vp.m);
+            if (uiTexWanted()) {  // PANELTEX, under their live quads; unit 1 back to the video for the batches
+                drawUiTextures(vp.m); glUseProgram(program); glBindVertexArray(vao);
+                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, video.mipTex); glActiveTexture(GL_TEXTURE0);
+            }
             glUniform1i(uOcclude, depthValid ? 1 : 0);
-            if (!occ.v.empty()) glDrawArrays(GL_TRIANGLES, 0, (GLsizei)occ.v.size());
+            if (!occ.v.empty()) { glDrawArrays(GL_TRIANGLES, 0, (GLsizei)occ.v.size()); draws++; }
             glUniform1i(uOcclude, 0);
-            if (!over.v.empty()) glDrawArrays(GL_TRIANGLES, (GLint)occ.v.size(), (GLsizei)over.v.size());
+            if (!over.v.empty()) { glDrawArrays(GL_TRIANGLES, (GLint)occ.v.size(), (GLsizei)over.v.size()); draws++; }
             if (models() && modelStarted) {  // last: screens as depth only (they hide the model behind them), then the model.
                 // After the UI on purpose: those depth quads sit on the screen planes, where the pointer ring, the grab
                 // bars and the wall highlights are drawn; drawn before the UI they hid all of it (2026-11-03 demo).
                 model.drawDepthQuads(vp.m, screenCorners); model.draw(vp.m);
                 glUseProgram(program); glBindVertexArray(vao);
             }
-            if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
+            if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); draws += (int)chatQuads.size(); }
+            draws += uiTexShown;
+            if ((geometryOn() || scanning())) draws += (int)meshDraw.size() + (flatCpu.empty() ? 0 : 1) + (rawCpu.empty() ? 0 : 1) + 1;
+            if (models() && modelStarted) draws += 2;
             if ((geometryOn() || scanning()) && (!meshDraw.empty() || !flatCpu.empty() || !rawCpu.empty())) { drawRoomMesh(vp.m, screenCorners); glUseProgram(program); glBindVertexArray(vao); }
+            if (!ctl.v.empty()) {  // CTLTOP: after the model, the chats and the room mesh, with no depth test and no env occlusion
+                glUseProgram(program); glBindVertexArray(vao); glUniformMatrix4fv(uViewProj, 1, GL_FALSE, vp.m); glUniform1i(uOcclude, 0);
+                glDisable(GL_DEPTH_TEST); glDrawArrays(GL_TRIANGLES, (GLint)(occ.v.size() + over.v.size()), (GLsizei)ctl.v.size()); glEnable(GL_DEPTH_TEST); draws++;
+            }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }
+        double rus = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - renderT0).count();  // includes swapchain waits
+        costRenderUs = costRenderUs ? costRenderUs * 0.95 + rus * 0.05 : rus; costDraws = costDraws ? costDraws * 0.95 + draws / 2.0 * 0.05 : draws / 2.0;
     }
 
     void frame() {
@@ -4508,6 +4868,7 @@ void main(){
         { std::lock_guard<std::mutex> g(assistLock);
           j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
         j << ",\"placement\":" << placementJson();
+        j << ",\"frameCost\":" << frameCostJson();
         { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }
           j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris
@@ -4517,7 +4878,12 @@ void main(){
         { std::string dest; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(0); if (it != chats.end()) dest = it->second.dest; }
           j << ",\"reception\":{\"on\":" << (receptionOn() ? 1 : 0) << ",\"open\":" << (chatOpen.count(0) && receptionOn() ? 1 : 0) << ",\"dest\":\"" << jsonEscape(dest)
             << "\",\"sent\":" << receptionSent << ",\"queued\":" << receptionQueued << ",\"micRestarts\":" << receptionMicRestarts << ",\"waiting\":" << (assistWaiting ? 1 : 0)
-            << ",\"heard\":" << assistBuffer.size() << "}"; }
+            << ",\"heard\":" << assistBuffer.size() << ",\"dictq\":{\"on\":" << (dictQMenu ? 1 : 0) << ",\"state\":\"" << dictsm::name(dqState) << "\",\"queued\":" << dqQueued
+            << ",\"owner\":\"" << dictsm::name(dmic.owner) << "\",\"sent\":" << dqSent << ",\"restarts\":" << dqRestarts << ",\"cuts\":" << dqCuts
+            << ",\"replyTimeouts\":" << dq.replyTimeouts << ",\"closeTimeouts\":" << dq.closeTimeouts << ",\"forcedCuts\":" << dq.forcedCuts << "}}"; }
+        { std::string src; { std::lock_guard<std::mutex> g(assistLock); src = recHistorySource; }
+          j << ",\"reckeep\":{\"on\":" << (recKeepMenu ? 1 : 0) << ",\"mic\":\"" << recMic.label() << "\",\"micRestarts\":" << recMicRestarts << ",\"autoRestarts\":" << recMic.autoRestarts
+            << ",\"restores\":" << recRestores << ",\"history\":\"" << jsonEscape(src) << "\",\"callbacks\":" << dictation.callbacks.load() << "}"; }
         j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
