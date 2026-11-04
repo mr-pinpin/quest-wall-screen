@@ -33,6 +33,7 @@
 #include "wallshape.h"
 #include "assist.h"
 #include "placement_guard.h"
+#include "roommesh.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -228,6 +229,8 @@ struct App {
     // locked or not (locked, the bar is dimmer and the move needs the same hold); bars hit on the wall plane, so a bar
     // hanging below a wall's scanned rect still works. CLOSEX (default ON): an X in each extra screen's corner while
     // unlocked; the first pinch arms it, a second within 3 s removes the screen.
+    // GEOMETRY flag (room_lab/roommesh.h by work-34): show the room as a glowing wire mesh built from depth, on demand.
+    bool geometryMenu = false, geometryFile = false; bool geometryOn() const { return geometryMenu || geometryFile; }
     bool allBarsMenu = true, closeXMenu = true; bool allBars() const { return allBarsMenu; } bool closeX() const { return closeXMenu; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
@@ -495,7 +498,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 40;
+    static constexpr int kMenuItems = 41;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -515,7 +518,8 @@ struct App {
         {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"},
         {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"},
         {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
-        {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"}};
+        {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
+        {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -549,6 +553,7 @@ struct App {
         if (l == "RELOCCHECK") return relocOn();
         if (l == "ALLBARS") return allBars();
         if (l == "CLOSEX") return closeX();
+        if (l == "GEOMETRY") return geometryOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -609,7 +614,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -638,7 +643,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -682,6 +687,7 @@ struct App {
         else if (l == "RELOCCHECK") relocMenu = !relocMenu;                     // room-misaligned hint
         else if (l == "ALLBARS") allBarsMenu = !allBarsMenu;                    // move bar on every screen
         else if (l == "CLOSEX") closeXMenu = !closeXMenu;                       // X to close a screen
+        else if (l == "GEOMETRY") geometryMenu = !geometryMenu;                 // room wire mesh
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -951,6 +957,13 @@ struct App {
     DepthShot rbShot[2];
     std::mutex gapLock; std::condition_variable gapCv; std::unique_ptr<DepthShot> gapNext; bool gapThread = false; std::string gapJson;
     std::vector<wallfit::Wall> gapWalls; bool scanReset = false;
+    // The room mesh: the worker owns meshVol; finished blocks go to meshBlocks (CPU copies) under meshLock; the render
+    // thread uploads a block when its version moves and draws the nearest ones within the triangle budget.
+    roommesh::Volume meshVol{[] { roommesh::Params p; p.voxel = 0.05f; return p; }()}; std::atomic<bool> meshWanted{false};
+    struct MeshBlock { std::vector<float> cpu; long version = 0, uploaded = -1; bool empty = true; V3 centre{0, 0, 0}; float radius = 0; GLuint vbo = 0; int verts = 0;
+                       std::chrono::steady_clock::time_point changedAt{}; };
+    std::mutex meshLock; std::map<int64_t, MeshBlock> meshBlocks;
+    static int64_t keyOf(const roommesh::Key& k) { return ((int64_t)(uint16_t)k.x << 32) | ((int64_t)(uint16_t)k.y << 16) | (uint16_t)k.z; }
     bool depthDumpWanted = false;
     static wallfit::Pose wp(const XrPosef& p) { return {{p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w}, {p.position.x, p.position.y, p.position.z}}; }
     void depthReadback(GLuint depthTex) {
@@ -974,7 +987,7 @@ struct App {
             } else rbErr = "map failed";
             glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         }
-        if (frames - rbLast < (scanning() || depthDumpWanted ? 18 : (depthGap() ? 36 : 144))) return;  // RELOCCHECK alone: every 2 s
+        if (frames - rbLast < (scanning() || depthDumpWanted || geometryOn() ? 18 : (depthGap() ? 36 : 144))) return;  // RELOCCHECK alone: every 2 s
         int k = !rbBusy[0] ? 0 : !rbBusy[1] ? 1 : -1; if (k < 0) return;
         if (!rbProg) {
             const char* vs = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
@@ -1051,6 +1064,24 @@ struct App {
                     f[e].fov = {v.fov.angleLeft, v.fov.angleRight, v.fov.angleUp, v.fov.angleDown}; f[e].pose = wp(v.pose);
                     f[e].nearZ = sh->img.nearZ; f[e].farZ = sh->img.farZ; f[e].timeNs = (int64_t)sh->now;
                     fuser.add(f[e], (int64_t)sh->now);
+                }
+                if (meshWanted.load()) {  // the room mesh (SCAN / GEOMETRY): fuse both eyes, re-mesh within 6 ms, publish changes
+                    for (int e = 0; e < 2; e++) meshVol.integrate(f[e]);
+                    auto changed = meshVol.update(6.0);
+                    if (!changed.empty()) {
+                        std::lock_guard<std::mutex> g(meshLock);
+                        for (auto& k : changed) {
+                            const roommesh::BlockMesh* m = meshVol.mesh(k); MeshBlock& B = meshBlocks[keyOf(k)];
+                            if (!m || m->idx.empty()) { B.cpu.clear(); B.version++; B.empty = true; continue; }
+                            B.cpu.clear(); B.cpu.reserve(m->idx.size() * 9);
+                            for (size_t t = 0; t + 2 < m->idx.size(); t += 3) for (int c = 0; c < 3; c++) {  // de-indexed: pos, normal, barycentric
+                                uint32_t v = m->idx[t + c];
+                                B.cpu.insert(B.cpu.end(), {m->pos[3 * v], m->pos[3 * v + 1], m->pos[3 * v + 2], m->nrm[3 * v], m->nrm[3 * v + 1], m->nrm[3 * v + 2],
+                                                           c == 0 ? 1.f : 0.f, c == 1 ? 1.f : 0.f, c == 2 ? 1.f : 0.f});
+                            }
+                            auto cc = m->centre(); B.centre = {cc.x, cc.y, cc.z}; B.radius = m->radius(); B.version++; B.empty = false; B.changedAt = std::chrono::steady_clock::now();
+                        }
+                    }
                 }
                 std::vector<wallfit::Wall> fused = fuser.walls();
                 std::vector<wallfit::HouseWall> scene; for (auto& w : sh->walls) scene.push_back({w.centre, w.w, w.h});
@@ -1324,7 +1355,7 @@ struct App {
     // The progress cue: each surface being captured fills in place (cyan while uncertain, green once solid) with a
     // sweep line crossing it. Drawn in the occluded batch, so real things in front hide it like the room itself.
     void drawScan(Batch& b) {
-        if (!scanning()) return;
+        if (!scanning() || !meshDraw.empty()) return;  // once the mesh has blocks, it is the scan's progress cue
         std::vector<wallfit::Wall> walls; { std::lock_guard<std::mutex> g(gapLock); walls = gapWalls; }
         float t = now();
         for (auto& w : walls) {
@@ -1767,6 +1798,58 @@ struct App {
         one(1, placed); for (auto& e : extras) one(e.id, e.p);
         j << "]}";
         return j.str();
+    }
+    // ---- GEOMETRY / SCAN mesh rendering: a barycentric wireframe (edges glow, faces faint), brighter where the surface
+    // faces the eye, and a blue pulse on blocks re-meshed in the last second, so the mesh visibly grows and refines.
+    GLuint meshProg = 0, meshVao = 0; GLint meshLocVP = -1, meshLocEye = -1, meshLocPulse = -1; std::vector<int64_t> meshDraw;
+    static constexpr int kMeshTriBudget = 60000;
+    void prepareRoomMesh() {
+        meshWanted = geometryOn() || scanning();
+        meshDraw.clear();
+        if (!meshWanted) return;
+        V3 eye = v3(head.position);
+        std::vector<std::pair<float, int64_t>> order;
+        { std::lock_guard<std::mutex> g(meshLock); for (auto& [k, b] : meshBlocks) if (!b.empty) order.push_back({len(b.centre - eye), k}); }
+        std::sort(order.begin(), order.end());
+        int tris = 0;
+        std::lock_guard<std::mutex> g(meshLock);
+        for (auto& [d, k] : order) {
+            MeshBlock& b = meshBlocks[k]; int t = (int)(b.cpu.size() / 27);
+            if (tris + t > kMeshTriBudget) break;
+            tris += t; meshDraw.push_back(k);
+        }
+    }
+    void drawRoomMesh(const float* vpm) {
+        if (!meshProg) {
+            const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aB; uniform mat4 uVP; uniform vec3 uEye;"
+                             " out vec3 vB; out float vFace; void main(){ vB=aB; vFace=abs(dot(normalize(aN), normalize(uEye-aP))); gl_Position=uVP*vec4(aP,1.0); }";
+            const char* fs = "#version 300 es\nprecision mediump float; in vec3 vB; in float vFace; uniform float uPulse; out vec4 o;"
+                             " void main(){ vec3 d=fwidth(vB); vec3 a=smoothstep(vec3(0.0),d*1.5,vB); float edge=1.0-min(min(a.x,a.y),a.z);"
+                             " vec3 c=mix(vec3(0.35,0.85,1.0), vec3(0.75,0.95,1.0), uPulse); float alpha=(0.06+0.55*edge)*(0.35+0.65*vFace)*(1.0+uPulse);"
+                             " o=vec4(c*alpha, alpha); }";
+            meshProg = glCreateProgram(); GLuint a = compile(GL_VERTEX_SHADER, vs), c = compile(GL_FRAGMENT_SHADER, fs);
+            glAttachShader(meshProg, a); glAttachShader(meshProg, c); glLinkProgram(meshProg);
+            meshLocVP = glGetUniformLocation(meshProg, "uVP"); meshLocEye = glGetUniformLocation(meshProg, "uEye"); meshLocPulse = glGetUniformLocation(meshProg, "uPulse");
+            glGenVertexArrays(1, &meshVao);
+        }
+        glUseProgram(meshProg); glBindVertexArray(meshVao);
+        glUniformMatrix4fv(meshLocVP, 1, GL_FALSE, vpm); glUniform3f(meshLocEye, head.position.x, head.position.y, head.position.z);
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);  // premultiplied glow
+        auto tn = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> g(meshLock);
+        for (int64_t k : meshDraw) {
+            MeshBlock& b = meshBlocks[k];
+            if (!b.vbo) glGenBuffers(1, &b.vbo);
+            glBindBuffer(GL_ARRAY_BUFFER, b.vbo);
+            if (b.uploaded != b.version) { glBufferData(GL_ARRAY_BUFFER, b.cpu.size() * sizeof(float), b.cpu.data(), GL_STATIC_DRAW); b.uploaded = b.version; b.verts = (int)(b.cpu.size() / 9); }
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 36, (void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 36, (void*)12);
+            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 36, (void*)24);
+            float age = std::chrono::duration<float>(tn - b.changedAt).count();
+            glUniform1f(meshLocPulse, age < 1.0f ? 1.0f - age : 0.0f);
+            glDrawArrays(GL_TRIANGLES, 0, b.verts);
+        }
+        glDepthMask(GL_TRUE); glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glBindBuffer(GL_ARRAY_BUFFER, vbo);
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -3253,6 +3336,7 @@ void main(){
         if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked || allBars()) grabBar(occ, *w); if (!editLocked) corners(occ, *w); }
         drawMenu(over);
         drawShoulder(over);
+        prepareRoomMesh();
         drawScan(occ);
         drawWallTool(occ);
         drawAssist(over);
@@ -3394,7 +3478,7 @@ void main(){
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_NONE);
                 depthConfigured.insert(depthTex);
             }
-            if (depthGap() || depthDumpWanted || scanning() || relocOn()) depthReadback(depthTex);
+            if (depthGap() || depthDumpWanted || scanning() || relocOn() || geometryOn()) depthReadback(depthTex);
         }
         bool hasVideo = video.update(display) && video.mipTex;
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
@@ -3460,6 +3544,7 @@ void main(){
             wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
             assistFile = access((gDir + "/assist-on").c_str(), F_OK) == 0;      // forces ASSIST for self-tests
             relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
+            geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
             updateReloc();
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
@@ -3534,6 +3619,7 @@ void main(){
                 glUseProgram(program); glBindVertexArray(vao);
             }
             if (assistOn() && !chatQuads.empty()) { drawChatPanels(vp.m); glUseProgram(program); glBindVertexArray(vao); }
+            if ((geometryOn() || scanning()) && !meshDraw.empty()) { drawRoomMesh(vp.m); glUseProgram(program); glBindVertexArray(vao); }
             glBindVertexArray(0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; xrReleaseSwapchainImage(e.chain, &ri);
         }

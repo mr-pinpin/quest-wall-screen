@@ -475,6 +475,19 @@
    ]
   },
   {
+   "name": "GEOMETRY",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Show the room as a glowing wire mesh fused from depth (room_lab/roommesh.h by work-34); the same mesh is SCAN's progress cue. Feature in development.",
+   "evidence": [
+    {
+     "commit": "d192896"
+    }
+   ]
+  },
+  {
    "name": "SCROLL",
    "where": "headset",
    "default": false,
