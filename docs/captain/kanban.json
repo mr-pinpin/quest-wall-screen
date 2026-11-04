@@ -1,6 +1,6 @@
 {
- "rev": 42,
- "next": 18,
+ "rev": 46,
+ "next": 19,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -558,13 +558,13 @@
   {
    "title": "SETTINGS redesign: categories, cascade, hide hidden flags, ≤1.2 m panels",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K16",
    "created": "2026-11-04T10:30:51Z",
-   "updated": "2026-11-04T10:30:51Z",
+   "updated": "2026-11-04T10:43:07Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -573,6 +573,14 @@
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T10:43:07Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "k5-v068 2dbd004, SETCAT flag (default off), root 0.78 m vs 3.68 m"
     }
    ]
   },
@@ -596,7 +604,44 @@
      "column": "doing"
     }
    ]
+  },
+  {
+   "title": "Claude chat survives app restarts: reopen shows the conversation history",
+   "details": "On start, reload the reception conversation (conversation_id in files/reception-id) from work-42's receptionist history; keep the panel open across restarts if it was open. User request via headset 10:42Z",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "headset",
+   "links": [],
+   "id": "K18",
+   "created": "2026-11-04T10:41:11Z",
+   "updated": "2026-11-04T10:43:04Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:41:11Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "next"
+    },
+    {
+     "at": "2026-11-04T10:43:01Z",
+     "by": "work-df",
+     "what": "updated",
+     "fields": [
+      "owner"
+     ],
+     "old_owner": "work-c4"
+    },
+    {
+     "at": "2026-11-04T10:43:04Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T10:38:56Z"
+ "updated": "2026-11-04T10:43:07Z"
 }
