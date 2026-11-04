@@ -46,6 +46,7 @@
 #include "roomframe.h"
 #include "housemerge.h"
 #include "stagerebase.h"
+#include "placement_watch.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -1532,7 +1533,16 @@ struct App {
             XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; seen.push_back({e.uuid, wp(cp)});
         }
         houseFrame = roomframe::choose(sceneStored, seen, roomFrame);
+        // Review fix (work-k5): Space Setup re-run = new uuids for every plane; the frame silently falls back to our anchors.
+        int storedSeen = 0; for (auto& st : sceneStored) for (auto& sn : seen) if (sn.uuid == st.uuid) { storedSeen++; break; }
+        bool changed = pwatch::sceneChanged((int)sceneStored.size(), storedSeen, (int)seen.size(), now());
+        if (changed && !houseSceneChanged) {
+            const float amber[4] = {1.0f, 0.75f, 0.2f, 1}; toast("scenechanged", "ROOM SETUP CHANGED: SCAN THE ROOM AGAIN", amber, 15);
+            event("house: none of the " + std::to_string(sceneStored.size()) + " stored Meta planes is here (" + std::to_string(seen.size()) + " new ones are): Space Setup was re-run; frame from " + houseFrame.source);
+        }
+        houseSceneChanged = changed; houseStoredSeen = storedSeen;
     }
+    bool houseSceneChanged = false; int houseStoredSeen = 0;
     std::map<XrAsyncRequestIdFB, int> anchorReq;  // create / status / save request -> index in ours (-1-k: pending create k)
     std::vector<XrPosef> anchorPending; std::set<XrAsyncRequestIdFB> anchorQueryIds; bool anchorsQueried = false, anchorsLoadTried = false;
     std::set<std::string> anchorsAsked;   // uuids already queried or created this session
@@ -2496,13 +2506,17 @@ struct App {
     // at 09:32 are in the house in our anchors' frame: each one whose id and size match gives one estimate of the
     // correction (true STAGE pose via the anchors, now, against the stored stale one); the consensus (anchors::solve,
     // 10 cm / 3 deg, at least 2) moves every depth wall and the cache's copies. files/depthwalls-repaired: done.
-    bool depthRepairDone = false;
+    // Review fix (work-k5): one try per house document (the cached copy first, then each fetched one); depthwalls-repaired
+    // is written only when it applied, found nothing to repair, or gave up after 4 documents (placement_watch.h). Giving
+    // up says so: status "placement.depthRepair" and a hint to scan the room again.
+    bool depthRepairDone = false; int depthRepairTries = 0, depthRepairMatches = 0, depthRepairUsed = 0; std::string depthRepairState = "pending";
+    std::shared_ptr<const json::Value> depthRepairDoc;
     void repairDepthWalls() {
         if (depthRepairDone || !stageOk || !roomFrame.ok || depthWalls.empty()) return;
-        if (access((gDir + "/depthwalls-repaired").c_str(), F_OK) == 0) { depthRepairDone = true; return; }
+        if (access((gDir + "/depthwalls-repaired").c_str(), F_OK) == 0) { depthRepairDone = true; depthRepairState = "done earlier"; return; }
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
-        if (!d) return;
-        depthRepairDone = true;
+        if (!d || d == depthRepairDoc) return;
+        depthRepairDoc = d; depthRepairTries++;
         std::vector<anchors::Seen> est; std::string ids;
         for (auto& [u, dw] : depthWalls) for (auto& w : (*d)["walls"].a) {
             if (w["id"].str() != u || w["kind"].str() != "wall" || !w.has("pose")) continue;
@@ -2510,9 +2524,16 @@ struct App {
             wallfit::Pose trueStage = anchors::compose(anchors::inverse(wp(stageInLocal)), anchors::compose(roomFrame.roomInLocal, poseFrom(w["pose"])));
             est.push_back({"x", unitPose(anchors::compose(trueStage, anchors::inverse(unitPose(dw.stage))))}); ids += " " + u.substr(0, 9);
         }
-        anchors::Frame f = anchors::solve({{"x", wallfit::Pose{{0, 0, 0, 1}, {0, 0, 0}}}}, est, 0.10f, 3.0f);
-        house::writeAtomic(gDir + "/depthwalls-repaired", "1");
-        if (!f.ok || f.used < 2) { event("depthwalls: repair skipped, " + std::to_string(est.size()) + " matches, " + std::to_string(f.used) + " agree"); return; }
+        anchors::Frame f = est.empty() ? anchors::Frame{} : anchors::solve({{"x", wallfit::Pose{{0, 0, 0, 1}, {0, 0, 0}}}}, est, 0.10f, 3.0f);
+        pwatch::Repair v = pwatch::repairVerdict((int)est.size(), f.used, f.ok, depthRepairTries);
+        depthRepairMatches = (int)est.size(); depthRepairUsed = f.used; depthRepairState = pwatch::name(v);
+        if (v == pwatch::Repair::Wait) { event("depthwalls: repair waiting for the house (" + std::to_string(est.size()) + " matches, " + std::to_string(f.used) + " agree, try " + std::to_string(depthRepairTries) + ")"); return; }
+        depthRepairDone = true; house::writeAtomic(gDir + "/depthwalls-repaired", "1");
+        if (v == pwatch::Repair::Nothing) { event("depthwalls: nothing to repair"); return; }
+        if (v == pwatch::Repair::GiveUp) {
+            const float amber[4] = {1.0f, 0.75f, 0.2f, 1}; toast("depthrepair", "SCANNED WALLS MAY BE OFF: SCAN THE ROOM AGAIN", amber, 12);
+            event("depthwalls: repair gave up, " + std::to_string(est.size()) + " matches, " + std::to_string(f.used) + " agree (" + ids + " )"); return;
+        }
         wallfit::Pose T = unitPose(f.roomInLocal);
         for (auto& [u, dw] : depthWalls) { dw.stage = unitPose(anchors::compose(T, dw.stage)); if (wallCache.count(u)) wallCache[u].stage = dw.stage; }
         house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls)); house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
@@ -2600,7 +2621,8 @@ struct App {
     }
     std::string placementJson() {
         std::ostringstream j; j.setf(std::ios::fixed); j.precision(3);
-        j << "{\"stage\":" << (stageOk ? 1 : 0) << ",\"stageMoves\":" << stageMoves << ",\"stageJumpM\":" << stageJumpM << ",\"queries\":" << pg.queries << ",\"cached\":" << wallCache.size() << ",\"screens\":[";
+        j << "{\"depthRepair\":{\"state\":\"" << depthRepairState << "\",\"tries\":" << depthRepairTries << ",\"matches\":" << depthRepairMatches << ",\"agree\":" << depthRepairUsed << "}";
+        j << ",\"stage\":" << (stageOk ? 1 : 0) << ",\"stageMoves\":" << stageMoves << ",\"stageJumpM\":" << stageJumpM << ",\"queries\":" << pg.queries << ",\"cached\":" << wallCache.size() << ",\"screens\":[";
         bool first = true;
         auto one = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr;
@@ -5009,7 +5031,8 @@ void main(){
           << ",\"drifted\":" << roomFrame.drifted.size() << ",\"spreadM\":" << roomFrame.spreadM << ",\"spreadDeg\":" << roomFrame.spreadDeg << ",\"roomOk\":" << (roomFrame.ok ? 1 : 0)
           << ",\"created\":" << anchorsCreated << ",\"saved\":" << anchorsSavedN << ",\"failed\":" << anchorsFailed << "}"
           << ",\"houseFrame\":{\"source\":\"" << houseFrame.source << "\",\"used\":" << houseFrame.used << ",\"stored\":" << sceneStored.size()
-          << ",\"anchorsVsSceneM\":" << houseFrame.anchorsVsSceneM << ",\"anchorsVsSceneDeg\":" << houseFrame.anchorsVsSceneDeg << "}";
+          << ",\"anchorsVsSceneM\":" << houseFrame.anchorsVsSceneM << ",\"anchorsVsSceneDeg\":" << houseFrame.anchorsVsSceneDeg
+          << ",\"storedSeen\":" << houseStoredSeen << ",\"sceneChanged\":" << (houseSceneChanged ? 1 : 0) << "}";
         { std::lock_guard<std::mutex> g(gapLock); j << ",\"depthGap\":{\"on\":" << (depthGap() ? 1 : 0) << ",\"reads\":" << rbReads << ",\"rb\":\"" << rbErr << "\"" << (gapJson.empty() ? "" : "," + gapJson) << "}"; }
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
