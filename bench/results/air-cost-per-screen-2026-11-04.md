@@ -1,5 +1,13 @@
 # Air cost per extra screen (K12)
 
+> **CORRECTION (2026-11-04, work-df):** the headline below — that a STATIC wallpaper is the fix —
+> did NOT hold. On the live box the video wallpaper went idle but **colorsync stayed pegged at
+> ~100%**, so the aerial wallpaper is not the (sole) cause of the colorsync load. The static-
+> wallpaper recommendation is therefore withdrawn; the colorsync peg has another cause, still under
+> investigation (the user rebooted the Air to clear it). The per-screen CPU *shares* measured below
+> stand as a snapshot; the causal claim "wallpaper → colorsync, static wallpaper recovers fps" does
+> not.
+
 work-42, 2026-11-04. Short profiling pass on the Air (6 virtual displays live, 1 Chrome --app
 playing video on screen 4). Read-only, under the bench lock; released. No Mac sudo here, so
 `top`/`ps` instantaneous CPU (no powermetrics/GPU-energy — hand that to work-df if wanted).
