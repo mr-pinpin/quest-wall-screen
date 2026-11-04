@@ -12,7 +12,7 @@ Security (per work-df):
   - Relays the user's words VERBATIM, prefix "[via headset] " — never rewritten.
   - Append-only audit log of every relay/switch: time, session, text hash.
 """
-import json, os, re, sys, time, hashlib, threading, socket
+import json, os, re, sys, time, hashlib, threading, socket, queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -110,8 +110,13 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
-    def _sse(self, event, data):
-        self.wfile.write(("event: %s\ndata: %s\n\n" % (event, json.dumps(data))).encode())
+    def _emit(self, obj):
+        # ASSIST-compatible: one JSON object per `data:` line, type carried inside (assist.h client)
+        self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode())
+        self.wfile.flush()
+
+    def _keepalive(self):
+        self.wfile.write(b": keepalive\n\n")
         self.wfile.flush()
 
     def _body(self):
@@ -145,7 +150,9 @@ class H(BaseHTTPRequestHandler):
 
     def _turn(self, b):
         """One spoken turn. Switch destination if asked; otherwise relay VERBATIM to the current
-        target (work-df by default) and stream the reply back."""
+        target (work-df by default) and stream the reply back. SSE events match ASSIST:
+        {"type":"text","delta":...}, {"type":"done",...}, {"type":"error",...}, plus
+        {"type":"routed"|"switched","name":...} for the destination header."""
         cid = (b.get("conversation_id") or "default").strip()
         text = b.get("text") or ""
         if not text.strip():
@@ -159,9 +166,9 @@ class H(BaseHTTPRequestHandler):
                     _target[cid] = switch
                 audit("switch", s["session_id"], "")
                 self._sse_open()
-                self._sse("switched", {"name": switch, "topic": s.get("topic")})
-                self._sse("delta", {"text": "Okay — you're now talking to %s." % switch})
-                self._sse("done", {"name": switch})
+                self._emit({"type": "switched", "name": switch, "topic": s.get("topic")})
+                self._emit({"type": "text", "delta": "Okay — you're now talking to %s." % switch})
+                self._emit({"type": "done", "stopReason": "switch"})
                 return
 
         with _target_lock:
@@ -169,26 +176,44 @@ class H(BaseHTTPRequestHandler):
         s = rc.resolve(name)
         self._sse_open()
         if not s:
-            self._sse("error", {"error": "destination %s is not live" % name})
-            return
+            return self._emit({"type": "error", "message": "destination %s is not live" % name})
         if _is_blocked(s):
             audit("blocked", s["session_id"], text)
-            self._sse("error", {"error": "that session is not reachable right now"})
-            return
+            return self._emit({"type": "error", "message": "that session is not reachable right now"})
         audit("route", s["session_id"], text)
+        self._emit({"type": "routed", "name": s["name"]})
+
+        # relay in a worker thread so we can send keepalives during the reply wait
+        q = queue.Queue()
+        DONE = object()
+
+        def run():
+            try:
+                wm = rc.deliver(s["session_id"], text)        # VERBATIM, "[via headset] " prefix
+                for chunk in rc.tail_reply(s["session_id"], wm):
+                    q.put(chunk)
+            except Exception as e:  # noqa
+                q.put({"__error__": str(e)})
+            finally:
+                q.put(DONE)
+
+        threading.Thread(target=run, daemon=True).start()
         try:
-            self._sse("routed", {"session": s["session_id"], "name": s["name"]})
-            wm = rc.deliver(s["session_id"], text)          # VERBATIM, prefix "[via headset] "
-            for chunk in rc.tail_reply(s["session_id"], wm):
-                self._sse("delta", {"text": chunk})
-            self._sse("done", {"session": s["session_id"]})
+            while True:
+                try:
+                    ev = q.get(timeout=3)
+                except queue.Empty:
+                    self._keepalive()
+                    continue
+                if ev is DONE:
+                    break
+                if isinstance(ev, dict) and "__error__" in ev:
+                    self._emit({"type": "error", "message": ev["__error__"]})
+                    continue
+                self._emit({"type": "text", "delta": ev})
+            self._emit({"type": "done", "stopReason": "end"})
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception as e:  # noqa
-            try:
-                self._sse("error", {"error": str(e)})
-            except Exception:
-                pass
 
     def _spawn(self, b):
         """Start a new engineering session (used by work-df / spawn_session.sh)."""

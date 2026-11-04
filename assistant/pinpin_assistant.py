@@ -23,6 +23,10 @@ MAX_WALL_S = float(os.environ.get("PINPIN_ASSIST_MAX_WALL_S", "90"))
 DISPLAYS_HTTP = os.environ.get("PINPIN_DISPLAYS_HTTP", "http://127.0.0.1:57710")
 DISPLAYS_UDP = (os.environ.get("PINPIN_DISPLAYS_HOST", "127.0.0.1"), 57711)
 APPS_BASE = os.environ.get("PINPIN_APPS_BASE", "http://192.168.0.50:57830")  # mini-apps server (work-ad's Chrome runner)
+# Receptionist (work-42): the headset reaches the VPS receptionist through this thin reverse-proxy.
+RECEPT_BASE = os.environ.get("PINPIN_RECEPT_BASE", "http://100.109.138.51:57850")  # VPS over Tailscale
+RECEPT_TOKEN_FILE = os.path.expanduser(os.environ.get(
+    "PINPIN_RECEPT_TOKEN_FILE", "~/.local/share/pinpin-assistant/receptionist-token"))
 
 _APPS_TOKEN = ""
 
@@ -766,6 +770,8 @@ def make_handler(assistant):
                 b = assistant.store.actions(parts[1]).encode()
                 self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
                 return
+            if u.path.startswith("/api/reception/"):
+                return self._proxy_reception("GET", u.path[len("/api/reception/"):], None)
             self._json(404, {"error": "not found"})
 
         def do_POST(self):
@@ -784,9 +790,53 @@ def make_handler(assistant):
                     assistant.store.reset(parts[1]); return self._json(200, {"ok": True})
                 if len(parts) == 3 and parts[0] == "session" and parts[2] == "message":
                     return self._sse_message(parts[1], self._body())
+                if u.path.startswith("/api/reception/"):
+                    n = int(self.headers.get("Content-Length", "0") or "0")
+                    raw = self.rfile.read(n) if n else b"{}"
+                    return self._proxy_reception("POST", u.path[len("/api/reception/"):], raw)
             except Exception as e:
                 return self._json(500, {"error": str(e)})
             self._json(404, {"error": "not found"})
+
+        def _proxy_reception(self, method, suffix, raw):
+            """Forward /api/reception/<suffix> to the VPS receptionist and stream the response back.
+            Resilient: if the VPS is unreachable, answer with one SSE error event so the headset
+            client still gets a well-formed stream."""
+            try:
+                tok = open(RECEPT_TOKEN_FILE).read().strip()
+            except OSError:
+                tok = ""
+            url = RECEPT_BASE + "/api/" + suffix              # turn | sessions
+            req = urllib.request.Request(url, data=(raw if method == "POST" else None), method=method,
+                                         headers={"Authorization": "Bearer " + tok,
+                                                  "Content-Type": "application/json"})
+            try:
+                up = urllib.request.urlopen(req, timeout=135)
+            except Exception as e:
+                # well-formed SSE error so assist.h renders something instead of hanging
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache"); self.send_header("Connection", "close")
+                self.end_headers()
+                try:
+                    self.wfile.write(("data: " + json.dumps(
+                        {"type": "error", "message": "receptionist offline: %s" % e}) + "\n\n").encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            self.send_response(up.status)
+            self.send_header("Content-Type", up.headers.get("Content-Type", "application/json"))
+            self.send_header("Cache-Control", "no-cache"); self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                while True:
+                    chunk = up.read(1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk); self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def _sse_message(self, screen, body):
             self.send_response(200)

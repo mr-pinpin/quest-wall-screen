@@ -1,0 +1,17 @@
+[Unit]
+Description=PinPin headset receptionist (relays headset turns to Claude Code sessions)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pinpin-claude
+Group=pinpin-claude
+ExecStart=/usr/bin/python3 /root/work/quest-wall-screen/receptionist/pinpin_receptionist.py
+Restart=on-failure
+RestartSec=3
+# production: default destination is the captain (work-df). No block-list.
+Environment=PINPIN_RECEPT_PORT=57850
+
+[Install]
+WantedBy=multi-user.target
