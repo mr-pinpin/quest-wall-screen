@@ -19,6 +19,37 @@ APPS = pa.APPS_BASE  # mini-apps server (work-ad)
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://192.168.0.50:57800")  # Mini house server (work-c4 contract)
 
 
+_CONFIRM_FILE = os.path.expanduser("~/.local/share/pinpin-assistant/pending-confirm.json")
+_CONFIRM_TTL = 180.0
+
+
+def _confirm_gate(key, msg):
+    """Destructive actions need a spoken confirmation. The FIRST call registers the request and returns
+    needs_confirmation (never acts); a later call for the same target (in a new turn, after the user says yes)
+    clears it and proceeds. File-based so it survives the per-turn MCP process. Returns a result dict to return
+    to the model if NOT yet confirmed, else None (proceed)."""
+    now = time.time()
+    try:
+        d = json.load(open(_CONFIRM_FILE))
+    except Exception:
+        d = {}
+    d = {k: t for k, t in d.items() if now - t <= _CONFIRM_TTL}
+    if key in d and now - d[key] >= 1.5:  # a real confirmation comes in a later turn (not the same instant)
+        d.pop(key, None)
+        try:
+            json.dump(d, open(_CONFIRM_FILE, "w"))
+        except Exception:
+            pass
+        return None  # confirmed -> proceed
+    d[key] = now
+    try:
+        json.dump(d, open(_CONFIRM_FILE, "w"))
+    except Exception:
+        pass
+    return {"needs_confirmation": True,
+            "message": msg + ' Tell the user and, only if they clearly say yes, call this again to do it.'}
+
+
 def _house_get():
     with urllib.request.urlopen(HOUSE + "/house", timeout=10) as r:
         return json.load(r), r.headers.get("X-House-Rev")
@@ -84,8 +115,11 @@ def _new_screen(args):
 
 
 def _close_screen(args):
-    doc, rev = _house_get()
     sid = args.get("screen", SCREEN)
+    gate = _confirm_gate(f"close:{sid}", f"This turns off screen {sid} (reversible).")
+    if gate:
+        return gate
+    doc, rev = _house_get()
     s = next((s for s in doc.get("screens", []) if str(s.get("id")) == str(sid)), None)
     if not s:
         return {"error": f"no screen {sid} in the house"}
@@ -229,7 +263,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "id": {"type": "string"}, "files": {"type": "object"}, "message": {"type": "string"},
          "say": {"type": "array", "items": {"type": "string"}},
-         "create": {"type": "boolean"}, "base": {"type": "string"}}, "required": ["id", "files", "message"]}},
+         "create": {"type": "boolean"}, "base": {"type": "string"}, "replace": {"type": "boolean"}},
+     "required": ["id", "files", "message"]}},
     {"name": "assign_app", "description": "Show an app on THIS screen.",
      "inputSchema": {"type": "object", "properties": {"app": {"type": "string"}}, "required": ["app"]}},
     # House tools: add / place / close wall screens in the house (so "put a weather screen next to this one" works).
@@ -276,6 +311,10 @@ def call(name, args):
     if name == "get_app":
         return {"content": [{"type": "text", "text": json.dumps(_apps("GET", "/api/apps/" + args["id"]))}]}
     if name == "put_app":
+        if args.get("replace"):  # full replace of an app's contents is destructive -> confirm (git-reversible)
+            gate = _confirm_gate(f"replace:{args.get('id')}", f"This replaces the whole '{args.get('id')}' app.")
+            if gate:
+                return {"content": [{"type": "text", "text": json.dumps(gate)}]}
         body = {"files": args["files"], "message": args.get("message", "assistant edit"),
                 "by": "assistant", "check": True}
         if args.get("say"):
@@ -284,6 +323,8 @@ def call(name, args):
             body["create"] = True
         if args.get("base"):
             body["base"] = args["base"]
+        if args.get("replace"):
+            body["replace"] = True
         res = _apps("PUT", "/api/apps/" + args["id"], body)
         return {"content": [{"type": "text", "text": json.dumps(res)}]}
     if name == "assign_app":

@@ -68,8 +68,10 @@ def chat_system_prompt(screen):
             "screen by its id; and build apps (authoring_guide, put_app, assign_app). The user speaks from anywhere: "
             "\"make screen 3 bigger\", \"put a weather screen on the big wall\", \"turn off the screen by the window\". "
             "If a request names a wall by feel (\"by the door\") and you can't map it to a wall id, say what walls "
-            "exist and ask which. You do NOT have a single screen's pointer tools (screenshot/click) here. Keep "
-            "replies short and in Markdown, and confirm what changed in one line."
+            "exist and ask which. You do NOT have a single screen's pointer tools (screenshot/click) here.\n"
+            "CONFIRMATION: a destructive tool (close_screen, or put_app with replace) returns needs_confirmation — "
+            "relay its message to the user and only call the tool again after they clearly say yes; if they say no, "
+            "don't. Keep replies short and in Markdown, and confirm what changed in one line."
         )
     return (
         f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
@@ -81,6 +83,8 @@ def chat_system_prompt(screen):
         f"authoring_guide first, write the app with put_app (create:true for a new app; id derived from the "
         f"name) and iterate until check.errors is empty AND check.text matches what was asked, then assign_app "
         f"to show it on this screen and confirm from a screenshot.\n"
+        f"CONFIRMATION: if a tool returns needs_confirmation (a destructive action), relay its message and only "
+        f"call it again after the user clearly says yes.\n"
         f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
     )
 NOW = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
