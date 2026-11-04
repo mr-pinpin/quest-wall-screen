@@ -58,4 +58,5 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [ ] Hand checks: ring scaling, snap drop, MINI click
 - [ ] Re-authenticate claude on the Mini (OAuth expired; the Air login works) (42)
 - [ ] Which screen is the kitchen one (screen 3, the small 0.68 m one?) -> assign the recipes app (ad)
+- [ ] Spotify on the Air: its renderer spins at 80–190% CPU even when idle (it skews benchmarks and the stream). Quit it, or remove it from login items?
 - [ ] Close 2 stray Safari windows on the Air main display (example.com, YouTube search) from the first assistant test
