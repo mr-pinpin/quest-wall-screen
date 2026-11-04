@@ -36,8 +36,9 @@
   | 48 | everyone | 1920x1200 @1 | bench/air_smoke.sh |
   | 50 | work-c4 (headset) | 1920x1200 @1 | headset/runtime tests that need a spare Air screen |
   | 60 | work-42 (assistant) | 1600x1000 @2 | bench/eval_run.sh and verification runs (63 is retired) |
-  | 90–99 | work-34 / work-09 (bench) | 1920x1200 @1 (cinema: as stress.py sets it) | stress.py --source sck test displays |
+  | 54–59 | work-34 / work-09 (bench) | 1920x1200 @1 (cinema: as stress.py sets it) | stress.py --source sck test displays (POOL0; 6 today) |
 
+  pinpin-displays accepts screen ids 1–64 only (POST /displays answers 400 "id 1-64" above that): the pool lives inside it.
   Ids 2–39 are the house's real screens (house.json nextScreenId keeps growing), so tests never create in that range.
   A new need gets a new row here, not an ad-hoc id. /status shows colorsync's CPU and request rate: red above 40%.
 - **PinPin Host:** never change its bundle id or signing identity (every permission would need new clicks).
