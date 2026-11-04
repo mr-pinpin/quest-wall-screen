@@ -373,6 +373,8 @@ final class Atlas {
     // one again when it comes into view. 30 screens x 2 senders of always-on streams crashed replayd.
     var hiddenAt: [Int: Date] = [:], wake = false, refreshSince: Date? = nil
     var want: [Int: Want] = [:], wantAt = Date.distantPast, budgetKbps = 0, appliedKbps = 0
+    var lastVisWrite = Date.distantPast   // vis tap: throttle the /tmp/pinpin-atlas-vis.json write (work-42)
+    let visQ = DispatchQueue(label: "vis-tap", qos: .utility)   // write off the UDP receive path
     // bpcut flag (work queue): bitrate scale under backpressure. x0.7 at most every 250 ms while held back,
     // x1.2 per calm second back to 1.
     var bpScale = 1.0, bpCutAt = Date.distantPast, bpRiseAt = Date.distantPast
@@ -528,6 +530,20 @@ final class Atlas {
             if game != gameOn && o.flags.contains("gameyield") { log(game ? "game stream on: atlas yields the encoder" : "game stream off") }
             if game != gameOn && o.flags.contains("gamecap") { wake = true }  // relayout now, not at the next 2 s pass
             gameOn = game
+        }
+        // vis tap (flag: vistap, read-only): mirror per-screen vis/pri/px to a file for the video-focus
+        // controller (work-42). Throttled to 2 Hz; dict built inline (cheap), then serialize+atomic-write
+        // dispatched OFF the UDP receive thread so a slow disk moment never delays the next datagram.
+        if o.flags.contains("vistap") && now.timeIntervalSince(lastVisWrite) >= 0.5 {
+            lastVisWrite = now
+            var vs: [String: Any] = [:]
+            for (id, w) in next { vs[String(id)] = ["vis": w.vis ? 1 : 0, "pri": w.pri, "px": w.px] }
+            let snap = vs, t = now.timeIntervalSince1970
+            visQ.async {
+                if let d = try? JSONSerialization.data(withJSONObject: ["t": t, "screens": snap]) {
+                    try? d.write(to: URL(fileURLWithPath: "/tmp/pinpin-atlas-vis.json"), options: .atomic)
+                }
+            }
         }
         if !reveal.isEmpty {
             dlock.withLock { wake = true }  // start its capture now, not at the next 2 s pass
