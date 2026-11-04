@@ -1469,7 +1469,7 @@ struct App {
     // redrawn only when that chat changes, drawn as one quad per screen.
     std::mutex assistLock; std::map<int, assist::Chat> chats; std::map<int, float> chatScroll;
     int assistArmed = 0, assistHover = 0, chatHover = 0; std::string assistBuffer, assistErr, assistHost; long assistSent = 0;
-    std::chrono::steady_clock::time_point assistT0{}; bool assistSending = false, assistHistoryLoaded = false;
+    std::chrono::steady_clock::time_point assistT0{}, assistHeardAt{}, assistPressAt{}; bool assistSending = false, assistHistoryLoaded = false;
     struct ChatQuad { int id; V3 c[4]; GLuint tex = 0; long version = -1; int scroll = -1; };
     std::map<int, ChatQuad> chatTex; std::vector<int> chatQuads;
     GLuint chatProg = 0, chatVao = 0, chatVbo = 0; GLint chatLocVP = -1, chatLocTex = -1;
@@ -1509,7 +1509,12 @@ struct App {
         if (!assistOn()) { if (assistArmed) { dictation.stop(); assistArmed = 0; } return false; }
         assistLoadHistory();
         // Armed: stop after 30 s; once stopped and transcribed, send what was heard.
-        if (assistArmed && dictation.recording && std::chrono::steady_clock::now() - assistT0 > std::chrono::seconds(30)) dictation.stop();
+        auto tn = std::chrono::steady_clock::now();
+        if (assistArmed && dictation.recording && tn - assistT0 > std::chrono::seconds(30)) { dictation.stop(); event("assist: 30 s, stop listening"); }
+        // Pause: words were heard, then 2.5 s of nothing new and a quiet microphone.
+        if (assistArmed && dictation.recording && !assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(2500) && dictation.level.load() < 800) {
+            dictation.stop(); event("assist: pause, stop listening");
+        }
         if (assistArmed && !dictation.recording && dictation.drained()) {
             if (!assistBuffer.empty()) assistSend(assistArmed, assistBuffer);
             assistBuffer.clear(); assistArmed = 0;
@@ -1522,7 +1527,8 @@ struct App {
             float bx = p.x + p.w / 2 + 0.06f, by = p.y + p.h / 2 - 0.06f;
             if (std::hypot(hx - bx, hy - by) < kBtnR * 1.3f) {
                 assistHover = id;
-                if (ray[1].pinch && !pinchPrev[1]) {
+                if (ray[1].pinch && !pinchPrev[1] && std::chrono::steady_clock::now() - assistPressAt > std::chrono::milliseconds(400)) {  // press edge, 400 ms debounce
+                    assistPressAt = std::chrono::steady_clock::now();
                     if (assistArmed == id && dictation.recording) { dictation.stop(); event("assist: stop listening"); }
                     else if (!assistArmed) { assistArmed = id; assistBuffer.clear(); assistT0 = std::chrono::steady_clock::now(); dictation.start(); event("assist: listening for screen " + std::to_string(id)); }
                 }
@@ -2834,12 +2840,14 @@ void main(){
                 pendingEnter = true; pendingFor = 0; trailN[h] = 0;
             }
         }
-        if (!dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
-        if (dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
+        // While a Claude button is armed it owns the microphone: the fist gesture neither starts nor stops it (v0.47 bug:
+        // the open hand stopped the button's recording 150 ms after every press).
+        if (!assistArmed && !dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
+        if (!assistArmed && dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
             if (assistArmed > 0) {  // the Claude button is armed: the words go to that screen's assistant, not the stream
-                assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now();
+                assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
                 event("assist: heard " + t); continue;
             }
             if (streamInput()) {
