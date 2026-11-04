@@ -21,3 +21,4 @@
 - 05:50 check: c4, 34, ad active (shell); 42 on standby after 15a merged and deployed. v0.60 installed and checked on the charger (72 fps scan, real house untouched). Morning brief written
 - 06:10 check: c4 and 34 active; 42 and ad on standby (done, waiting for the user). Closed ghost -c[1891297]. Apps runner token check-in deployed; smoke 10.7 fps (wallpaper)
 - 06:30 check: c4 and 34 active; 42 and ad on standby for the user (wake ~06:40). Nothing stuck
+- 06:50 check: c4 and 34 active; 42 and ad on standby. The user is due awake; the morning brief is ready
