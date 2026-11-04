@@ -496,7 +496,7 @@
    "reason": "Several rooms (room_lab/rooms.h): every room gets its frame from its own anchors or through a link learned when two rooms' anchors locate together; status shows the current room and the links; SCAN writes to the current room or a new one. Roadmap Next, asked for by work-df. Feature in development.",
    "evidence": [
     {
-     "commit": "713c841"
+     "commit": "d2a9bfc"
     }
    ]
   },
