@@ -4,7 +4,7 @@
 Usage:
   room_tools.py house_info
   room_tools.py move <id> <left|right|up|down> [amount_m]     # small nudge, default 0.12 m
-  room_tools.py select <id> | room_tools.py clear             # gold outline (needs work-c4 renderer)
+  room_tools.py select <id> | room_tools.py clear [id]         # gold outline list (work-0e renderer, v0.66)
   room_tools.py add_card "<title>" "<details>"                # append to docs/captain/KANBAN.md
 
 House server: PINPIN_HOUSE_BASE (default the Mini over Tailscale). Writes use If-Match + SHA256.
@@ -69,21 +69,37 @@ def move(sid, direction, amount=None):
                       "from": before, "to": (s.get("x"), s.get("y")), "rev": res.get("rev")}))
 
 
+def _sel_list(doc):
+    sel = doc.get("selected")
+    if isinstance(sel, dict):          # legacy single object -> list
+        return [sel]
+    return sel if isinstance(sel, list) else []
+
+
 def select(sid):
     doc, rev = _get()
     if not any(str(x.get("id")) == str(sid) for x in doc.get("screens", [])):
         sys.exit("no screen %s" % sid)
-    doc["selected"] = {"id": int(sid), "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    sel = _sel_list(doc)
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for e in sel:                      # already selected -> refresh ts (re-flash the outline)
+        if str(e.get("id")) == str(sid):
+            e["ts"] = now
+            break
+    else:
+        sel.append({"id": int(sid), "ts": now})   # new -> append in selection order
+    doc["selected"] = sel
     res = _put(doc, rev)
-    print(json.dumps({"ok": True, "selected": sid, "rev": res.get("rev"),
-                      "note": "work-c4 renderer draws the gold outline + number from house.selected"}))
+    print(json.dumps({"ok": True, "selected": [e["id"] for e in sel], "rev": res.get("rev")}))
 
 
-def clear():
+def clear(sid=None):
     doc, rev = _get()
-    doc.pop("selected", None)
+    sel = _sel_list(doc)
+    sel = [e for e in sel if str(e.get("id")) != str(sid)] if sid else []   # clear one, or all
+    doc["selected"] = sel
     res = _put(doc, rev)
-    print(json.dumps({"ok": True, "selected": None, "rev": res.get("rev")}))
+    print(json.dumps({"ok": True, "selected": [e["id"] for e in sel], "rev": res.get("rev")}))
 
 
 def _apps_token():
@@ -120,7 +136,7 @@ def main(argv):
     elif cmd == "select":
         select(rest[0])
     elif cmd == "clear":
-        clear()
+        clear(rest[0] if rest else None)   # clear <id> drops one; clear drops all
     elif cmd == "add_card":
         add_card(rest[0], rest[1] if len(rest) > 1 else "")
     else:
