@@ -182,8 +182,8 @@ inline int render(const std::vector<Line>& lines, int scroll, Raster& R) {
     return scroll;
 }
 
-// ---- POST /session/<id>/message, streaming the reply into chat (under lock). Returns "" or an error.
-inline std::string send(const std::string& host, int port, int screen, const std::string& text, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS = 60) {
+// ---- POST /session/<session>/message (a screen id, or "room" for the house assistant), streaming the reply into chat (under lock). Returns "" or an error.
+inline std::string send(const std::string& host, int port, const std::string& session, const std::string& text, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS = 60) {
     json::Value b = house::obj(); b.o["text"] = house::str(text); b.o["turn"] = house::str(turn);
     std::string body = house::dump(b);
     addrinfo hints{}, *ai = nullptr; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
@@ -192,7 +192,7 @@ inline std::string send(const std::string& host, int port, int screen, const std
     timeval tv{timeoutS, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     if (fd < 0 || connect(fd, ai->ai_addr, ai->ai_addrlen) != 0) { freeaddrinfo(ai); if (fd >= 0) close(fd); return "connect"; }
     freeaddrinfo(ai);
-    std::string req = "POST /session/" + std::to_string(screen) + "/message HTTP/1.1\r\nHost: " + host + "\r\nAccept: text/event-stream\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
+    std::string req = "POST /session/" + session + "/message HTTP/1.1\r\nHost: " + host + "\r\nAccept: text/event-stream\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
                       std::to_string(body.size()) + "\r\n\r\n" + body;
     if (::send(fd, req.data(), req.size(), 0) != (ssize_t)req.size()) { close(fd); return "send"; }
     Sse sse; std::string err;

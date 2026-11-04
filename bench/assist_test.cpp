@@ -59,12 +59,15 @@ int main(int argc, char** argv) {
     // send() against the mock server: the reply streams in, and a server that dies mid-turn leaves an error.
     if (argc > 1) {
         int port = atoi(argv[1]); std::mutex lk; Chat s; s.user("hello", "T9");
-        std::string err = send("127.0.0.1", port, 2, "hello", "T9", s, lk, 10);
+        std::string err = send("127.0.0.1", port, "2", "hello", "T9", s, lk, 10);
         check(err.empty() && s.turns.back().done && s.turns.back().text == "Hi from screen 2.", "send(): streamed reply");
         check(s.turns.back().actions.size() == 1, "send(): action listed");
         Chat d; d.user("die", "T10");
-        err = send("127.0.0.1", port, 2, "die", "T10", d, lk, 10);
+        err = send("127.0.0.1", port, "2", "die", "T10", d, lk, 10);
         check(!err.empty() && d.turns.back().error, "send(): a dropped stream becomes an error in the bubble");
+        Chat rm; rm.user("how many screens", "T11");
+        err = send("127.0.0.1", port, "room", "how many screens", "T11", rm, lk, 10);
+        check(err.empty() && rm.turns.back().text == "Hi from screen room.", "send(): the room session by name");
     }
     printf("assist: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;

@@ -786,11 +786,13 @@ struct App {
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
             if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
+            if (assistOn()) L.items.insert(L.items.end() - 1, {"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
         } else if (n == "ROOT") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
             if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
+            if (assistOn()) L.items.insert(L.items.end() - 1, {"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
         } else if (n == "WALLS") {
             L.items = {{"LINE", "POINT A THEN B ON A WALL", "wt:line"}, {"CIRCLE", "CENTRE THEN EDGE", "wt:circle"}, {"CONFIRM", "KEEP THE DASHED SHAPE", "wt:confirm"},
                        {"EXPAND", "PULL THE LINE INTO A SURFACE", "wt:expand"}, {"DONE", "FINISH THIS SHAPE", "wt:finish"}, {"UNDO", "STEP BACK", "wt:undo"},
@@ -876,6 +878,13 @@ struct App {
         const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         event("shoulder: " + level + " " + a);
         if (a.rfind("wt:", 0) == 0) { wallToolAction(a.substr(3)); return; }
+        if (a == "ask") {  // the room assistant (work-42): a chat panel in front of you, the same conversation loop as a screen's
+            sm.stack.clear();
+            if (chatOpen.count(0)) { assistClose(0); return; }
+            V3 f = rot(head.orientation, {0, 0, -1}); f.y = 0; f = norm(f); if (len(f) < 0.5f) f = {0, 0, -1};
+            roomChatYaw = std::atan2(-f.x, -f.z); roomChatAt = v3(head.position) + f * 1.2f; roomChatAt.y -= 0.1f;
+            assistOpen(0); return;
+        }
         if (a.rfind("app:", 0) == 0) { size_t c = a.find(':', 4); appsAssign(atoi(a.c_str() + 4), a.substr(c + 1)); return; }
         if (a == "scan") { sm.stack.clear(); scanStart(); return; }
         if (a == "scan-done") { sm.stack.clear(); scanFinish(); return; }
@@ -1577,7 +1586,7 @@ struct App {
         std::vector<int> ids; assistScreens(ids); std::string host = assistHost;
         std::thread([this, ids, host] {
             for (int id : ids) {
-                house::Response r = house::http(host, 57840, "GET", "/session/" + std::to_string(id));
+                house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
                 bool ok = false; json::Value v = json::parse(r.body, &ok);
                 std::lock_guard<std::mutex> g(assistLock);
                 if (r.status == 200 && ok) chats[id].load(v["messages"]); else if (!r.error.empty()) assistErr = "history: " + r.error;
@@ -1590,7 +1599,7 @@ struct App {
         assistSent++; event("assist: screen " + std::to_string(id) + " <- " + text);
         std::string host = assistHost, tid = turn;
         std::thread([this, id, text, host, tid] {
-            std::string err = assist::send(host, 57840, id, text, tid, chats[id], assistLock);
+            std::string err = assist::send(host, 57840, sessionName(id), text, tid, chats[id], assistLock);
             std::lock_guard<std::mutex> g(assistLock); assistErr = err;
         }).detach();
     }
@@ -1600,13 +1609,15 @@ struct App {
     // answer (dots: terracotta listening, amber answering); a press CLOSES it; reopening reloads the history
     // (GET /session/N). One screen listens at a time; 60 s without speech closes the mic (the panel stays open).
     std::set<int> chatOpen; bool assistWaiting = false;
+    V3 roomChatAt{0, 0, 0}; float roomChatYaw = 0;  // chat 0 is the room assistant, world-locked where ASK was pressed
+    static std::string sessionName(int id) { return id == 0 ? std::string("room") : std::to_string(id); }
     void assistOpen(int id) {
         for (int o : std::set<int>(chatOpen)) if (o != id) assistClose(o);
         chatOpen.insert(id); chatScroll[id] = 0;
-        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear(); c.greet("Hi, what do you want on this screen?"); }
+        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear(); c.greet(id == 0 ? "Hi, what should I do with the room?" : "Hi, what do you want on this screen?"); }
         std::string host = assistHost;
         std::thread([this, id, host] {  // the conversation so far, behind the greeting
-            house::Response r = house::http(host, 57840, "GET", "/session/" + std::to_string(id));
+            house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
             bool ok = false; json::Value v = json::parse(r.body, &ok);
             std::lock_guard<std::mutex> g(assistLock);
             if (r.status == 200 && ok && v["messages"].size()) { assist::Chat& c = chats[id]; if (c.state == "idle") { c.load(v["messages"]); c.greet("What next?"); } }
@@ -1666,6 +1677,7 @@ struct App {
     void drawAssist(Batch& b) {
         chatQuads.clear();
         if (!assistOn()) return;
+        drawRoomChat();
         std::vector<int> ids; assistScreens(ids); float t = now();
         for (int id : ids) {
             Placement p; Entity* w; if (!screenFor(id, p, w)) continue;
@@ -1703,6 +1715,13 @@ struct App {
             Q.c[2] = xform(w->pose, {x0 + kChatW, top, 0.025f}); Q.c[3] = xform(w->pose, {x0, top, 0.025f});
             chatRefresh(Q, ch); chatQuads.push_back(id);
         }
+    }
+    void drawRoomChat() {
+        if (!chatOpen.count(0)) return;
+        ChatQuad& Q = chatTex[0]; Q.id = 0; float hw = kChatW / 2, h = 0.7f;
+        V3 r{std::cos(roomChatYaw), 0, -std::sin(roomChatYaw)}, up{0, 1, 0}, c = roomChatAt;
+        Q.c[0] = c - r * hw - up * (h / 2); Q.c[1] = c + r * hw - up * (h / 2); Q.c[2] = c + r * hw + up * (h / 2); Q.c[3] = c - r * hw + up * (h / 2);
+        chatRefresh(Q, h); chatQuads.push_back(0);
     }
     void chatRefresh(ChatQuad& Q, float heightM) {
         const int W = 576; int H = std::max(64, (int)(W * heightM / kChatW));
