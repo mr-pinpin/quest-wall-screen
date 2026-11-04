@@ -1,5 +1,5 @@
 {
- "rev": 49,
+ "rev": 50,
  "next": 22,
  "cards": [
   {
@@ -608,13 +608,13 @@
   {
    "title": "Claude chat survives app restarts: reopen shows the conversation history",
    "details": "On start, reload the reception conversation (conversation_id in files/reception-id) from work-42's receptionist history; keep the panel open across restarts if it was open. User request via headset 10:42Z",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K18",
    "created": "2026-11-04T10:41:11Z",
-   "updated": "2026-11-04T10:43:04Z",
+   "updated": "2026-11-04T10:54:30Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -639,6 +639,14 @@
      "what": "moved",
      "from": "next",
      "to": "doing"
+    },
+    {
+     "at": "2026-11-04T10:54:30Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "v0.69 k5-k18 003ff63: history reload, reopen, LISTENING strip (RECKEEP)"
     }
    ]
   },
@@ -706,5 +714,5 @@
    ]
   }
  ],
- "updated": "2026-11-04T10:47:47Z"
+ "updated": "2026-11-04T10:54:30Z"
 }
