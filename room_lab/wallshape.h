@@ -8,6 +8,11 @@
 // two walls becomes two line shapes sharing a "group", bent where the corner is (the straight line on the walls
 // unfolded flat), and expanding it extrudes each piece along its own wall's normal.
 //
+// Around the room (work-0e, 2026-11-04): a line from A to B on walls that do not share a corner goes along a chain of
+// walls that do (up to 4, the shorter way round), unfolded flat: one piece per wall, bent at every corner. The walls are
+// Meta's and our depth walls (clean ones with CLEANLIVE), with house ids by wallIdOf(). hint(): one line per state
+// ("never stuck, always explained"); undo() says when there is nothing left to undo.
+//
 // States: Idle -> PlacingA -> PlacingB -> Preview -> Confirmed -> Expanding -> Done (Dragging while a handle is held).
 // A pinch (its press) sets A, then B, then confirms, then sets the depth. cancel() drops the gesture in progress;
 // undo() steps back a point while placing, else reverts the last saved change. Every saved change comes out of
@@ -18,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -37,6 +43,14 @@ using wallfit::norm;
 using wallfit::rotate;
 
 inline double q4(double v) { return std::round(v * 1e4) / 1e4; }  // stored coordinates: 0.1 mm, exact through %.9g text
+
+// The house wall id a shape is saved under: a Meta wall's house id (by its scene uuid), our depth walls' own id
+// ("w-d..."; it is the house id: never "w-" + its first 8 characters, the v0.66 "w-w-d..." bug), else "w-" + uuid8.
+inline std::string wallIdOf(const json::Value& doc, const std::string& uuid) {
+    for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == uuid) return hw["id"].str();
+    if (uuid.rfind("w-d", 0) == 0) return uuid;
+    return "w-" + uuid.substr(0, 8);
+}
 
 struct WallRef {
     std::string id; Pose pose; float w = 0, h = 0;  // the rect is centred on the pose
@@ -285,15 +299,14 @@ public:
         if (mode_ == Mode::Circle) {
             Shape s = base(walls_[a_.wall].id, Type::Circle); s.pts = {{q4(a_.p.x), q4(a_.p.y)}}; s.r = q4(radius_); s.fill = fill_;
             made.push_back(s);
-        } else if (b_.wall == a_.wall) {
-            Shape s = base(walls_[a_.wall].id, Type::Line); s.pts = {{q4(a_.p.x), q4(a_.p.y)}, {q4(b_.p.x), q4(b_.p.y)}};
-            made.push_back(s);
         } else {
-            V2 ca, cb; if (!bend(walls_[a_.wall], a_.p, walls_[b_.wall], b_.p, ca, cb)) return;
-            Shape s1 = base(walls_[a_.wall].id, Type::Line), s2 = base(walls_[b_.wall].id, Type::Line);
-            s1.pts = {{q4(a_.p.x), q4(a_.p.y)}, {q4(ca.x), q4(ca.y)}}; s2.pts = {{q4(cb.x), q4(cb.y)}, {q4(b_.p.x), q4(b_.p.y)}};
-            s1.group = s2.group = "g" + s1.id.substr(1);
-            made = {s1, s2};
+            std::vector<Piece> pc = route(a_.wall, a_.p, b_.wall, b_.p); if (pc.empty()) return;
+            std::string group;
+            for (auto& q : pc) {
+                Shape s = base(walls_[q.wall].id, Type::Line); s.pts = {{q4(q.a.x), q4(q.a.y)}, {q4(q.b.x), q4(q.b.y)}};
+                if (pc.size() > 1) { if (group.empty()) group = "g" + s.id.substr(1); s.group = group; }
+                made.push_back(s);
+            }
         }
         std::vector<std::pair<std::string, std::optional<Shape>>> after;
         current_.clear();
@@ -318,19 +331,96 @@ public:
         }
     }
 
-    void undo() {
+    // Steps back one thing: a point while placing, the gesture in progress, else the last saved change. False: nothing
+    // to undo (the UI says so).
+    bool undo() {
         switch (state_) {
-            case State::PlacingB: state_ = State::PlacingA; return;
-            case State::Preview: state_ = State::PlacingB; return;
-            case State::Expanding: case State::Dragging: cancel(); return;
+            case State::PlacingA: state_ = State::Idle; return true;
+            case State::PlacingB: state_ = State::PlacingA; return true;
+            case State::Preview: state_ = State::PlacingB; return true;
+            case State::Expanding: case State::Dragging: cancel(); return true;
             default: break;
         }
-        if (undo_.empty()) return;
+        if (undo_.empty()) return false;
         auto entry = undo_.back(); undo_.pop_back();
         for (auto& [id, before] : entry) apply(id, before);
         bool any = false; for (auto& id : current_) any |= shapes_.count(id) > 0;
         if (!any) current_.clear();
         state_ = current_.empty() ? State::Idle : State::Done;
+        return true;
+    }
+    bool canUndo() const { return state_ == State::PlacingA || state_ == State::PlacingB || state_ == State::Preview || state_ == State::Expanding || state_ == State::Dragging || !undo_.empty(); }
+
+    // One line for what to do now (the UI shows it while the tool is active).
+    std::string hint() const {
+        bool circ = mode_ == Mode::Circle;
+        switch (state_) {
+            case State::Idle: return undo_.empty() ? "PICK LINE OR CIRCLE" : "PICK LINE OR CIRCLE, OR UNDO";
+            case State::PlacingA: return cursor_.ok() ? (circ ? "PINCH THE CENTRE" : "PINCH WHERE THE LINE STARTS") : "POINT AT A WALL";
+            case State::PlacingB:
+                if (circ) return bValid_ ? "PINCH TO SET THE SIZE, UNDO TO MOVE THE CENTRE" : "POINT AWAY FROM THE CENTRE";
+                return bValid_ ? "PINCH WHERE IT ENDS, UNDO TO MOVE THE START" : cursor_.ok() ? "NO WAY ALONG THE WALLS TO THERE, POINT CLOSER" : "POINT AT A WALL";
+            case State::Preview: return "PINCH OR CONFIRM TO KEEP THE DASHED SHAPE, UNDO TO REDO THE END";
+            case State::Confirmed: return circ || current_.empty() ? "DONE, OR UNDO" : "EXPAND INTO A SKIN, DONE, OR UNDO";
+            case State::Expanding: return "MOVE TO SET THE DEPTH, PINCH TO KEEP, UNDO TO STOP";
+            case State::Done: return "DRAG A HANDLE TO ADJUST, NEW LINE OR CIRCLE, OR UNDO";
+            case State::Dragging: return "RELEASE TO DROP, UNDO TO PUT IT BACK";
+        }
+        return "";
+    }
+
+    // ---- around the room: the pieces of a line from A (wall a) to B (wall b)
+    struct Piece { int wall; V2 a, b; };
+    // The corner line between walls i and j (non-parallel): its x on each wall when it lies on an edge of both rects.
+    bool cornerX(int i, int j, float& xi, float& xj) const {
+        const WallRef &a = walls_[i], &b = walls_[j]; V3 na = a.n(), nb = b.n(), u = cross(na, nb); float uu = dot(u, u);
+        if (uu < 0.1f) return false;
+        float ha = dot(na, a.pose.p), hb = dot(nb, b.pose.p);
+        V3 x0 = (cross(nb, u) * ha + cross(u, na) * hb) * (1.0f / uu);
+        xi = a.to2D(x0).x; xj = b.to2D(x0).x;
+        auto onEdge = [&](const WallRef& w, float& x) { if (std::fabs(std::fabs(x) - w.w / 2) > P.cornerTol) return false; x = std::copysign(w.w / 2, x); return true; };
+        return onEdge(a, xi) && onEdge(b, xj);
+    }
+    std::vector<Piece> route(int a, V2 pa, int b, V2 pb) const {
+        if (a < 0 || b < 0) return {};
+        if (a == b) return std::hypot(pb.x - pa.x, pb.y - pa.y) >= P.minLength ? std::vector<Piece>{{a, pa, pb}} : std::vector<Piece>{};
+        V2 ca, cb;
+        if (bend(walls_[a], pa, walls_[b], pb, ca, cb)) return {{a, pa, ca}, {b, cb, pb}};
+        // a chain of walls joined at corners (up to 4 walls), unfolded flat; the shortest unfolded way wins
+        std::vector<Piece> best; float bestLen = 1e9f; std::vector<int> path = {a};
+        std::function<void()> dfs = [&]() {
+            int cur = path.back();
+            if (path.size() >= 4) return;
+            for (int nx = 0; nx < (int)walls_.size(); nx++) {
+                if (std::find(path.begin(), path.end(), nx) != path.end()) continue;
+                float xi, xj; if (!cornerX(cur, nx, xi, xj)) continue;
+                path.push_back(nx);
+                if (nx == b && path.size() >= 3) {
+                    // unfold: corner x on each side of every joint; interior walls must be crossed edge to edge
+                    std::vector<float> exitX, entryX; bool ok = true;
+                    for (size_t k = 0; k + 1 < path.size(); k++) { float e, f; cornerX(path[k], path[k + 1], e, f); exitX.push_back(e); entryX.push_back(f); }
+                    for (size_t k = 1; k + 1 < path.size(); k++) if (std::fabs(entryX[k - 1] - exitX[k]) < 1e-4f) ok = false;  // entered and left by the same edge
+                    if (ok) {
+                        std::vector<float> s = {0};
+                        s.push_back(std::fabs(exitX[0] - pa.x));
+                        for (size_t k = 1; k + 1 < path.size(); k++) s.push_back(s.back() + std::fabs(exitX[k] - entryX[k - 1]));
+                        float total = s.back() + std::fabs(pb.x - entryX.back());
+                        if (total >= P.minLength && total < bestLen) {
+                            auto yAt = [&](float sv) { return pa.y + (pb.y - pa.y) * sv / total; };
+                            std::vector<Piece> pc;
+                            pc.push_back({path[0], pa, {exitX[0], yAt(s[1])}});
+                            for (size_t k = 1; k + 1 < path.size(); k++) pc.push_back({path[k], {entryX[k - 1], yAt(s[k])}, {exitX[k], yAt(s[k + 1])}});
+                            pc.push_back({b, {entryX.back(), yAt(s.back())}, pb});
+                            bool fits = true; for (auto& q : pc) { const WallRef& w = walls_[q.wall]; for (V2 v : {q.a, q.b}) if (std::fabs(v.y) > w.h / 2 + P.grace) fits = false; }
+                            if (fits) { best = pc; bestLen = total; }
+                        }
+                    }
+                } else if (nx != b) dfs();
+                path.pop_back();
+            }
+        };
+        dfs();
+        return best;
     }
 
     // Delete a shape (and the rest of its group), undoable.
@@ -376,14 +466,7 @@ public:
         if ((state_ == State::PlacingB || state_ == State::Preview) && (state_ == State::Preview || bValid_)) {
             Mesh m; m.preview = m.dashed = true; m.color = P.color; rgbaOf(m.color, m.rgba);
             if (mode_ == Mode::Circle) addCircle(m, walls_[a_.wall], a_.p, radius_, P.width, P.lift, true, P.dash, P.gap, fill_);
-            else if (b_.wall == a_.wall) addLine(m, walls_[a_.wall], {a_.p, b_.p}, P.width, P.lift, true, P.dash, P.gap);
-            else {
-                V2 ca, cb;
-                if (bend(walls_[a_.wall], a_.p, walls_[b_.wall], b_.p, ca, cb)) {
-                    addLine(m, walls_[a_.wall], {a_.p, ca}, P.width, P.lift, true, P.dash, P.gap);
-                    addLine(m, walls_[b_.wall], {cb, b_.p}, P.width, P.lift, true, P.dash, P.gap);
-                }
-            }
+            else for (auto& q : route(a_.wall, a_.p, b_.wall, b_.p)) addLine(m, walls_[q.wall], {q.a, q.b}, P.width, P.lift, true, P.dash, P.gap);
             out.push_back(m);
         }
         if (state_ == State::Expanding)
@@ -511,8 +594,7 @@ private:
         }
         if (!cursor_.ok()) return false;
         b = cursor_;
-        if (b.wall == a_.wall) return std::hypot(b.p.x - a_.p.x, b.p.y - a_.p.y) >= P.minLength;
-        V2 ca, cb; return bend(wa, a_.p, walls_[b.wall], b.p, ca, cb);
+        return !route(a_.wall, a_.p, b.wall, b.p).empty();
     }
 
     // Depth along the normal at the middle of the first current piece: the point on that normal line nearest the ray.

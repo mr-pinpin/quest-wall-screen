@@ -17,15 +17,16 @@
 namespace setmenu {
 
 struct Entry { std::string label, section, hint; };
-struct Category { std::string name, hint; std::vector<std::string> labels; };
+struct Category { std::string name, hint; std::vector<std::string> labels; std::vector<shoulder::Item> extras = {}; };  // extras: tools on page 1
 
 inline const std::vector<Category>& categories() {
     static const std::vector<Category> c = {
         {"SCREENS", "SOURCES SIZES BARS", {"MINI", "LAPTOP", "SMALL", "MEDIUM", "LARGE", "LOCK", "MACDISP", "ALLBARS", "CLOSEX", "DEPTHPLACE", "CTLTOP", "MARKS", "RESUME", "SAVESET"}},
-        {"INPUT", "HANDS AND GESTURES", {"STEADY", "SPELL", "SHOULDER", "WRIST", "SCROLL", "WALLTOOL"}},
+        {"INPUT", "HANDS AND GESTURES", {"STEADY", "SPELL", "SHOULDER", "WRIST", "SCROLL"}},
         {"LOOK", "HOW SCREENS LOOK", {"QUAD", "CURVE", "MARGIN", "SUPER", "BEZEL", "FADE", "GLASS", "AMBI", "PANELTEX", "SETCAT", "BEZELFEW"}},
         {"ASSISTANT", "CLAUDE AND THE MIC", {"ASSIST", "RECEPTION", "DICTQ", "RECKEEP"}},
-        {"SCAN AND ROOM", "WALLS MESH HOUSE", {"SCAN", "GEOMETRY", "MULTIROOM", "MESHSAVE", "HOUSE", "RELOCCHECK", "MESHBATCH", "CLEANLIVE"}},
+        {"SCAN AND ROOM", "WALLS MESH HOUSE", {"SCAN", "GEOMETRY", "MULTIROOM", "MESHSAVE", "HOUSE", "RELOCCHECK", "MESHBATCH", "CLEANLIVE", "WALLTOOL"},
+         {{"WALLS", "DRAW LINES SKINS AND CIRCLES", "walltool"}}},
         {"EXPERIMENTAL", "STREAMING TRIALS", {"H264", "HOSTRES", "VT", "BUDGET", "WIFILL", "MODELS", "LODPOSE", "HERO", "KEYREQ"}},
         {"DEBUG", "MEASUREMENTS", {"GPUTIME", "DEPTHGAP"}},
     };
@@ -85,6 +86,7 @@ struct Tree {
             while (i < all.size()) {
                 std::vector<shoulder::Item> trial; for (auto& l : page) trial.push_back(item(l));
                 trial.push_back(item(all[i])); trial.push_back({"NEXT PAGE", "", ""}); trial.push_back({"BACK", "", ""});
+                if (out.empty()) for (auto& c : categories()) if (c.name == cat) for (auto& x : c.extras) trial.push_back(x);  // page 1 holds the tools too
                 if (!page.empty() && height(trial) > maxH) break;
                 page.push_back(all[i++]);
             }
@@ -101,6 +103,7 @@ struct Tree {
         if (sp != std::string::npos && sp + 1 < rest.size() && std::isdigit((unsigned char)rest[sp + 1])) { page = std::max(1, atoi(rest.c_str() + sp + 1)); cat = rest.substr(0, sp); }
         auto ps = pages(cat); int n = (int)ps.size();
         L.title = cat + (n > 1 ? " " + std::to_string(std::min(page, n)) + " OF " + std::to_string(n) : "");
+        if (std::min(page, n) == 1) for (auto& c : categories()) if (c.name == cat) for (auto& x : c.extras) L.items.push_back(x);
         if (n) for (auto& l : ps[std::min(page, n) - 1]) L.items.push_back(item(l));
         if (n > 1) L.items.push_back({"NEXT PAGE", "MORE " + cat + " SWITCHES", "swap:SET " + cat + " " + std::to_string(page % n + 1)});
         L.items.push_back({"BACK", "ONE MENU BACK", "back"});
