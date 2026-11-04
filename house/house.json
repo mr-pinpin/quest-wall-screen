@@ -1,6 +1,11 @@
 {
- "apps": [],
- "by": "headset",
+ "apps": [
+  {
+   "screen": 3,
+   "app": "recipes"
+  }
+ ],
+ "by": "apps",
  "links": [],
  "menu": {
   "panel": {
@@ -17,7 +22,7 @@
   }
  },
  "nextScreenId": 4,
- "rev": 28,
+ "rev": 29,
  "rooms": [
   {
    "anchors": [
@@ -122,7 +127,7 @@
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-04T09:38:22Z",
+ "updated": "2026-11-04T10:48:45Z",
  "walls": [
   {
    "h": 2.50954533,
@@ -1602,5 +1607,762 @@
    "source": "depth",
    "w": 1.25
   }
- ]
+ ],
+ "plan": {
+  "algo": "consolidate/1",
+  "src": "0b40c584cfb285d88894ffc4b50f28b61cbf61f48f4d71ce6707ee9555f3cb48",
+  "rev": 29,
+  "axesDeg": 17.3,
+  "floorY": -1.422,
+  "frames": [
+   {
+    "batch": "2026-11-04T02:15:42Z",
+    "surfaces": 12,
+    "samples": 809751,
+    "dy": -0.059,
+    "yawDeg": 0.61,
+    "status": "moved -0.06 m onto the meta floor"
+   },
+   {
+    "batch": "2026-11-04T03:03:27Z",
+    "surfaces": 19,
+    "samples": 1088111,
+    "dy": -0.158,
+    "yawDeg": 0.36,
+    "status": "moved -0.16 m onto the meta floor"
+   },
+   {
+    "batch": "2026-11-04T09:32:05Z",
+    "surfaces": 11,
+    "samples": 405955,
+    "dy": -0.262,
+    "yawDeg": -1.77,
+    "status": "moved -0.26 m onto the meta floor"
+   }
+  ],
+  "walls": [
+   {
+    "id": "p-851ff933",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -3.074,
+      -0.168,
+      -0.566
+     ],
+     "q": [
+      0.0,
+      0.592691,
+      0.0,
+      -0.80543
+     ]
+    },
+    "w": 3.587,
+    "h": 2.508,
+    "from": [
+     "w-851ff933"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-aeda1f4d",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -5.925,
+      -0.168,
+      0.282
+     ],
+     "q": [
+      0.0,
+      0.80543,
+      0.0,
+      0.592691
+     ]
+    },
+    "w": 3.564,
+    "h": 2.508,
+    "from": [
+     "w-aeda1f4d"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-df0486f4",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -5.018,
+      -0.168,
+      -1.853
+     ],
+     "q": [
+      0.0,
+      0.150429,
+      0.0,
+      0.988621
+     ]
+    },
+    "w": 2.973,
+    "h": 2.508,
+    "from": [
+     "w-df0486f4"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-488e679d",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -1.91,
+      -0.168,
+      2.466
+     ],
+     "q": [
+      0.0,
+      0.592691,
+      0.0,
+      -0.80543
+     ]
+    },
+    "w": 2.896,
+    "h": 2.508,
+    "from": [
+     "w-488e679d"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-dde1888",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -2.831,
+      -0.152,
+      0.128
+     ],
+     "q": [
+      0.0,
+      0.80543,
+      0.0,
+      0.592691
+     ]
+    },
+    "w": 2.069,
+    "h": 2.54,
+    "from": [
+     "w-dde1888",
+     "w-df68afd",
+     "w-db3243d"
+    ],
+    "src": "depth",
+    "conf": 1.0,
+    "room": "pr2"
+   },
+   {
+    "id": "p-e76f73ed",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -3.146,
+      -0.168,
+      3.908
+     ],
+     "q": [
+      0.0,
+      0.80543,
+      0.0,
+      0.592691
+     ]
+    },
+    "w": 2.08,
+    "h": 2.508,
+    "from": [
+     "w-e76f73ed"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-63b48871",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -4.744,
+      -0.168,
+      1.785
+     ],
+     "q": [
+      0.0,
+      0.988621,
+      0.0,
+      -0.150429
+     ]
+    },
+    "w": 1.388,
+    "h": 2.508,
+    "from": [
+     "w-63b48871"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-2fbb61bb",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -2.197,
+      -0.168,
+      4.703
+     ],
+     "q": [
+      0.0,
+      0.988621,
+      0.0,
+      -0.150429
+     ]
+    },
+    "w": 1.135,
+    "h": 2.508,
+    "from": [
+     "w-2fbb61bb"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-d381789",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      0.181,
+      -0.152,
+      -0.415
+     ],
+     "q": [
+      0.0,
+      0.592691,
+      0.0,
+      -0.80543
+     ]
+    },
+    "w": 2.822,
+    "h": 2.54,
+    "from": [
+     "w-d381789",
+     "w-dc83d0f"
+    ],
+    "src": "depth",
+    "conf": 0.833,
+    "room": "pr2",
+    "stacked": [
+     {
+      "id": "w-d528b76",
+      "gap": 0.296,
+      "src": "depth",
+      "samples": 52151
+     }
+    ],
+    "clippedFrom": 7.8
+   },
+   {
+    "id": "p-d62e425",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -1.689,
+      -0.152,
+      -1.311
+     ],
+     "q": [
+      0.0,
+      0.150429,
+      0.0,
+      0.988621
+     ]
+    },
+    "w": 3.037,
+    "h": 2.54,
+    "from": [
+     "w-de9ab30",
+     "w-d9c605d",
+     "w-d3c184d",
+     "w-d62e425"
+    ],
+    "src": "depth",
+    "conf": 0.988,
+    "room": "pr2",
+    "stacked": [
+     {
+      "id": "w-d9c605d",
+      "gap": 0.063,
+      "src": "depth",
+      "samples": 12473
+     },
+     {
+      "id": "w-d3c184d",
+      "gap": 0.063,
+      "src": "depth",
+      "samples": 26757
+     },
+     {
+      "id": "w-d62e425",
+      "gap": 0.063,
+      "src": "depth",
+      "samples": 43843
+     },
+     {
+      "id": "w-dfbc805",
+      "gap": 0.202,
+      "src": "depth",
+      "samples": 19297
+     },
+     {
+      "id": "w-d173082",
+      "gap": 0.202,
+      "src": "depth",
+      "samples": 19866
+     },
+     {
+      "id": "w-d47a8b1",
+      "gap": 0.138,
+      "src": "depth",
+      "samples": 14607
+     },
+     {
+      "id": "w-d9f6087",
+      "gap": 0.337,
+      "src": "depth",
+      "samples": 14603
+     },
+     {
+      "id": "w-de15e9e",
+      "gap": 0.258,
+      "src": "depth",
+      "samples": 17645
+     }
+    ],
+    "clippedFrom": 3.476
+   },
+   {
+    "id": "p-9e501f4e",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -2.441,
+      -0.168,
+      1.115
+     ],
+     "q": [
+      0.0,
+      0.150429,
+      0.0,
+      0.988621
+     ]
+    },
+    "w": 0.236,
+    "h": 2.508,
+    "from": [
+     "w-9e501f4e"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1"
+   },
+   {
+    "id": "p-d59bcc9",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      0.13,
+      -0.152,
+      1.079
+     ],
+     "q": [
+      0.0,
+      0.988621,
+      0.0,
+      -0.150429
+     ]
+    },
+    "w": 1.204,
+    "h": 2.54,
+    "from": [
+     "w-d59bcc9",
+     "w-d9d9413"
+    ],
+    "src": "depth",
+    "conf": 0.67,
+    "room": "pr2",
+    "stacked": [
+     {
+      "id": "w-d9d9413",
+      "gap": 0.092,
+      "src": "depth",
+      "samples": 42409
+     },
+     {
+      "id": "w-d091859",
+      "gap": 0.172,
+      "src": "depth",
+      "samples": 30682
+     }
+    ]
+   },
+   {
+    "id": "p-f8817eb5",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -3.726,
+      -0.169,
+      1.698
+     ],
+     "q": [
+      0.0,
+      0.987872,
+      0.0,
+      0.155268
+     ]
+    },
+    "w": 0.745,
+    "h": 2.51,
+    "from": [
+     "w-f8817eb5"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1",
+    "offAxis": true
+   },
+   {
+    "id": "p-fc6fbd15",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -3.462,
+      -0.17,
+      2.381
+     ],
+     "q": [
+      0.0,
+      0.648981,
+      0.0,
+      0.760805
+     ]
+    },
+    "w": 1.153,
+    "h": 2.51,
+    "from": [
+     "w-fc6fbd15"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1",
+    "offAxis": true
+   },
+   {
+    "id": "p-691b203d",
+    "kind": "wall",
+    "pose": {
+     "p": [
+      -1.573,
+      -0.181,
+      4.196
+     ],
+     "q": [
+      0.0,
+      -0.784033,
+      0.0,
+      0.620719
+     ]
+    },
+    "w": 0.707,
+    "h": 2.51,
+    "from": [
+     "w-691b203d"
+    ],
+    "src": "scene",
+    "conf": 1.0,
+    "room": "pr1",
+    "offAxis": true
+   }
+  ],
+  "rooms": [
+   {
+    "id": "pr1",
+    "floor": [
+     [
+      -3.595,
+      -2.282
+     ],
+     [
+      -2.553,
+      1.151
+     ],
+     [
+      -2.328,
+      1.08
+     ],
+     [
+      -1.492,
+      3.852
+     ],
+     [
+      -1.653,
+      4.541
+     ],
+     [
+      -2.74,
+      4.865
+     ],
+     [
+      -3.552,
+      2.95
+     ],
+     [
+      -3.372,
+      1.812
+     ],
+     [
+      -4.08,
+      1.583
+     ],
+     [
+      -5.408,
+      1.987
+     ],
+     [
+      -6.441,
+      -1.424
+     ]
+    ],
+    "holes": [],
+    "area": 15.946,
+    "floorY": -1.422,
+    "ceilingY": 1.086,
+    "closed": true,
+    "closure": 1.0,
+    "support": 1.0,
+    "perimeter": 20.46,
+    "openM": 0,
+    "doors": [],
+    "opens": [],
+    "tops": []
+   },
+   {
+    "id": "pr2",
+    "floor": [
+     [
+      -0.239,
+      -1.762
+     ],
+     [
+      0.6,
+      0.932
+     ],
+     [
+      -1.017,
+      1.436
+     ],
+     [
+      -1.234,
+      0.74
+     ],
+     [
+      -2.528,
+      1.143
+     ],
+     [
+      -3.151,
+      -0.855
+     ]
+    ],
+    "holes": [],
+    "area": 7.619,
+    "floorY": -1.422,
+    "ceilingY": 1.118,
+    "closed": false,
+    "closure": 0.84,
+    "support": 0.788,
+    "perimeter": 11.744,
+    "openM": 1.875,
+    "doors": [],
+    "opens": [
+     {
+      "a": [
+       -1.234,
+       0.74
+      ],
+      "b": [
+       -1.017,
+       1.436
+      ],
+      "w": 0.729
+     },
+     {
+      "a": [
+       -2.328,
+       1.081
+      ],
+      "b": [
+       -1.234,
+       0.74
+      ],
+      "w": 1.146
+     }
+    ],
+    "tops": [
+     {
+      "id": "w-d45b26b",
+      "y": -1.12,
+      "area": 0.825
+     },
+     {
+      "id": "w-dd21c4b",
+      "y": -0.98,
+      "area": 4.728
+     },
+     {
+      "id": "w-d6410cb",
+      "y": -1.108,
+      "area": 0.9
+     },
+     {
+      "id": "w-d28b5e6",
+      "y": -1.132,
+      "area": 4.5
+     },
+     {
+      "id": "w-dc55781",
+      "y": -1.134,
+      "area": 3.688
+     }
+    ]
+   }
+  ],
+  "dropped": [
+   {
+    "id": "w-d7eb258",
+    "why": "slanted (normal 40 deg above horizontal): neither wall nor floor"
+   },
+   {
+    "id": "w-d5adf23",
+    "why": "slanted (normal 44 deg above horizontal): neither wall nor floor"
+   },
+   {
+    "id": "w-d95fea7",
+    "why": "off-axis: 10 deg from the room directions"
+   },
+   {
+    "id": "w-dc2ffcf",
+    "why": "off-axis: 35 deg from the room directions"
+   },
+   {
+    "id": "w-dc6e7bb",
+    "why": "off-axis: 42 deg from the room directions"
+   },
+   {
+    "id": "w-d97621a",
+    "why": "low confidence 0.34"
+   },
+   {
+    "id": "w-d9cb069",
+    "why": "off-axis: 43 deg from the room directions"
+   },
+   {
+    "id": "w-d19beb6",
+    "why": "low confidence 0.27"
+   },
+   {
+    "id": "w-dc6020a",
+    "why": "off-axis: 13 deg from the room directions"
+   },
+   {
+    "id": "w-d6f9ef4",
+    "why": "off-axis: 10 deg from the room directions"
+   },
+   {
+    "id": "w-dfbc805",
+    "why": "0.20 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-d173082",
+    "why": "0.20 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-d47a8b1",
+    "why": "0.14 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-d9f6087",
+    "why": "0.34 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-de15e9e",
+    "why": "0.26 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-d528b76",
+    "why": "0.30 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-d091859",
+    "why": "0.17 m in front of a wall it overlaps (furniture face or a second look)"
+   },
+   {
+    "id": "w-ddcd28c",
+    "why": "short (0.23 m after merging and corners)"
+   },
+   {
+    "id": "w-d8d1778",
+    "why": "short (0.14 m after merging and corners)"
+   }
+  ],
+  "score": {
+   "verdict": "not yet",
+   "reasons": [
+    "pr2: open 1.9 m of 11.7 m (closure 0.84 < 0.9)",
+    "w-dde1888 is 3 cm behind Meta w-851ff933: thinner than a real wall (6+ cm), so the scan and Meta disagree by a few cm (frame offset?)"
+   ],
+   "duplicates": {
+    "raw": 70,
+    "plan": 0
+   },
+   "rooms": 2,
+   "closure": 0.84,
+   "sceneFit": {
+    "pairs": 0,
+    "median_m": null,
+    "max_m": null,
+    "backToBack": [
+     {
+      "depth": "w-dde1888",
+      "meta": "w-851ff933",
+      "thickness_m": 0.026
+     }
+    ]
+   },
+   "explained": 0.713,
+   "walls": {
+    "raw": 39,
+    "plan": 15
+   },
+   "axesShare": 0.886
+  },
+  "updated": "2026-11-04T10:48:45Z"
+ }
 }
