@@ -26,6 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
+import benchlock  # noqa: E402  (the Air lock: exclusive for benchmarks, shared for functional tests)
 import socket
 import argparse, atexit, base64, calendar, contextlib, re, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
 
@@ -211,15 +212,16 @@ def longest_gap(series):
 
 
 def lock_take(owner):
-    """'' when this run now holds the bench lock, else who holds it."""
-    out = air(f"L={BENCH_LOCK}; if [ -d $L ] && [ $(( $(date +%s) - $(stat -f %m $L) )) -gt {LOCK_STALE_S} ]; then "
-              f"mv $L $L.stale-$(date +%s); echo stale; fi; mkdir $L 2>/dev/null && echo {json.dumps(owner)} > $L/owner && echo taken "
-              f"|| cat $L/owner")
-    return '' if 'taken' in out.split() else (out.strip().splitlines() or ['?'])[-1]
+    """'' when this run now holds the bench lock (EXCLUSIVE, bench/benchlock.py), else who holds it. A refusal leaves an
+    intent marker (refreshed on each retry, expiring after a minute), so shared holders drain and none join meanwhile."""
+    global _LOCK_TID
+    if '_LOCK_TID' not in globals(): _LOCK_TID = benchlock._id('exclusive', 'stress')
+    r = benchlock.try_exclusive(_LOCK_TID, owner, LOCK_STALE_S)
+    return '' if r == 'taken' else r.replace('busy ', '', 1)
 
 
 def lock_release():
-    air(f"L={BENCH_LOCK}; [ -d $L ] && mv $L $L.done-$(date +%s); ls -dt $L.done-* 2>/dev/null | tail -n +21 | xargs rm -rf")
+    if '_LOCK_TID' in globals(): benchlock.release('exclusive:' + _LOCK_TID)
 
 
 def laptop_ip():
