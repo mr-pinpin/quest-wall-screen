@@ -2028,6 +2028,10 @@ struct App {
     // catalog from the Mini (re-fetched each time it opens), the current app highlighted; a pick POSTs
     // /api/screens/<n>/app and the Air's runner changes the window. Extra screens only (never the main screen).
     struct AppEntry { std::string id, name, hint; };
+    // The mini-apps server's shared token (files/apps-token, written at install into the app's private storage; never
+    // in the APK or the repo) for its POST endpoints: Authorization: Bearer <token>.
+    std::string appsToken; std::vector<std::string> appsAuth() { std::lock_guard<std::mutex> g(appsLock); std::vector<std::string> h = {"Content-Type: application/json"};
+                                                                 if (!appsToken.empty()) h.push_back("Authorization: Bearer " + appsToken); return h; }
     std::mutex appsLock; std::vector<AppEntry> appsCatalog; std::map<int, std::string> appsOnScreen; std::set<int> webScreens; std::string appsErr, appsToast;
     // Web-backed screens (an app or an opened URL) ignore pinpin-displays' synthetic clicks (Chrome --app windows), so
     // their pinch-clicks and scrolls go to the mini-apps runner over CDP: POST /api/screens/<id>/{click,scroll} with
@@ -2050,7 +2054,7 @@ struct App {
             for (;;) {
                 std::pair<std::string, std::string> job;
                 { std::unique_lock<std::mutex> g(cdpLock); cdpCv.wait(g, [&] { return !cdpQueue.empty(); }); job = cdpQueue.front(); cdpQueue.pop_front(); }
-                house::Response r = house::http("192.168.0.50", 57830, "POST", job.first, job.second, {"Content-Type: application/json"});
+                house::Response r = house::http("192.168.0.50", 57830, "POST", job.first, job.second, appsAuth());
                 std::lock_guard<std::mutex> g(appsLock);
                 if (r.status == 200) cdpSent++;
                 else { cdpFailed++; if (r.status == 404 || r.status == 409 || r.status == 502 || r.status == 0) cdpNoWindow[atoi(job.first.c_str() + 13)] = std::chrono::steady_clock::now(); }  // no window / runner down: UDP for 10 s
@@ -2099,7 +2103,7 @@ struct App {
         event("apps: screen " + std::to_string(sid) + " -> " + (id.empty() ? std::string("none") : id));
         std::thread([this, sid, id] {
             std::string body = id.empty() ? "{\"app\":null}" : "{\"app\":" + house::dump(house::str(id)) + "}";
-            house::Response r = house::http("192.168.0.50", 57830, "POST", "/api/screens/" + std::to_string(sid) + "/app", body, {"Content-Type: application/json"});
+            house::Response r = house::http("192.168.0.50", 57830, "POST", "/api/screens/" + std::to_string(sid) + "/app", body, appsAuth());
             std::lock_guard<std::mutex> g(appsLock);
             if (r.status == 200) { if (id.empty()) appsOnScreen.erase(sid); else appsOnScreen[sid] = id; appsToast = id.empty() ? "PLAIN SCREEN" : fontSafe(id, 20) + " ON SCREEN " + std::to_string(sid); }
             else appsToast = "COULD NOT SAVE - TRY AGAIN";
@@ -3816,6 +3820,8 @@ void main(){
             relocFile = access((gDir + "/reloccheck-on").c_str(), F_OK) == 0;   // forces RELOCCHECK for self-tests
             geometryFile = access((gDir + "/geometry-on").c_str(), F_OK) == 0;  // forces GEOMETRY for self-tests
             updateReloc();
+            { bool need; { std::lock_guard<std::mutex> g(appsLock); need = appsToken.empty(); }
+              if (need) { std::ifstream tf(gDir + "/apps-token"); std::string t; if (tf >> t) { std::lock_guard<std::mutex> g(appsLock); appsToken = t; event("apps: token loaded"); } } }
             if (!extras.empty() && std::chrono::steady_clock::now() - appsRefreshAt > std::chrono::seconds(10)) { appsRefreshAt = std::chrono::steady_clock::now(); appsFetch(); }
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
