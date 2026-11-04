@@ -53,6 +53,8 @@ run "RECKEEP: CLAUDE chat history cache, last N exchanges, mic self-check (room_
 run "MESHBATCH: room mesh in one buffer, exact draws over 600 scan frames (room_lab/mesh_arena.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/mesh_arena_test.cpp -o $T/marena && (ulimit -v 1500000; timeout 60 $T/marena)"
 run "BEZELFEW: VT bezel strips cut on tile edges (room_lab/vt_strip.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/vt_strip_test.cpp -o $T/vts && (ulimit -v 1500000; timeout 60 $T/vts)"
 run "MARKS: house marks parse, expiry, geometry (room_lab/marks.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/marks_test.cpp -o $T/marks && (ulimit -v 1500000; timeout 60 $T/marks)"
+run "placement review: unseen house screens never deleted, unplaceable walls never drop a screen, STAGE vote not poisoned by the refresh (housemerge.h, stagerebase.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/placement_review_test.cpp -o $T/prev && (ulimit -v 1500000; timeout 60 $T/prev)"
+run "review 2: MULTIROOM doorway samples, depth-wall repair retries, Space Setup re-run detected (rooms.h, placement_watch.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/review2_test.cpp -o $T/rev2 && (ulimit -v 1500000; timeout 60 $T/rev2)"
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py

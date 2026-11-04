@@ -100,7 +100,11 @@ struct Tracker {
         if (bestD > 0 && !current.empty()) {           // in no box: keep the room we were in unless it is gone
             const Placed* p = find(ps, current); if (p && p->ok) return false;
         }
-        if (!current.empty()) crossings.push_back({current, best, head});
+        // A doorway sample only for a real walk: the room we leave was placed and the head is inside the new room's box.
+        // (Review fix, work-k5 2026-11-04: losing the current room's anchors switched rooms from wherever the user stood
+        // and recorded that spot as a crossing, dragging the learned door metres off.)
+        const Placed* was = current.empty() ? nullptr : find(ps, current);
+        if (was && was->ok && bestD == 0) crossings.push_back({current, best, head});
         current = best; return true;
     }
 };
