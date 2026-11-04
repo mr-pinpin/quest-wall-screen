@@ -72,6 +72,9 @@ def main():
     # configs: "base=,longgop=longgop,vthero=vt+hero" (+ joins flags inside one config)
     configs = [(c.split('=', 1)[0], c.split('=', 1)[1].replace('+', ',')) for c in a.configs.split(',')]
     pairs = [tuple(p.split(':')) for p in a.pairs.split(',')]
+    # vt is judged by two pre-registered rules (vt-cinema: bandwidth; vt-latency: fps and gap within the 42 Mbit/s
+    # budget, added 2026-11-04 before A2); both are reported and vt passes if either does
+    pairs += [('vt-latency', on, off) for rule, on, off in pairs if rule == 'vt-cinema' and ('vt-latency', on, off) not in pairs]
     names = [n for n, _ in configs]
     for rule, on, off in pairs:
         if on not in names or off not in names: sys.exit(f'pair {rule}:{on}:{off} names an unknown config')
@@ -109,6 +112,10 @@ def main():
         final = 'KEEP' if votes.count('KEEP') >= 2 else 'DROP' if votes.count('DROP') >= 2 else \
                 ('INCONCLUSIVE (contaminated)' if clean < 2 else 'INCONCLUSIVE')
         report['verdicts'][f'{rule} ({on} vs {off})'] = {'verdict': final, 'rounds': [{'verdict': v, 'why': w} for v, w in per]}
+    both = [(k, v) for k, v in report['verdicts'].items() if k.split(' ')[0] in ('vt-cinema', 'vt-latency')]
+    if len(both) == 2:
+        report['verdicts']['vt (either rule)'] = {'verdict': 'KEEP' if any(v['verdict'] == 'KEEP' for _, v in both) else
+                                                  'DROP' if all(v['verdict'] == 'DROP' for _, v in both) else 'INCONCLUSIVE', 'rounds': []}
     res = HERE / 'results'
     (res / f'campaign-{a.block}-{stamp}.json').write_text(json.dumps(report, indent=1))
     md = [f'# Flag campaign, block {a.block} ({stamp} UTC)', '', f'stress.py {" ".join(extra)}; {a.rounds} rounds, order rotated per round.', '',

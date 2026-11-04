@@ -69,6 +69,11 @@ def rule(name, off, on):
         why = f"mbps {A['mbps']} -> {B['mbps']}, fresh fps {A['fps']} -> {B['fps']}, below wanted {B['below']}%, layouts valid {B['vtValid']}"
         if B['vtValid'] is False or ge(B['mbps'], A['mbps']) or (B['fps'] or 0) < (A['fps'] or 0) - 5: return 'DROP', why
         return ('KEEP' if le(B['mbps'], A['mbps'], 0.8) and (B['below'] is None or B['below'] <= 10) else 'RERUN'), why
+    if name == 'vt-latency':  # pre-registered 2026-11-04 ~04:55 UTC (work-df), before block A2: real-time play + many
+        # screens means frame rate and latency within the atlas bandwidth budget (42 Mbit/s, gate.py) count as wins
+        why = f"fresh fps {A['fps']} -> {B['fps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms, mbps {A['mbps']} -> {B['mbps']} (budget 42)"
+        if B['vtValid'] is False or (B['fps'] or 0) < (A['fps'] or 0) or ge(B['gapP99'], A['gapP99']) or (B['mbps'] or 0) > 42: return 'DROP', why
+        return ('KEEP' if (B['fps'] or 0) >= (A['fps'] or 0) + 5 and le(B['gapP99'], A['gapP99'], 0.5) else 'RERUN'), why
     if name == 'vt-wall':  # every screen visible and small: vt must not cost anything
         why = f"mbps {A['mbps']} -> {B['mbps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms, layouts valid {B['vtValid']}"
         ok = B['vtValid'] is not False and le(B['mbps'], A['mbps'], 1.1) and le(B['gapP99'], A['gapP99'], 1.2)
@@ -164,6 +169,9 @@ def self_test():
         ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=57), 'KEEP'),
         ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=40), 'DROP'),
         ('encshare', res(lat=40, host=9), res(lat=25, host=9), 'KEEP'),
+        ('vt-latency', res(mbps=30, gap=110, fps=49), res(mbps=40.8, gap=28, fps=62, valid=True), 'KEEP'),
+        ('vt-latency', res(mbps=30, gap=110, fps=49), res(mbps=43, gap=28, fps=62, valid=True), 'DROP'),
+        ('vt-latency', res(mbps=30, gap=110, fps=49), res(mbps=35, gap=70, fps=56, valid=True), 'RERUN'),
         ('pace', res(gap=60, fps=48), res(gap=40, fps=48), 'KEEP'),
         ('pace', res(gap=60, fps=48), res(gap=40, fps=44), 'DROP'),
         ('nodelay', res(gap=60, fps=48), res(gap=58, fps=48), 'RERUN'),
