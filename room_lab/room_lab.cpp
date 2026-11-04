@@ -1074,7 +1074,7 @@ struct App {
         if (dt) glEnable(GL_DEPTH_TEST); if (bl) glEnable(GL_BLEND); if (sc) glEnable(GL_SCISSOR_TEST);
         // What the depth was taken against: the screens and scene walls as they stand now.
         // A dump waits until the scene walls are located (a dump taken at launch had none: walls:[], screens:[]).
-        bool wallsKnown = false; for (auto& e : entities) wallsKnown = wallsKnown || (e.located && isWall(e));
+        bool wallsKnown = false; for (auto& e : entities) wallsKnown = wallsKnown || (e.located && isWall(e) && !e.standIn && e.space != XR_NULL_HANDLE);  // real scene walls, not stand-ins
         DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted && wallsKnown;
         if (sh.dump) depthDumpWanted = false;
         auto addScreen = [&](int id, const Placement& p) {
