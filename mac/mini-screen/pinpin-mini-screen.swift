@@ -27,8 +27,11 @@ let TOKEN: String = {
 }()
 let AUDIT = ("~/.local/share/pinpin-mini-screen/input.log" as NSString).expandingTildeInPath
 let eventSrc = CGEventSource(stateID: .combinedSessionState)
+let PPMS: Int64 = 0x50504D53           // 'PPMS' tag on our events so a tap tells them from Sunshine's (work-ad)
 let inputLock = NSLock()               // (2) serialise input so two callers can't interleave move/click
 var myLastPost = Date.distantPast      // (1) track MY posted events so they don't count as "user active"
+
+func tagPost(_ e: CGEvent) { e.setIntegerValueField(.eventSourceUserData, value: PPMS); e.post(tap: .cghidEventTap); markPost() }
 
 func markPost() { myLastPost = Date() }
 
@@ -66,7 +69,7 @@ func uvToGlobal(_ u: Double, _ v: Double, _ b: CGRect) -> CGPoint {
 func postMouse(_ type: CGEventType, _ p: CGPoint, button: CGMouseButton, click: Int) {
     if let e = CGEvent(mouseEventSource: eventSrc, mouseType: type, mouseCursorPosition: p, mouseButton: button) {
         if click > 0 { e.setIntegerValueField(.mouseEventClickState, value: Int64(click)) }
-        e.post(tap: .cghidEventTap); markPost()
+        tagPost(e)
     }
 }
 
@@ -86,7 +89,7 @@ func doClick(_ p: CGPoint, button: String, count: Int) {
 func doScroll(_ p: CGPoint, _ dy: Int, _ dx: Int) {
     CGWarpMouseCursorPosition(p); markPost(); postMouse(.mouseMoved, p, button: .left, click: 0)
     if let e = CGEvent(scrollWheelEvent2Source: eventSrc, units: .pixel, wheelCount: 2,
-                       wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) { e.post(tap: .cghidEventTap); markPost() }
+                       wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) { tagPost(e) }
 }
 func doType(_ s: String) {
     for ch in s.prefix(5000) {                                  // (3) cap length
@@ -94,7 +97,7 @@ func doType(_ s: String) {
             if let e = CGEvent(keyboardEventSource: eventSrc, virtualKey: 0, keyDown: phase) {
                 var u16 = Array(String(ch).utf16)
                 e.keyboardSetUnicodeString(stringLength: u16.count, unicodeString: &u16)
-                e.post(tap: .cghidEventTap)
+                tagPost(e)
             }
         }
         usleep(4_000)
@@ -116,7 +119,7 @@ func doKey(_ combo: String) {
     }
     guard let k = key else { return }
     for phase in [true, false] {
-        if let e = CGEvent(keyboardEventSource: eventSrc, virtualKey: k, keyDown: phase) { e.flags = flags; e.post(tap: .cghidEventTap) }
+        if let e = CGEvent(keyboardEventSource: eventSrc, virtualKey: k, keyDown: phase) { e.flags = flags; tagPost(e) }
     }
     markPost()
 }
