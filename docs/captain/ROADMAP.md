@@ -39,3 +39,9 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [ ] Capture: passthrough camera texturing / splats on the Mini, night navigation
 - [ ] Cinema mode
 - [ ] Mr. PinPin House game
+
+## Morning list for the user (needs a click or a decision)
+- [ ] Accessibility re-grant on the Air after the PinPin Displays rebuild (scroll on extra screens), batched with other TCC prompts (42)
+- [ ] Permanent root on the headset? (the never-sleep wake lock needs root; Magisk is lost on reboot)
+- [ ] Move screen 2 to a solid wall (DEPTHGAP: hangs over a 38 cm recess)
+- [ ] Hand checks: ring scaling, snap drop, MINI click
