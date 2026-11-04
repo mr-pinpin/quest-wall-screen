@@ -516,13 +516,26 @@
   {
    "name": "MESHSAVE",
    "where": "headset",
-   "default": true,
-   "state": "on",
+   "default": false,
+   "state": "off",
    "category": "experimental",
-   "reason": "The user lost a walk-through of the flat (2026-11-04): the GEOMETRY mesh was in memory, in LOCAL. Now fused in r1's anchor frame, saved to files/mesh-room.pprm every minute and to the house (blob + rooms[r1].mesh) every 5 min and on leaving focus, loaded at start (room_lab/meshsave.h). On because the user asked (via work-df: seeing it means it is saved).",
+   "reason": "The user lost a walk-through of the flat (2026-11-04): the GEOMETRY mesh was in memory, in LOCAL. Now fused in r1's anchor frame, saved to files/mesh-room.pprm every minute and to the house (blob + rooms[r1].mesh) every 5 min and on leaving focus, loaded at start (room_lab/meshsave.h). Off until the scratch-server test passes (work-df: no real-house mesh saves before it); then on, as the user asked.",
    "evidence": [
     {
      "commit": "433a70a"
+    }
+   ]
+  },
+  {
+   "name": "RECEPTION",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "The user: next time I actually speak with you (the captain). CLAUDE in the shoulder/wrist ring replaces ASK... and opens one chat to work-42 receptionist (Air :57840 /api/reception/turn, relayed to work-df). Always-on mic while open: an utterance ends after 3.5 s quiet (5 s mid-sentence), speech during the answer is queued, the mic restarts if it stops. Needs ASSIST.",
+   "evidence": [
+    {
+     "commit": "8c1ffaa"
     }
    ]
   },

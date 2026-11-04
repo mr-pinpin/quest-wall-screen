@@ -239,10 +239,15 @@ struct App {
     // it (or to a new room when the head is in none). Links (b in a, doorway) go to house.json links[]. Status "multiroom".
     // DEPTHPLACE (default ON, the user asked: placing a screen in the room near the TV said no): when a summon or move
     // ray hits no scene wall, the solid depth-fitted wall it hits becomes a placement target (depthpick.h, w-d... walls).
-    // MESHSAVE (default ON, the user asked: "seeing it means it's saved"): the room mesh is fused in r1's frame and saved
+    // MESHSAVE (default OFF until the scratch test passes; work-df: then on, "seeing it means it is saved"): the room mesh is fused in r1's frame and saved
     // to files/mesh-room.pprm every minute and to the house (blob + rooms[].mesh) every 5 min and on leaving focus;
     // loaded at start (meshsave.h). Off: the mesh is fused in LOCAL and kept in memory only, as before.
-    bool meshSaveMenu = true; bool meshSaveOn() const { return meshSaveMenu; }
+    bool meshSaveMenu = false; bool meshSaveOn() const { return meshSaveMenu; }
+    // RECEPTION (default ON, the user: "next time I actually speak with you"): CLAUDE in the shoulder / wrist ring (it
+    // replaces ASK...) opens one chat that goes to work-42's receptionist (Air :57840 /api/reception/turn), which relays
+    // to the captain (work-df). The mic stays on while it is open: an utterance ends after 3.5 s of quiet (5 s when it
+    // did not end like a sentence), what is said while the answer comes is queued, and the mic restarts if it stops.
+    bool receptionMenu = true; bool receptionOn() const { return receptionMenu && assistOn(); }
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -520,7 +525,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 44;
+    static constexpr int kMenuItems = 45;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -542,7 +547,8 @@ struct App {
         {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
         {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"},
-        {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"}};
+        {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"},
+        {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -580,6 +586,7 @@ struct App {
         if (l == "MULTIROOM") return multiRoomOn();
         if (l == "DEPTHPLACE") return depthPlaceOn();
         if (l == "MESHSAVE") return meshSaveOn();
+        if (l == "RECEPTION") return receptionMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -644,7 +651,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -712,7 +719,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -765,6 +772,7 @@ struct App {
         else if (l == "MULTIROOM") multiRoomMenu = !multiRoomMenu;              // several linked rooms
         else if (l == "DEPTHPLACE") depthPlaceMenu = !depthPlaceMenu;            // screens on depth-fitted walls
         else if (l == "MESHSAVE") meshSaveMenu = !meshSaveMenu;                 // room mesh saved to the house
+        else if (l == "RECEPTION") receptionMenu = !receptionMenu;               // CLAUDE talks to work-df
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -869,13 +877,13 @@ struct App {
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
             if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
-            if (assistOn()) L.items.insert(L.items.end() - 1, {"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
+            if (assistOn()) L.items.insert(L.items.end() - 1, receptionOn() ? shoulder::Item{"CLAUDE", "TALK TO WORK-DF", "ask"} : shoulder::Item{"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
         } else if (n == "ROOT") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
             if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
-            if (assistOn()) L.items.insert(L.items.end() - 1, {"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
+            if (assistOn()) L.items.insert(L.items.end() - 1, receptionOn() ? shoulder::Item{"CLAUDE", "TALK TO WORK-DF", "ask"} : shoulder::Item{"ASK...", "TALK TO THE HOUSE ASSISTANT", "ask"});
         } else if (n == "WALLS") {
             L.items = {{"LINE", "POINT A THEN B ON A WALL", "wt:line"}, {"CIRCLE", "CENTRE THEN EDGE", "wt:circle"}, {"CONFIRM", "KEEP THE DASHED SHAPE", "wt:confirm"},
                        {"EXPAND", "PULL THE LINE INTO A SURFACE", "wt:expand"}, {"DONE", "FINISH THIS SHAPE", "wt:finish"}, {"UNDO", "STEP BACK", "wt:undo"},
@@ -1899,11 +1907,54 @@ struct App {
             }
         }).detach();
     }
+    // ---- RECEPTION: one stable conversation id per headset (files/reception-id), the always-on mic.
+    std::string receptionConv; std::string receptionQueue; long receptionSent = 0, receptionQueued = 0, receptionMicRestarts = 0;
+    std::chrono::steady_clock::time_point recLoudAt{}, recRestartAt{};
+    std::string receptionId() {
+        if (!receptionConv.empty()) return receptionConv;
+        std::ifstream f(gDir + "/reception-id"); std::string s; if (f >> s && s.size() > 8) return receptionConv = s;
+        std::mt19937 rng((unsigned)time(nullptr) ^ (unsigned)(uintptr_t)this); char b[32]; snprintf(b, sizeof b, "headset-%08x%04x", (unsigned)rng(), (unsigned)(rng() & 0xffff));
+        receptionConv = b; house::writeAtomic(gDir + "/reception-id", receptionConv); return receptionConv;
+    }
+    void updateReceptionMic(std::chrono::steady_clock::time_point tn) {
+        // Never stuck: while the chat is open the mic is on; if it stopped (or a stop never drained) start it again.
+        if (!dictation.recording && tn - recRestartAt > std::chrono::seconds(2)) {
+            recRestartAt = tn; dictation.start(); receptionMicRestarts++; event("reception: mic restarted");
+        }
+        if (dictation.level.load() >= 800) recLoudAt = tn;
+        // An utterance ends after 3.5 s of quiet: nothing new heard and the mic quiet. 5 s when the words so far do not
+        // end like a sentence (a breath in the middle of one).
+        if (!assistBuffer.empty()) {
+            char last = assistBuffer.back(); bool sentence = last == '.' || last == '?' || last == '!';
+            auto wait = std::chrono::milliseconds(sentence ? 3500 : 5000);
+            if (tn - assistHeardAt > wait && tn - recLoudAt > wait && dictation.settled()) {
+                std::string u; u.swap(assistBuffer);
+                if (assistWaiting) { receptionQueue += (receptionQueue.empty() ? "" : " ") + u; receptionQueued++; event("reception: queued while the answer comes: " + u); }
+                else { assistSend(0, u); assistWaiting = true; }
+            }
+        }
+        // The answer is done: what was said meanwhile goes next.
+        if (assistWaiting) {
+            std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[0].state; }
+            if (st == "idle" || st == "error") {
+                assistWaiting = false;
+                if (!receptionQueue.empty()) { std::string q; q.swap(receptionQueue); assistSend(0, q); assistWaiting = true; }
+            }
+        }
+    }
     void assistSend(int id, const std::string& text) {
         static std::mt19937 rng((unsigned)time(nullptr)); char turn[24]; snprintf(turn, sizeof turn, "h%08x", (unsigned)rng());
         { std::lock_guard<std::mutex> g(assistLock); chats[id].user(text, turn); chatScroll[id] = 0; }
         assistSent++; event("assist: screen " + std::to_string(id) + " <- " + text);
         std::string host = assistHost, tid = turn;
+        if (id == 0 && receptionOn()) {
+            std::string conv = receptionId(); receptionSent++;
+            std::thread([this, text, host, conv] {
+                std::string err = assist::reception(host, 57840, conv, text, chats[0], assistLock);
+                std::lock_guard<std::mutex> g(assistLock); assistErr = err;
+            }).detach();
+            return;
+        }
         std::thread([this, id, text, host, tid] {
             std::string err = assist::send(host, 57840, sessionName(id), text, tid, chats[id], assistLock);
             std::lock_guard<std::mutex> g(assistLock); assistErr = err;
@@ -1920,7 +1971,10 @@ struct App {
     void assistOpen(int id) {
         for (int o : std::set<int>(chatOpen)) if (o != id) assistClose(o);
         chatOpen.insert(id); chatScroll[id] = 0;
-        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear(); c.greet(id == 0 ? "Hi, what should I do with the room?" : "Hi, what do you want on this screen?"); }
+        bool rec = id == 0 && receptionOn();
+        { std::lock_guard<std::mutex> g(assistLock); assist::Chat& c = chats[id]; c.turns.clear();
+          c.greet(rec ? "Hi, this goes to work-df. Speak, and pause when you are done." : id == 0 ? "Hi, what should I do with the room?" : "Hi, what do you want on this screen?"); }
+        if (rec) { receptionQueue.clear(); recLoudAt = recRestartAt = std::chrono::steady_clock::now(); assistListen(id); event("reception: chat opened (" + receptionId() + ")"); return; }
         std::string host = assistHost;
         std::thread([this, id, host] {  // the conversation so far, behind the greeting
             house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
@@ -1947,6 +2001,8 @@ struct App {
         if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; } chatOpen.clear(); return false; }
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
+        if (assistArmed == 0 && receptionOn()) updateReceptionMic(tn);
+        else {
         if (assistArmed >= 0 && dictation.recording && !assistWaiting) {
             // Pause: words were heard, then 3.5 s of nothing new and a quiet microphone -> stop and send.
             if (!assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(3500) && dictation.level.load() < 800) { dictation.stop(); event("assist: pause, sending"); }  // 3.5 s: 2.5 split a thought
@@ -1960,6 +2016,7 @@ struct App {
         if (assistArmed >= 0 && assistWaiting) {  // the answer is done: listen again while the chat is open
             std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[assistArmed].state; }
             if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = -1; assistWaiting = false; } }
+        }
         }
         if (!(handActive[1] && ray[1].valid)) return false;
         float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
@@ -2096,6 +2153,7 @@ struct App {
             c.apply(json::parse("{\"type\":\"action\",\"turnId\":\"demo\",\"action\":\"open_url\",\"detail\":\"youtube.com\",\"status\":\"begin\"}"));
             c.apply(json::parse("{\"type\":\"done\",\"turnId\":\"demo\"}"));
         } else if (scene == "scan") { scanStart();
+        } else if (scene == "ask") { shoulderAction("ui-demo", "ask");   // opens (or closes) the CLAUDE / ASK... chat
         } else if (scene == "scan-done") { scanFinish();
         } else if (scene.rfind("click:", 0) == 0 || scene.rfind("scroll:", 0) == 0) {  // click:<id>:<u>:<v> / scroll:<id>:<dy>, the same routing as a pinch / wave
             int id = 0, a = 0, b = 0; bool click = scene[1] == 'l';
@@ -4354,6 +4412,10 @@ void main(){
             << ",\"fuseMs\":" << meshFuseMs.load() << ",\"frames\":" << meshFrames.load() << ",\"changed\":" << meshChanged.load() << ",\"refused\":" << meshVol.refusedBlocks << ",\"rawMs\":" << rawMs.load() << ",\"flatMs\":" << flatMs.load() << ",\"flatTris\":" << flatTris.load() << "}"; }
         if (multiRoomOn()) j << ",\"multiroom\":" << multiRoomJson();
         j << ",\"meshsave\":" << meshSaveJson();
+        { std::string dest; { std::lock_guard<std::mutex> g(assistLock); auto it = chats.find(0); if (it != chats.end()) dest = it->second.dest; }
+          j << ",\"reception\":{\"on\":" << (receptionOn() ? 1 : 0) << ",\"open\":" << (chatOpen.count(0) && receptionOn() ? 1 : 0) << ",\"dest\":\"" << jsonEscape(dest)
+            << "\",\"sent\":" << receptionSent << ",\"queued\":" << receptionQueued << ",\"micRestarts\":" << receptionMicRestarts << ",\"waiting\":" << (assistWaiting ? 1 : 0)
+            << ",\"heard\":" << assistBuffer.size() << "}"; }
         j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";

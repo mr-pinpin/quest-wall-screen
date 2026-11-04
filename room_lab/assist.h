@@ -61,6 +61,7 @@ struct Sse {
 struct Turn { std::string role, text, turn; std::vector<std::string> actions; bool done = false, error = false; };
 struct Chat {
     std::vector<Turn> turns; std::string state = "idle";  // idle, sending, streaming, error
+    std::string dest;                                      // receptionist chats: who the turns go to (routed / switched)
     long version = 0;                                      // bumps on every change (re-layout when it moves)
     void user(const std::string& text, const std::string& turn) {
         turns.push_back({"user", text, turn, {}, true, false});
@@ -81,6 +82,9 @@ struct Chat {
             std::string st = e["status"].str(), label = e.has("label") ? e["label"].str() : e["action"].str() + (e["detail"].str().empty() ? "" : " " + e["detail"].str());
             if (st == "ok") return;
             t->actions.push_back(st == "error" ? label + " (failed)" : label);
+        }
+        else if (ty == "routed" || ty == "switched") {  // the receptionist (work-42): who this chat talks to
+            dest = e["name"].str(); t->actions.push_back((ty == "switched" ? "now talking to " : "to ") + dest);
         }
         else if (ty == "done") { t->done = true; state = "idle"; }
         else if (ty == "error") { t->done = t->error = true; t->text += (t->text.empty() ? "" : "\n") + std::string("Error: ") + e["message"].str(); state = "error"; }
@@ -183,16 +187,25 @@ inline int render(const std::vector<Line>& lines, int scroll, Raster& R) {
 }
 
 // ---- POST /session/<session>/message (a screen id, or "room" for the house assistant), streaming the reply into chat (under lock). Returns "" or an error.
+inline std::string sendTo(const std::string& host, int port, const std::string& path, const std::string& body, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS = 60);
 inline std::string send(const std::string& host, int port, const std::string& session, const std::string& text, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS = 60) {
     json::Value b = house::obj(); b.o["text"] = house::str(text); b.o["turn"] = house::str(turn);
-    std::string body = house::dump(b);
+    return sendTo(host, port, "/session/" + session + "/message", house::dump(b), turn, chat, lock, timeoutS);
+}
+// ---- POST /api/reception/turn {conversation_id, text} (work-42's receptionist on the Air): the same SSE events, plus
+// routed / switched; keepalive comments every 3 s while the captain thinks, so a long wait does not time out.
+inline std::string reception(const std::string& host, int port, const std::string& conversation, const std::string& text, Chat& chat, std::mutex& lock) {
+    json::Value b = house::obj(); b.o["conversation_id"] = house::str(conversation); b.o["text"] = house::str(text);
+    return sendTo(host, port, "/api/reception/turn", house::dump(b), "", chat, lock, 60);
+}
+inline std::string sendTo(const std::string& host, int port, const std::string& path, const std::string& body, const std::string& turn, Chat& chat, std::mutex& lock, int timeoutS) {
     addrinfo hints{}, *ai = nullptr; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &ai) != 0 || !ai) return "resolve";
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     timeval tv{timeoutS, 0}; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     if (fd < 0 || connect(fd, ai->ai_addr, ai->ai_addrlen) != 0) { freeaddrinfo(ai); if (fd >= 0) close(fd); return "connect"; }
     freeaddrinfo(ai);
-    std::string req = "POST /session/" + session + "/message HTTP/1.1\r\nHost: " + host + "\r\nAccept: text/event-stream\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
+    std::string req = "POST " + path + " HTTP/1.1\r\nHost: " + host + "\r\nAccept: text/event-stream\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
                       std::to_string(body.size()) + "\r\n\r\n" + body;
     if (::send(fd, req.data(), req.size(), 0) != (ssize_t)req.size()) { close(fd); return "send"; }
     Sse sse; std::string err;

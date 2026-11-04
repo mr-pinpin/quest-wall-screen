@@ -101,6 +101,9 @@ struct Dictation {
     }
     // Nothing recording, queued, in flight or waiting to be typed.
     bool drained() { std::lock_guard<std::mutex> g(lock); return !recording && state == "idle" && queue.empty() && results.empty(); }
+    // Recording or not: every segment so far transcribed and taken (the receptionist cuts utterances without stopping).
+    std::atomic<bool> inflight{false};
+    bool settled() { std::lock_guard<std::mutex> g(lock); return queue.empty() && results.empty() && !inflight; }
     bool take(std::string& out) {
         std::lock_guard<std::mutex> g(lock); if (results.empty()) return false;
         out = results.front(); results.pop_front(); return true;
@@ -148,7 +151,7 @@ struct Dictation {
             std::vector<int16_t> s;
             { std::unique_lock<std::mutex> g(lock); cv.wait_for(g, std::chrono::milliseconds(200), [this] { return !queue.empty() || quit; });
               if (queue.empty()) { if (!recording && state == "transcribing") state = "idle"; continue; }
-              s = std::move(queue.front()); queue.pop_front(); }
+              s = std::move(queue.front()); queue.pop_front(); inflight = true; }
             std::string body = wav(s), reply; int code = 0;
             auto t0 = std::chrono::steady_clock::now();
             for (int attempt = 0; attempt < 40 && !quit; attempt++) {  // the service runs one inference at a time
@@ -161,6 +164,7 @@ struct Dictation {
                 std::string t = textField(reply); sent++;
                 if (!t.empty()) { std::lock_guard<std::mutex> g(lock); results.push_back(t); lastText = t; }
             } else { failures++; lastError = "http " + std::to_string(code); }
+            inflight = false;
         }
     }
     void shutdown() { quit = true; cv.notify_all(); recording = false; if (worker.joinable()) worker.join(); if (in) { AAudioStream_close(in); in = nullptr; } }

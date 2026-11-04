@@ -69,6 +69,15 @@ int main(int argc, char** argv) {
         err = send("127.0.0.1", port, "room", "how many screens", "T11", rm, lk, 10);
         check(err.empty() && rm.turns.back().text == "Hi from screen room.", "send(): the room session by name");
     }
+    // The receptionist (work-42, /api/reception/turn): routed shown under the reply, keepalives ignored, switched.
+    if (argc > 1) {
+        std::mutex lk; Chat rc; rc.greet("Hi, this goes to work-df."); rc.user("hello captain", "h1");
+        std::string err = reception("127.0.0.1", atoi(argv[1]), "headset-test", "hello captain", rc, lk);
+        check(err.empty() && rc.state == "idle" && rc.dest == "work-df", "reception: routed to work-df, done");
+        check(rc.turns.back().text == "Got it: hello captain (headset-test)" && rc.turns.back().actions.size() == 1 && rc.turns.back().actions[0] == "to work-df", "reception: reply text and the destination line");
+        rc.user("talk to work-c4", "h2"); reception("127.0.0.1", atoi(argv[1]), "headset-test", "talk to work-c4", rc, lk);
+        check(rc.dest == "work-c4" && rc.turns.back().actions[0] == "now talking to work-c4", "reception: switched");
+    }
     printf("assist: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;
 }
