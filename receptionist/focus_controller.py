@@ -77,16 +77,19 @@ def post_status(n_lowered):
 def web_screens():
     if ONLY:
         return ONLY
-    try:
-        doc = _get(HOUSE + "/house")
+    ids = set()
+    try:                                               # house web screens
+        for s in _get(HOUSE + "/house").get("screens", []):
+            if (s.get("source") or {}).get("kind", "") in ("atlas", "web", "app", "chrome"):
+                ids.add(str(s.get("id")))
     except Exception:
-        return []
-    out = []
-    for s in doc.get("screens", []):
-        src = (s.get("source") or {}).get("kind", "")
-        if src in ("atlas", "web", "app", "chrome"):   # runner windows; 404s are skipped at probe time
-            out.append(str(s.get("id")))
-    return out
+        pass
+    try:                                               # plus whatever the atlas vis tap currently reports
+        if VIS_FILE and os.path.exists(VIS_FILE):      # (authoritative active set; house may be incomplete)
+            ids |= set(json.load(open(VIS_FILE)).get("screens", {}).keys())
+    except Exception:
+        pass
+    return sorted(ids, key=lambda x: (len(x), x))      # non-web ones 404 at probe time and are skipped
 
 
 def get_vis():
