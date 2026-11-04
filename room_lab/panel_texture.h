@@ -46,7 +46,8 @@ struct Content {
 };
 
 struct Panel {
-    int maxTexels = 4096;         // either side (Quest 3's GL_MAX_TEXTURE_SIZE is far above; the full 45-item panel is 3 m tall)
+    int maxTexels = 8192;         // either side (Quest 3's GL_MAX_TEXTURE_SIZE is 16384; the full 49-item panel is 3.7 m tall)
+    float maxPixels = 8e6f;       // and at most 32 MB of RGBA
     float texelsPerGlyphPx = 2.5f;// the smallest text gets at least this many texels per font pixel
     float minTexelsPerM = 600;
     Content c; std::string ckey; bool dirty_ = true; long version = 0, renders = 0;
@@ -61,7 +62,7 @@ struct Panel {
     void size() {
         float minPx = 1; for (auto& t : c.texts) if (t.px > 0) minPx = std::min(minPx, t.px);
         tpm = std::max(minTexelsPerM, texelsPerGlyphPx / minPx);
-        tpm = std::min({tpm, maxTexels / (2 * c.halfW), maxTexels / (2 * c.halfH)});
+        tpm = std::min({tpm, maxTexels / (2 * c.halfW), maxTexels / (2 * c.halfH), std::sqrt(maxPixels / (4 * c.halfW * c.halfH))});
         w = std::max(1, (int)std::ceil(2 * c.halfW * tpm)); h = std::max(1, (int)std::ceil(2 * c.halfH * tpm));
     }
     // Panel metres -> texel coordinates (x right, y down from the top edge).
@@ -138,18 +139,21 @@ struct Panel {
 struct GridStyle {
     uint32_t bg = rgba(13, 15, 20, 204), idle = rgba(41, 46, 61, 242), on = rgba(26, 115, 56, 242);
     uint32_t white = rgba(242, 247, 255, 255), dim = rgba(158, 173, 199, 255);
+    uint32_t grey = rgba(28, 28, 31, 230), greyText = rgba(140, 145, 155, 255);  // an off flag (SETCAT): greyed
 };
+inline uint32_t faded(uint32_t c, float f) { return (c & 0x00ffffffu) | (uint32_t)std::lround(((c >> 24) & 255) * f) << 24; }
+// dim: per cell, greyed (an off flag); fade: the whole panel's alpha (a parent panel in a cascade, 0.45).
 inline Content fromGrid(const UiGrid& g, const std::vector<std::string>& labels, const std::vector<bool>& on,
-                        const std::string& title, const GridStyle& st = {}) {
-    Content c; c.halfW = g.halfW; c.halfH = g.halfH; c.bg = st.bg;
-    c.texts.push_back({0, g.titleY, UiGrid::fit(title, g.titlePx, 2 * g.halfW - 2 * g.pad, g.titleH * 0.6f), title, st.white});
-    for (auto& hd : g.headings) c.texts.push_back({hd.x, hd.y, hd.px, hd.text, st.dim});
+                        const std::string& title, const GridStyle& st = {}, const std::vector<bool>* dim = nullptr, float fade = 1) {
+    Content c; c.halfW = g.halfW; c.halfH = g.halfH; c.bg = faded(st.bg, fade);
+    c.texts.push_back({0, g.titleY, UiGrid::fit(title, g.titlePx, 2 * g.halfW - 2 * g.pad, g.titleH * 0.6f), title, faded(st.white, fade)});
+    for (auto& hd : g.headings) c.texts.push_back({hd.x, hd.y, hd.px, hd.text, faded(st.dim, fade)});
     for (size_t k = 0; k < g.cells.size(); k++) {
-        const UiGrid::Cell& cl = g.cells[k];
-        c.boxes.push_back({cl.x, cl.y, cl.w, cl.h, k < on.size() && on[k] ? st.on : st.idle, (int)k});
-        if (k < labels.size()) c.texts.push_back({cl.x, cl.labelY, cl.px, labels[k], st.white});
-        if (!cl.hint1.empty()) c.texts.push_back({cl.x, cl.hint1Y, cl.hintPx, cl.hint1, st.dim});
-        if (!cl.hint2.empty()) c.texts.push_back({cl.x, cl.hint2Y, cl.hintPx, cl.hint2, st.dim});
+        const UiGrid::Cell& cl = g.cells[k]; bool isOn = k < on.size() && on[k], grey = !isOn && dim && k < dim->size() && (*dim)[k];
+        c.boxes.push_back({cl.x, cl.y, cl.w, cl.h, faded(isOn ? st.on : grey ? st.grey : st.idle, fade), (int)k});
+        if (k < labels.size()) c.texts.push_back({cl.x, cl.labelY, cl.px, labels[k], faded(grey ? st.greyText : st.white, fade)});
+        if (!cl.hint1.empty()) c.texts.push_back({cl.x, cl.hint1Y, cl.hintPx, cl.hint1, faded(st.dim, fade)});
+        if (!cl.hint2.empty()) c.texts.push_back({cl.x, cl.hint2Y, cl.hintPx, cl.hint2, faded(st.dim, fade)});
     }
     return c;
 }

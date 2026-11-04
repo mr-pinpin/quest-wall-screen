@@ -53,11 +53,11 @@ int main(int argc, char** argv) {
     long quads = Panel::quadsPerFrame(c, glyph);
     printf("  SETTINGS: %zu items, %.2f x %.2f m -> %d x %d texture (%.0f texels/m), rendered in %.1f ms; replaces %ld quads/frame\n",
            items.size(), 2 * g.halfW, 2 * g.halfH, P.w, P.h, P.tpm, ms, quads);
-    check(img.size() == (size_t)P.w * P.h && P.w <= 4096 && P.h <= 4096, "texture within 4096");
+    check(img.size() == (size_t)P.w * P.h && P.w <= 8192 && P.h <= 8192 && (double)P.w * P.h <= 8e6 + 2 * (P.w + P.h), "texture within 8192 and 8 Mpx");
     check(std::fabs((float)P.w / P.h - g.halfW / g.halfH) < 0.01f, "texture aspect = panel aspect");
     float minPx = 1; for (auto& t : c.texts) minPx = std::min(minPx, t.px);
     printf("  smallest text (hints): %.1f texels per font pixel\n", minPx * P.tpm);
-    check(minPx * P.tpm >= 1.95f, "every item shown: the hints still get >= 2 texels per font pixel");
+    check(minPx * P.tpm >= 2.4f, "every item shown: the hints still get ~2.5 texels per font pixel");
     {   std::vector<UiGrid::Item> few(items.begin(), items.begin() + 15); std::vector<std::string> fl(labels.begin(), labels.begin() + 15);
         UiGrid gf; gf.layout(few); Panel pf; Content cf = fromGrid(gf, fl, std::vector<bool>(15, false), "SETTINGS"); pf.set(cf); pf.render(glyph);
         float mp = 1; for (auto& t : cf.texts) mp = std::min(mp, t.px);
@@ -107,6 +107,17 @@ int main(int argc, char** argv) {
         double want = lit * (0.0073 * z.tpm) * (0.0073 * z.tpm);
         check(std::fabs(ink - want) / want < 0.01, "fractional size: ink = lit area within 1%");
         printf("  fractional glyph size: %.2f texels per font pixel, ink %.1f vs %.1f texels\n", 0.0073 * z.tpm, ink, want);
+    }
+
+    // 4b. Cascade levels: a greyed (dim) cell and a faded parent panel are baked into the texture.
+    {   std::vector<bool> d(g.cells.size(), false); d[2] = true; std::vector<bool> on2(g.cells.size(), false);
+        Content cg = fromGrid(g, labels, on2, "SETTINGS", st, &d, 1), cf = fromGrid(g, labels, on2, "SETTINGS", st, nullptr, 0.45f);
+        check(cg.boxes[2].col == st.grey && cg.boxes[1].col == st.idle, "a dim cell is grey, its neighbours idle");
+        bool greyLabel = false; for (auto& tx : cg.texts) if (tx.s == labels[2] && tx.col == st.greyText) greyLabel = true;
+        check(greyLabel, "a dim cell's label in the grey text colour");
+        check(((cf.bg >> 24) & 255) == (uint32_t)std::lround(((st.bg >> 24) & 255) * 0.45f) && ((cf.boxes[0].col >> 24) & 255) < ((st.idle >> 24) & 255), "a parent panel's alpha faded");
+        Panel pf; pf.set(cg); check(pf.set(cf), "fade changes the content (re-rendered when a panel becomes a parent)");
+        on2[2] = true; Content co = fromGrid(g, labels, on2, "SETTINGS", st, &d, 1); check(co.boxes[2].col == st.on, "an off flag switched on shows as on, not grey");
     }
 
     // 5. Hit-test = UiGrid::hit everywhere on the panel; uv maps the panel corners to the texture corners.
