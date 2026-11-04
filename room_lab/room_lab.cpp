@@ -36,6 +36,7 @@
 #include "roommesh.h"
 #include "rawsurface.h"
 #include "roomplanes.h"
+#include "pointer_seq.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -1455,6 +1456,10 @@ struct App {
         if (scrollTarget < 0) { chatScroll[-scrollTarget] += o.dy / 40.0f; scrollSent++; return; }  // a chat panel: 40 units a line
         if (scrollTarget == 1) {
             if (!streamInput()) return;
+            {  // the wheel lands at the Mini's cursor too: put it where the user points first
+                int W = moonlight.width, H = moonlight.height, x = (int)(scrollU * W + 0.5f), y = (int)(scrollV * H + 0.5f);
+                pointerSeq.anchor(x, y, [&](int px, int py) { LiSendMousePositionEvent((short)px, (short)py, (short)W, (short)H); });
+            }
             if (o.dy) LiSendHighResScrollEvent((short)-o.dy);   // hand up: content up = wheel down (negative)
             if (o.dx) LiSendHighResHScrollEvent((short)o.dx);
         } else if (webScreen(scrollTarget)) {  // CSS px; dy > 0 reveals what is below (the same sign as "w")
@@ -2077,6 +2082,7 @@ struct App {
     }
     // Pointer on the placed panel: hand ray -> stream pixel, pinch = left button (hold to drag), like the TV remote.
     struct Pointer { bool on = false, pressed = false; float u = 0.5f, v = 0.5f; int sentX = -1, sentY = -1; long moves = 0, clicks = 0; } pointer;
+    pointerseq::Seq pointerSeq;
     long aimFrames = 0, hitFrames = 0, pinchEdges = 0; V3 lastAimO{0, 0, 0}, lastAimD{0, 0, 0}; float lastNearest = -1; std::string lastNearestWall;
     long frames = 0, framesSec = 0, fps = 0;
     XrPosef head{{0, 0, 0, 1}, {0, 0, 0}};
@@ -3433,19 +3439,23 @@ void main(){
     void drivePointer(bool down, bool up) {
         int W = moonlight.width, H = moonlight.height;
         int x = (int)(pointer.u * W + 0.5f), y = (int)(pointer.v * H + 0.5f);
-        if (streamInput() && (x != pointer.sentX || y != pointer.sentY)) {
-            LiSendMousePositionEvent((short)x, (short)y, (short)W, (short)H); pointer.sentX = x; pointer.sentY = y; pointer.moves++;
-        }
+        auto pos = [&](int px, int py) { LiSendMousePositionEvent((short)px, (short)py, (short)W, (short)H); pointer.moves++; };
+        if (streamInput()) { pointerSeq.move(x, y, pos); pointer.sentX = pointerSeq.sentX; pointer.sentY = pointerSeq.sentY; }
         // Every press is a pure click at the spot where it started: down, then up 40 ms later. The button is never
         // held while the hand moves, so a click can't turn into a text selection or a window drag.
         if (down && !pointer.pressed) {
             pointer.pressed = true; pointer.clicks++;
-            if (streamInput()) std::thread([this] {
+            // The Mini's HID clicks at ITS cursor: the absolute position goes out right before the press and the release,
+            // whatever the dedupe thinks (pointer_seq.h; work-ad's diagnosis of the MINI click bug).
+            if (streamInput()) std::thread([this, x, y, W, H] {
                 std::lock_guard<std::mutex> g(keyLock);
+                LiSendMousePositionEvent((short)x, (short)y, (short)W, (short)H);
                 LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT);
                 std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                LiSendMousePositionEvent((short)x, (short)y, (short)W, (short)H);
                 LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT);
             }).detach();
+            pointerSeq.sentX = x; pointerSeq.sentY = y;
         }
         if (up) pointer.pressed = false;
     }
@@ -4000,6 +4010,7 @@ void main(){
                 if (moonlight.load(gDir)) {
                     video.relayPaused = true; moonlight.start(&video); moonlightActive = true;
                     event("moonlight session " + moonlight.host + " " + std::to_string(moonlight.width) + "x" + std::to_string(moonlight.height));
+                    pointerSeq.reset(); pointer.sentX = pointer.sentY = -1;  // a new stream: the Mini's cursor is unknown
                 }
             }
         }
