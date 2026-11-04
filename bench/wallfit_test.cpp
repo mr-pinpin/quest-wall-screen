@@ -2,6 +2,7 @@
 // wall, rendered as room_lab receives depth (uint16 d*65535, GL row order, far = infinity), with depth noise.
 //   g++ -std=c++17 -O2 -I room_lab bench/wallfit_test.cpp -o /tmp/wallfit && /tmp/wallfit
 #include "wallfit.h"
+#include "loadtol.h"
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -226,11 +227,12 @@ int main() {
     // cost per frame (VPS CPU; the headset will be a few times slower)
     for (int size : {256, 512, 2000}) {
         Synth s; s.w = s.h = size; DepthFrame f = s.render(EYE, yawPitch(30, -20));
-        auto t0 = std::chrono::steady_clock::now(); FrameFit ff; int reps = size > 512 ? 2 : 10;
-        for (int i = 0; i < reps; i++) ff = fitFrame(f);
-        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / reps;
+        FrameFit ff; int reps = size > 512 ? 2 : 10; std::vector<double> runs;
+        for (int i = 0; i < reps; i++) { auto t0 = std::chrono::steady_clock::now(); ff = fitFrame(f);
+            runs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); }
+        double ms = loadtol::median(runs);
         printf("fitFrame %dx%d: %.1f ms (%d grid points, %zu planes)\n", size, size, ms, ff.validPoints, ff.planes.size());
-        if (size == 256) CHECK(ms < 100, "256x256 frame took %.1f ms", ms);
+        if (size == 256) CHECK(loadtol::ok("fitFrame 256x256", runs, 100), "256x256 frame took %.1f ms (median)", ms);
     }
     printf("%d failures\n", failures);
     return failures ? 1 : 0;

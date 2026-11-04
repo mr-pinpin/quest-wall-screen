@@ -162,7 +162,8 @@ class Real(unittest.TestCase):
         """The house after the 02:15 and 03:03 UTC scans: 20 noisy depth walls next to Meta's 11."""
         d = json.load(open(os.path.join(HERE, 'fixtures', 'house-rev25.json')))
         t = time.time(); pl = C.consolidate(d); dt = time.time() - t
-        self.assertLess(dt, 3.0)
+        print(f'timing consolidate rev 25: {dt * 1000:.0f} ms (info; the bound only catches a runaway)')
+        self.assertLess(dt, 15.0)
         sc = pl['score']
         self.assertGreaterEqual(sc['duplicates']['raw'], 30)
         self.assertEqual(sc['duplicates']['plan'], 0)

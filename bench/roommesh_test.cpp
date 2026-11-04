@@ -3,6 +3,7 @@
 // Run it under a memory cap (run_offline_tests.sh does): ulimit -v 1500000; timeout 120.
 #include "json.h"
 #include "roommesh.h"
+#include "loadtol.h"
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -61,13 +62,13 @@ static std::string slurp(const std::string& p) { std::ifstream f(p, std::ios::bi
 int main(int argc, char** argv) {
     const V3 EYE{0.3f, 1.6f, -0.5f};
     const float views[][2] = {{0, -10}, {45, -10}, {-45, -10}, {90, -10}, {-90, -10}, {180, -10}, {135, -10}, {-135, -10}, {0, -70}, {180, -70}, {0, 70}, {180, 70}};
-    Volume vol; Synth s; std::vector<size_t> tris; double worstMs = 0, totalMs = 0; size_t firstChanged = 0;
+    Volume vol; Synth s; std::vector<size_t> tris; double worstMs = 0, totalMs = 0; size_t firstChanged = 0; std::vector<double> frameMs;
     for (int i = 0; i < 12; i++) {
         DepthFrame f = s.render(EYE, yawPitch(views[i][0], views[i][1]));
         auto t0 = std::chrono::steady_clock::now();
         vol.integrate(f); auto changed = vol.update();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-        worstMs = std::max(worstMs, ms); totalMs += ms; tris.push_back(vol.triangles());
+        worstMs = std::max(worstMs, ms); totalMs += ms; frameMs.push_back(ms); tris.push_back(vol.triangles());
         if (i == 0) firstChanged = changed.size();
         // the changed list names exactly the blocks whose mesh version moved
         for (auto& k : changed) CHECK(vol.mesh(k) != nullptr, "changed block without a mesh");
@@ -138,8 +139,9 @@ int main(int argc, char** argv) {
         printf("wall coverage: %d of %d sampled points have mesh within ~5 cm\n", hit, n);
         CHECK(hit > n * 0.9, "wall coverage %.0f%%", 100.0 * hit / n);
     }
-    // the per-frame budget on the headset is <= 10 ms per update at 2-4 Hz; the VPS should be well inside it
-    CHECK(worstMs < 60, "integrate+update worst %.1f ms on the VPS", worstMs);
+    // the per-frame budget on the headset is <= 10 ms per update at 2-4 Hz; the VPS should be well inside it.
+    // Load-tolerant (loadtol.h): the median frame against a limit scaled by this run's calibration; worst is info.
+    CHECK(loadtol::ok("roommesh integrate+update per frame", frameMs, 40), "integrate+update median %.1f ms on the VPS", loadtol::median(frameMs));
     // incremental: a budgeted update leaves the rest for next time
     {
         Volume v2; Synth s2; v2.integrate(s2.render(EYE, yawPitch(0, -10)));

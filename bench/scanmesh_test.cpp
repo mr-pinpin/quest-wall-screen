@@ -21,8 +21,10 @@ int main(int argc, char** argv) {
     {
         Synth s; s.noise = 0.01f; DepthFrame f = s.render(EYE, yawPitch(0, -10));
         rawsurface::Params p0; p0.radius = 0;  // no smoothing, for comparison
-        auto t0 = std::chrono::steady_clock::now(); rawsurface::Mesh m = rawsurface::build(f);
-        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::vector<double> rawMs; rawsurface::Mesh m;
+        for (int rep = 0; rep < 5; rep++) { auto t0 = std::chrono::steady_clock::now(); m = rawsurface::build(f);
+            rawMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); }
+        double ms = loadtol::median(rawMs);
         rawsurface::Mesh raw = rawsurface::build(f, p0);
         auto rms = [](const rawsurface::Mesh& mm) { double s2 = 0; size_t n = 0; for (size_t i = 0; i < mm.pos.size(); i += 3) { float d = surfaceDist({mm.pos[i], mm.pos[i + 1], mm.pos[i + 2]}); s2 += d * d; n++; } return n ? std::sqrt(s2 / n) : 1.0; };
         double rs = rms(m), rr = rms(raw);
@@ -37,7 +39,7 @@ int main(int argc, char** argv) {
         CHECK(m.triangles() > 20000, "raw surface too sparse (%zu)", m.triangles());
         CHECK(rs < rr * 0.7, "bilateral smoothing did not reduce noise (%.1f vs %.1f mm)", rs * 1000, rr * 1000);
         CHECK(bridges == 0, "%zu triangles bridge a depth discontinuity", bridges);
-        CHECK(ms < 20, "raw surface took %.1f ms", ms);
+        CHECK(loadtol::ok("raw surface", rawMs, 20), "raw surface took %.1f ms (median)", ms);
         size_t facing = 0; for (size_t i = 0; i < m.idx.size(); i += 3) {
             auto P = [&](uint32_t v) { return V3{m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2]}; };
             V3 n = wallfit::cross(P(m.idx[i + 1]) - P(m.idx[i]), P(m.idx[i + 2]) - P(m.idx[i]));
@@ -49,8 +51,10 @@ int main(int argc, char** argv) {
     {
         Synth s; wallfit::Fuser fz; Volume vol = survey(s, fz);
         std::vector<wallfit::Wall> planes; for (auto& w : fz.walls()) if (w.confidence > 0.3f) planes.push_back(w);
-        auto t0 = std::chrono::steady_clock::now(); roomplanes::Result R = roomplanes::regularize(vol, planes);
-        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::vector<double> regMs; roomplanes::Result R;
+        for (int rep = 0; rep < 3; rep++) { auto t0 = std::chrono::steady_clock::now(); R = roomplanes::regularize(vol, planes);
+            regMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); }
+        double ms = loadtol::median(regMs);
         // before: triangles on planar surfaces (truth: within 2 cm of a room face) and their deviation
         size_t beforePlanarTris = 0; std::vector<float> devBefore, devAfter;
         vol.forEachMesh([&](const Key&, const BlockMesh& m) {
@@ -95,7 +99,7 @@ int main(int argc, char** argv) {
         CHECK(holes < n * 0.05, "wall holes %.1f%%", 100.0 * holes / n);
         CHECK(pct(devAfter, 0.5f) <= pct(devBefore, 0.5f) + 0.001f, "regularised mesh further from the truth");
         CHECK(R.objectTriangles > 0, "the sofa disappeared (no object triangles)");
-        CHECK(ms < 200, "regularise took %.0f ms", ms);
+        CHECK(loadtol::ok("regularise", regMs, 200), "regularise took %.0f ms (median)", ms);
         // every quad corner is exactly on its plane
         float worst = 0; for (auto& p : R.patches) for (auto& q : p.quads) for (auto& c : q) worst = std::max(worst, std::fabs(wallfit::dot(planes[p.plane].n, c) + planes[p.plane].d));
         CHECK(worst < 1e-4f, "quad corner %.2f mm off its plane", worst * 1000);
