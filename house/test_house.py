@@ -212,6 +212,7 @@ class Server(unittest.TestCase):
         want = fixture()
         for k in ('rev', 'updated'):
             got.pop(k); want.pop(k)
+        self.assertEqual(got.pop('plan')['src'], server.consolidate.src_hash(want))  # the derived layer, same revision
         self.assertEqual(got, want)
         self.assertEqual(h['ETag'], '"1"')
         # a GET-edit-PUT cycle
@@ -320,6 +321,42 @@ class Server(unittest.TestCase):
         self.assertIn(b'</svg>', svg)
         self.assertEqual(json.loads(self.req('GET', '/legacy/placement.json')[2]), PLACEMENT)
         self.assertEqual(json.loads(self.req('GET', '/legacy/screens.json')[2]), SCREENS)
+
+    def test_plan_layer(self):
+        import test_consolidate
+        flat = test_consolidate.flat(); flat['rev'] = 0
+        st, r = self.put(flat, 0, extra={'X-House-Note': 'scan'})
+        self.assertEqual((st, r['rev']), (200, 1))
+        doc = self.get()[0]
+        self.assertEqual(doc['plan']['src'], server.consolidate.src_hash(doc))
+        self.assertEqual(doc['plan']['score']['verdict'], 'satisfactory')
+        self.assertEqual(json.loads(self.req('GET', '/house/history')[2])[0]['note'], 'scan | plan: satisfactory')
+        # a write that does not touch walls or rooms keeps the plan as it was
+        doc['settings']['resume'] = True; when = doc['plan']['updated']
+        self.assertEqual(self.put(doc, 1)[0], 200)
+        self.assertEqual(self.get()[0]['plan']['updated'], when)
+        # a writer that drops the plan (or edits walls) gets a fresh one, same revision as its write
+        doc = self.get()[0]; doc.pop('plan'); doc['walls'] = [w for w in doc['walls'] if w['id'] != 'w-ma-n']
+        self.assertEqual(self.put(doc, 2)[0], 200)
+        d3 = self.get()[0]
+        self.assertEqual((d3['rev'], d3['plan']['src']), (3, server.consolidate.src_hash(d3)))
+        self.assertEqual(d3['plan']['score']['verdict'], 'not yet')
+        for layer, want in (('raw', b'class="wall"'), ('clean', b'plan-wall'), ('both', b'plan-wall')):
+            st, h, svg = self.req('GET', '/house/plan.svg?layer=' + layer)
+            self.assertEqual(st, 200); self.assertIn(want, svg)
+        self.assertNotIn(b'plan-wall', self.req('GET', '/house/plan.svg')[2])  # raw by default, as before
+        self.assertEqual(self.req('GET', '/house/plan.svg?layer=x')[0], 400)
+        self.assertEqual(json.loads(self.req('GET', '/house/plan')[2])['src'], d3['plan']['src'])
+        # a consolidation that throws never blocks the write; the last plan stays, marked stale
+        real = server.consolidate.consolidate
+        server.consolidate.consolidate = lambda d, params=None: 1 / 0
+        try:
+            d3['walls'] = d3['walls'][:-1]
+            self.assertEqual(self.put(d3, 3)[0], 200)
+        finally:
+            server.consolidate.consolidate = real
+        d4 = self.get()[0]
+        self.assertEqual(d4['rev'], 4); self.assertIn('ZeroDivisionError', d4['plan']['stale'])
 
     def test_old_schema_reads_and_writes(self):
         # A schema 2 that adds wall "labels" and a top-level "notes"; schema-1 readers must still work, and a

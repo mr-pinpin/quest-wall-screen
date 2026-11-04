@@ -2,6 +2,8 @@
 #include "json.h"
 // Replay of a real depth dump (files/depth-<t>/ from room_lab, pulled to house/fixtures/): fits each eye alone and
 // compares the eyes (same instant, 6 cm apart).   g++ -std=c++17 -O2 -I room_lab bench/wallfit_replay.cpp -o /tmp/r && /tmp/r house/fixtures/depth-47041720 [param value ...]
+// /tmp/r <dump> --house out.json: both eyes fused into one Fuser, written as a house.json (LOCAL frame of the dump)
+// with the dump's Meta scene walls beside our depth walls, for house/consolidate.py (house/test_consolidate.py).
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -10,6 +12,8 @@ static std::string slurp(const std::string& p) { std::ifstream f(p, std::ios::bi
 int main(int argc, char** argv) {
     std::string dir = argv[1]; bool ok = false; json::Value m = json::parse(slurp(dir + "/meta.json"), &ok);
     int w = m["w"].integer(), h = m["h"].integer(); float nearZ = (float)m["near"].num(), farZ = m["far"].num() < 0 ? INFINITY : (float)m["far"].num();
+    std::string houseOut; if (argc == 4 && std::string(argv[2]) == "--house") { houseOut = argv[3]; argc = 2; }
+    Fuser both;
     const char* names[2] = {"left", "right"}; std::vector<uint16_t> buf[2]; std::vector<Wall> walls[2];
     for (int e = 0; e < 2; e++) {
         std::string raw = slurp(dir + "/" + names[e] + ".d16"); buf[e].resize(w * h); memcpy(buf[e].data(), raw.data(), std::min(raw.size(), buf[e].size() * 2));
@@ -27,7 +31,7 @@ int main(int argc, char** argv) {
             if (n == "inlierRel") P.inlierRel = v; else if (n == "inlier") P.inlier = v; else if (n == "normalDeg") P.normalDeg = v;
             else if (n == "curv") P.maxCurvature = v; else if (n == "minInliers") P.minInliers = (int)v; else if (n == "half") P.normalHalf = (int)v;
             else if (n == "edge") P.edgeRel = v; else if (n == "minArea") P.minArea = v; }
-        Fuser fz(P); FrameFit ff = fz.add(f);
+        Fuser fz(P); FrameFit ff = fz.add(f); both.add(f);
         walls[e] = fz.walls();
         printf("  %zu planes (%d grid points)\n", walls[e].size(), ff.validPoints);
         for (auto& wl : walls[e]) printf("   #%d %-7s n (%5.2f %5.2f %5.2f) d %6.3f c (%5.2f %5.2f %5.2f) %4.2f x %4.2f rms %4.1f mm %ld pts conf %.2f\n",
@@ -44,6 +48,28 @@ int main(int argc, char** argv) {
         if (a.kind == Kind::wall && bb->kind == Kind::wall && ang <= 2.0f && best <= 0.015f) wallPairs++;
     }
     printf("%d plane pairs across eyes, worst %.2f deg / %.1f mm; %d wall pairs within 2 deg / 15 mm\n", pairs, worstAng, worstOff * 1000, wallPairs);
+    if (!houseOut.empty()) {  // a minimal schema-1 house: the dump's scene walls + the fused depth walls, LOCAL frame
+        FILE* o = fopen(houseOut.c_str(), "w"); if (!o) { perror(houseOut.c_str()); return 2; }
+        fprintf(o, "{\"schema\":1,\"rev\":1,\"updated\":\"\",\"by\":\"test\",\"nextScreenId\":2,\"rooms\":[{\"id\":\"r1\",\"name\":\"dump\"}],\"links\":[],\"shapes\":[],\"screens\":[],\"menu\":{},\"settings\":{},\"walls\":[");
+        bool first = true;
+        for (auto& sw : m["walls"].a) {
+            std::string lab = sw["label"].str(), kind = lab == "FLOOR" ? "floor" : lab == "CEILING" ? "ceiling" : "wall";
+            const json::Value& c = sw["centre"];
+            fprintf(o, "%s\n{\"id\":\"w-%.8s\",\"room\":\"r1\",\"kind\":\"%s\",\"source\":\"scene\",\"scene\":[\"%s\"],\"w\":%.4f,\"h\":%.4f,\"pose\":{\"p\":[%.5f,%.5f,%.5f],\"q\":[%.7f,%.7f,%.7f,%.7f]}}",
+                    first ? "" : ",", sw["uuid"].str().c_str(), kind.c_str(), sw["uuid"].str().c_str(), sw["w"].num(), sw["h"].num(),
+                    c["p"][0].num(), c["p"][1].num(), c["p"][2].num(), c["q"][0].num(), c["q"][1].num(), c["q"][2].num(), c["q"][3].num());
+            first = false;
+        }
+        for (auto& wl : both.walls()) {
+            Pose ps = wl.pose();
+            fprintf(o, "%s\n{\"id\":\"w-d%06d\",\"room\":\"r1\",\"kind\":\"%s\",\"source\":\"depth\",\"w\":%.4f,\"h\":%.4f,\"pose\":{\"p\":[%.5f,%.5f,%.5f],\"q\":[%.7f,%.7f,%.7f,%.7f]},"
+                       "\"fit\":{\"rms_m\":%.5f,\"samples\":%ld,\"updated\":\"dump\",\"conf\":%.3f}}",
+                    first ? "" : ",", wl.id, kindName(wl.kind), wl.w, wl.h, ps.p.x, ps.p.y, ps.p.z, ps.q.x, ps.q.y, ps.q.z, ps.q.w, wl.rms_m, wl.samples, wl.confidence);
+            first = false;
+        }
+        fprintf(o, "\n]}\n"); fclose(o);
+        printf("house: %s\n", houseOut.c_str());
+    }
     // as a test (default params): the real frame's wall, seen by both eyes, must agree
     return argc == 2 && wallPairs < 1 ? 1 : 0;
 }

@@ -11,6 +11,8 @@ from its cached copy.
 | `server.py` | the sync server on the Mini (LAN, no internet): atomic writes, one git commit per change, conflicts refused |
 | `migrate.py` | imports today's `files/placement.json`, `screens.json`, `settings.json` (+ optional scene wall list) |
 | `test_house.py` | round trip, corrupt and partial writes, conflicts, disk corruption, rollback, blobs, old schemas |
+| `consolidate.py` | raw walls -> clean floor plan + score (the `plan` layer, below); `test_consolidate.py` |
+| `floorplan.py` | `GET /house/plan.svg?layer=raw|clean|both` |
 
 ## Document (schema 1)
 
@@ -41,6 +43,35 @@ Frames:
   wall, it records what it saw).
 - Ids: walls use our own ids, which stay stable across rescans. `scene` lists the Meta uuids that have meant that wall and is only a hint for matching.
 
+## The plan layer (consolidate.py)
+
+Every scan adds raw surfaces: Meta's walls, our depth fits, duplicates, furniture faces, lines that ran on too long, and
+commits in a slightly different frame. `consolidate.py` is a pure function of `walls` + `rooms` that turns them into a
+clean plan. It never edits the raw walls. The server runs it in the same revision as every write that changes walls or
+rooms (about 0.1 s), and stores the result as the top-level `plan`:
+
+```
+"plan": {"algo": "consolidate/1", "src": "<sha256 of walls+rooms+algo>", "rev": 26, "updated": "...", "axesDeg": 17.3,
+         "frames": [{"batch": "<fit.updated>", "dy": -0.16, "yawDeg": 0.4, "status": "moved -0.16 m onto the meta floor"}],
+         "walls": [{"id": "p-851ff933", "pose": {...}, "w": 3.59, "h": 2.51, "from": ["w-851ff933", ...], "src": "scene|depth|scene+depth",
+                    "room": "pr1", "conf": 1.0, "stacked": [...], "clippedFrom": 7.8, "inferred": [0, 0.39], "offAxis": true}],
+         "rooms": [{"id": "pr1", "floor": [[x, z], ...], "area": 15.9, "floorY": -1.42, "ceilingY": 1.09, "closed": true,
+                    "closure": 1.0, "support": 1.0, "doors": [{"a": [x, z], "b": [x, z], "w": 0.9}], "opens": [...], "tops": [...]}],
+         "dropped": [{"id": "w-d528b76", "why": "0.29 m in front of a wall it overlaps (furniture face or a second look)"}],
+         "score": {"verdict": "satisfactory | not yet", "reasons": [...], "duplicates": {"raw": 70, "plan": 0},
+                   "closure": 0.84, "sceneFit": {"pairs": 0, "median_m": null, "backToBack": [...]}, "explained": 0.71}}}
+```
+
+The steps are listed at the top of `consolidate.py`:
+1. Frame hygiene for each scan commit.
+2. A Manhattan snap.
+3. Merging, stack suppression and corner cuts.
+4. Rooms: Meta's closed wall chains, plus our walls by ray casting on the rest of the floor.
+5. The score.
+
+Plan wall ids follow the raw wall that dominates them, so they stay stable across rescans. The headset can place screens
+on `plan.walls`.
+
 ## Sync protocol (server.py, port 57800)
 
 - `GET /house[?schema=K]`
@@ -57,6 +88,7 @@ Frames:
 - `GET /house/history`, `GET /house/rev/N`, `POST /house/rollback?rev=N` (If-Match: current rev; makes a new revision).
 - `PUT|GET /blob/<sha256>`: meshes and other binaries. The body must hash to the name, and a wall's `mesh` must name a stored blob.
 - `GET /legacy/placement.json|screens.json|settings.json`: the house in today's headset formats.
+- `GET /house/plan` (the plan layer, computed on the fly if missing or stale), `GET /house/plan.svg?layer=raw|clean|both`.
 
 Headset client:
 - Caches the last good house and works offline.

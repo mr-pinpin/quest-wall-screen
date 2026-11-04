@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="801" height="814" viewBox="0 0 801 814" font-family="sans-serif" font-size="11">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<polygon class="room" points="298.7,183.9 370.8,421.5 386.4,416.6 444.3,608.4 433.1,656.1 357.9,678.5 301.7,546.0 314.2,467.2 265.2,451.4 173.2,479.3 101.8,243.3" fill="#e3f1e3" stroke="none"/>
+<text x="313.4" y="468.4" fill="#3a6b3a" text-anchor="middle">pr1: 15.9 m², closure 1.00</text>
+<polygon class="room" points="531.0,219.9 589.1,406.3 477.2,441.2 462.1,393.0 372.6,420.9 329.5,282.6" fill="#f6efd9" stroke="none"/>
+<text x="460.2" y="360.7" fill="#3a6b3a" text-anchor="middle">pr2: 7.6 m², closure 0.84</text>
+<line class="plan-wall" x1="297.9" y1="184.1" x2="371.7" y2="421.1" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="174.2" y1="479.1" x2="100.8" y2="243.6" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="102.0" y1="244.2" x2="298.5" y2="183.0" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="385.5" y1="416.8" x2="445.2" y2="608.2" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="372.9" y1="419.0" x2="330.3" y2="282.3" stroke="#b5651d" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="351.2" y1="681.0" x2="308.4" y2="543.6" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="265.1" y1="451.1" x2="173.3" y2="479.6" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="433.0" y1="655.6" x2="358.0" y2="679.0" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="531.0" y1="219.8" x2="589.1" y2="406.3" stroke="#b5651d" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="330.3" y1="282.3" x2="531.0" y2="219.8" stroke="#b5651d" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="370.8" y1="421.4" x2="386.4" y2="416.5" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="596.3" y1="404.1" x2="516.8" y2="428.9" stroke="#b5651d" stroke-width="5" stroke-linecap="butt"/>
+<line class="plan-wall" x1="314.2" y1="467.2" x2="265.1" y2="451.4" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt" stroke-dasharray="8 3"/>
+<line class="plan-wall" x1="301.6" y1="546.0" x2="314.2" y2="467.2" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt" stroke-dasharray="8 3"/>
+<line class="plan-wall" x1="444.3" y1="608.4" x2="433.1" y2="656.0" stroke="#1f4e9c" stroke-width="5" stroke-linecap="butt" stroke-dasharray="8 3"/>
+<line class="open" x1="462.1" y1="393.0" x2="477.2" y2="441.2" stroke="#d62728" stroke-width="3" stroke-dasharray="6 4"/>
+<line class="open" x1="386.4" y1="416.6" x2="462.1" y2="393.0" stroke="#d62728" stroke-width="3" stroke-dasharray="6 4"/>
+<text x="40" y="16" fill="#a33">pr2: open 1.9 m of 11.7 m (closure 0.84 &lt; 0.9)</text>
+<text x="40" y="30" fill="#a33">w-dde1888 is 3 cm behind Meta w-851ff933: thinner than a real wall (6+ cm), so the scan and Meta disagree by a few cm (frame offset?)</text>
+<text x="40" y="800" fill="#333">house rev 26: 57 walls with orientation; 1 m = 69 px | plan (consolidate/1): not yet; 39 raw walls -&gt; 15</text></svg>

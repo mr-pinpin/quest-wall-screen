@@ -223,6 +223,18 @@ def validate(doc, blobs=None):
     if sh is not None:
         if not (isinstance(sh, dict) and sh.get('side') in ('left', 'right') and _num(sh.get('reach_m', 1)) and _num(sh.get('step_m', 1))):
             e.append('menu.shoulder: needs side left|right, reach_m, step_m')
+    if 'plan' in doc:  # derived (house/consolidate.py, written by the server): shape-checked only
+        pl = doc['plan']
+        if not (isinstance(pl, dict) and isinstance(pl.get('algo'), str) and isinstance(pl.get('src'), str)
+                and isinstance(pl.get('walls'), list) and isinstance(pl.get('rooms'), list) and isinstance(pl.get('score'), dict)):
+            e.append('plan: needs algo, src, walls, rooms, score')
+        else:
+            for i, w in enumerate(pl['walls']):
+                if not (isinstance(w, dict) and isinstance(w.get('id'), str) and _pose(w.get('pose')) and _num(w.get('w')) and _num(w.get('h'))):
+                    e.append(f'plan.walls[{i}]: needs id, pose, w, h')
+            for i, r in enumerate(pl['rooms']):
+                if not (isinstance(r, dict) and isinstance(r.get('id'), str) and _pts(r.get('floor'), 3)):
+                    e.append(f'plan.rooms[{i}]: needs id and floor (>= 3 [x,z] points)')
     st = doc['settings']
     if 'toggles' in st and not (isinstance(st['toggles'], dict) and all(isinstance(v, bool) for v in st['toggles'].values())):
         e.append('settings.toggles: values must be booleans')

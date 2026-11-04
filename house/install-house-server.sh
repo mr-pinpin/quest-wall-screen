@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")"
 M="ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-mini"
 $M 'mkdir -p ~/pinpin-house-server'
-scp -q -o BatchMode=yes schema.py server.py migrate.py floorplan.py pinpin-mini:pinpin-house-server/
+scp -q -o BatchMode=yes schema.py server.py migrate.py floorplan.py consolidate.py pinpin-mini:pinpin-house-server/
 scp -q -o BatchMode=yes io.mr-pinpin.house.plist pinpin-mini:Library/LaunchAgents/
 $M 'launchctl bootout gui/$(id -u)/io.mr-pinpin.house 2>/dev/null; sleep 1; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.mr-pinpin.house.plist'
 for i in 1 2 3 4 5 6 7 8 9 10; do

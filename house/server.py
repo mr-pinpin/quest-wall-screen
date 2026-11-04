@@ -18,7 +18,14 @@ refuses truncated, corrupt, invalid or stale writes.
   POST /house/rollback?rev=N   new revision with revision N's content (If-Match: current rev)
   PUT  /blob/<sha256>          a mesh or other binary; the body must hash to the name. GET /blob/<sha256>.
   GET  /legacy/placement.json | screens.json | settings.json   the house in today's headset file formats
-  GET  /house/plan.svg         top-down floor plan from the walls' poses (house/floorplan.py)
+  GET  /house/plan.svg[?layer=raw|clean|both]  top-down floor plan (house/floorplan.py): the walls as stored (raw,
+                               default), the consolidated plan (clean) or both
+  GET  /house/plan             the consolidated plan (house/consolidate.py), as stored in the house's "plan" layer;
+                               computed on the fly (not stored) when the stored one is missing or stale
+
+Every accepted write that changes walls or rooms gets a fresh "plan" layer in the same revision (house/consolidate.py:
+frame hygiene, Manhattan snap, merge, rooms, score; ~0.1 s). The writer's If-Match/rev flow is unchanged; a failing
+consolidation never blocks a write (the previous plan is kept, marked stale).
   GET  /health
 """
 import argparse
@@ -33,6 +40,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import consolidate  # noqa: E402
 import schema  # noqa: E402
 
 MAX_HOUSE = 16 << 20
@@ -46,6 +54,25 @@ def sha(b):
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def refresh_plan(doc, prev=None):
+    """Give doc a current "plan" layer (in place). Returns a short note for the commit message ('' if unchanged)."""
+    src = consolidate.src_hash(doc)
+    if isinstance(doc.get('plan'), dict) and doc['plan'].get('src') == src:
+        return ''
+    try:
+        doc['plan'] = consolidate.consolidate(doc)
+        doc['plan']['updated'] = now()
+        return 'plan: ' + doc['plan']['score']['verdict']
+    except Exception as ex:  # never block a write on the derived layer
+        old = (prev or {}).get('plan') if isinstance((prev or {}).get('plan'), dict) else None
+        if old:
+            doc['plan'] = dict(old, stale=f'{type(ex).__name__}: {ex}'[:200])
+        else:
+            doc.pop('plan', None)
+        print(f'consolidate failed: {ex!r}', file=sys.stderr)
+        return 'plan: failed'
 
 
 def encode(doc):
@@ -232,9 +259,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {'error': 'no such blob'})
             with open(path, 'rb') as f:
                 return self.send(200, f.read(), 'application/octet-stream')
-        if p == '/house/plan.svg':
+        if p in ('/house/plan.svg', '/house/plan'):
             import floorplan
-            return self.send(200, floorplan.plan(st.doc), 'image/svg+xml')
+            doc = st.doc
+            plan = doc.get('plan') if isinstance(doc.get('plan'), dict) and doc['plan'].get('src') == consolidate.src_hash(doc) else None
+            if plan is None:
+                try:
+                    plan = consolidate.consolidate(doc)
+                except Exception as ex:
+                    if p == '/house/plan':
+                        return self.send(500, {'error': f'consolidate: {ex}'})
+            if p == '/house/plan':
+                return self.send(200, plan)
+            layer = q.get('layer', ['raw'])[0]
+            if layer not in ('raw', 'clean', 'both'):
+                return self.send(400, {'error': 'layer: raw | clean | both'})
+            return self.send(200, floorplan.plan(doc, layer=layer, clean=plan), 'image/svg+xml')
         if p.startswith('/legacy/'):
             fn = {'placement.json': schema.legacy_placement, 'screens.json': schema.legacy_screens,
                   'settings.json': schema.legacy_settings}.get(p[8:])
@@ -297,8 +337,10 @@ class Handler(BaseHTTPRequestHandler):
             problems = schema.validate(doc, st.blobs())
             if problems:
                 return self.send(400, {'error': 'invalid house', 'problems': problems[:50]})
+            note = self.headers.get('X-House-Note', '')[:200].replace('\n', ' ')
+            pn = refresh_plan(doc, cur)
             try:
-                st.put(doc, self.headers.get('X-House-Note', '')[:200].replace('\n', ' '))
+                st.put(doc, (note + ' | ' + pn) if note and pn else (note or pn))
             except (OSError, RuntimeError) as ex:
                 return self.send(500, {'error': f'not saved: {ex}'})
         self.send(200, {'rev': doc['rev']}, headers={'ETag': f'"{doc["rev"]}"'})
@@ -323,6 +365,7 @@ class Handler(BaseHTTPRequestHandler):
             problems = schema.validate(old, st.blobs())
             if problems:
                 return self.send(400, {'error': 'that revision is not valid now', 'problems': problems[:50]})
+            refresh_plan(old, st.doc)
             st.put(old, f'to rev {q["rev"][0]}')
         self.send(200, {'rev': old['rev'], 'restored': int(q['rev'][0])})
 
