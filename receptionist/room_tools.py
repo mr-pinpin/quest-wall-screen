@@ -5,7 +5,11 @@ Usage:
   room_tools.py house_info
   room_tools.py move <id> <left|right|up|down> [amount_m]     # small nudge, default 0.12 m
   room_tools.py select <id> | room_tools.py clear [id]         # gold outline list (work-0e renderer, v0.66)
-  room_tools.py add_card "<title>" "<details>"                # append to docs/captain/KANBAN.md
+  room_tools.py label <screen> <x> <y> <text> [color]         # a label mark above/near a screen (metres)
+  room_tools.py arrow <screen> <x> <y> <dx> <dy> [color]      # an arrow mark from (x,y) to (x+dx,y+dy)
+  room_tools.py draw '<json mark>'                            # any mark (label|arrow|rect|circle); full control
+  room_tools.py unmark [id]                                   # drop one mark, or all. marks drawn by the headset
+  room_tools.py add_card "<title>" "<details>"                # -> work-ad kanban API
 
 House server: PINPIN_HOUSE_BASE (default the Mini over Tailscale). Writes use If-Match + SHA256.
 TEST writes against the SCRATCH house (:57801), never the real house, until the user asks.
@@ -45,8 +49,53 @@ def house_info():
                 "x": s.get("x"), "y": s.get("y"), "w": s.get("w"), "h": s.get("h"),
                 "on": s.get("on"), "source": s.get("source")} for s in doc.get("screens", [])]
     out = {"rev": rev, "nextScreenId": doc.get("nextScreenId"),
-           "selected": doc.get("selected"), "placeable_walls": walls, "screens": screens}
+           "selected": doc.get("selected"), "marks": doc.get("marks"),
+           "placeable_walls": walls, "screens": screens}
     print(json.dumps(out, indent=2))
+
+
+# --- DRAW primitive: house.marks[] drawn by the headset over everything (work-0e contract, K1 pt2) ---
+def _marks(doc):
+    m = doc.get("marks")
+    return m if isinstance(m, list) else []
+
+
+def _now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def draw(spec):
+    """Add or replace one mark. spec is a dict matching work-0e's house.marks[] contract; a draw with
+    an existing id replaces it, and a fresh ts re-pops it."""
+    import uuid
+    doc, rev = _get()
+    spec.setdefault("id", "m-" + uuid.uuid4().hex[:8])
+    spec.setdefault("kind", "label")
+    spec["ts"] = _now()
+    marks = [m for m in _marks(doc) if m.get("id") != spec["id"]]   # replace same id
+    marks.append(spec)
+    doc["marks"] = marks
+    res = _put(doc, rev)
+    print(json.dumps({"ok": True, "id": spec["id"], "kind": spec["kind"],
+                      "marks": [m["id"] for m in marks], "rev": res.get("rev")}))
+
+
+def unmark(mid=None):
+    doc, rev = _get()
+    marks = [m for m in _marks(doc) if m.get("id") != mid] if mid else []   # drop one, or all
+    doc["marks"] = marks
+    res = _put(doc, rev)
+    print(json.dumps({"ok": True, "marks": [m["id"] for m in marks], "rev": res.get("rev")}))
+
+
+def label(screen, x, y, text, color="gold"):
+    draw({"kind": "label", "screen": int(screen), "x": float(x), "y": float(y),
+          "text": text, "color": color})
+
+
+def arrow(screen, x, y, dx, dy, color="gold"):
+    draw({"kind": "arrow", "screen": int(screen), "x": float(x), "y": float(y),
+          "dx": float(dx), "dy": float(dy), "color": color})
 
 
 def move(sid, direction, amount=None):
@@ -139,6 +188,14 @@ def main(argv):
         clear(rest[0] if rest else None)   # clear <id> drops one; clear drops all
     elif cmd == "add_card":
         add_card(rest[0], rest[1] if len(rest) > 1 else "")
+    elif cmd == "draw":                 # draw '<json mark>'  (full control, all kinds)
+        draw(json.loads(rest[0]))
+    elif cmd == "label":                # label <screen> <x> <y> <text> [color]
+        label(rest[0], rest[1], rest[2], rest[3], rest[4] if len(rest) > 4 else "gold")
+    elif cmd == "arrow":                # arrow <screen> <x> <y> <dx> <dy> [color]
+        arrow(rest[0], rest[1], rest[2], rest[3], rest[4], rest[5] if len(rest) > 5 else "gold")
+    elif cmd == "unmark":               # unmark <id> drops one; unmark drops all
+        unmark(rest[0] if rest else None)
     else:
         sys.exit("unknown command: %s" % cmd)
 
