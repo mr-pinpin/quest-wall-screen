@@ -38,12 +38,17 @@ inline Result choose(const std::vector<anchors::Stored>& sceneStored, const std:
 // A LOCAL pose expressed in the room frame: what gets written to the house.
 inline Pose toRoom(const Pose& roomInLocal, const Pose& local) { return anchors::compose(anchors::inverse(roomInLocal), local); }
 
-// The fitted floor height against Meta's, both in LOCAL (y up): ok when within tolM, or when either is unknown.
+// The fitted floor height against Meta's, both in LOCAL (y up). Only large horizontal fits (>= minArea m^2) count;
+// the one nearest Meta's floor decides: within tolM ok; more than furnitureM above is a bed or a table, not the floor
+// (work-34: today's lowest fit was the bed, 21 cm up, the floor itself unseen): no verdict; between, or below Meta's
+// floor by more than tolM: refused.
+struct Horiz { float y = 0, area = 0; };
 struct FloorCheck { bool ok = true; float offM = 0; bool known = false; };
-inline FloorCheck floorCheck(const std::vector<float>& fittedFloorY, float metaFloorY, bool metaKnown, float tolM = 0.05f) {
-    FloorCheck c; if (!metaKnown || fittedFloorY.empty()) return c;
-    // The floor is the largest, lowest flat area; the fitter can also report low furniture tops: take the lowest.
-    float y = fittedFloorY[0]; for (float v : fittedFloorY) y = std::min(y, v);
-    c.known = true; c.offM = y - metaFloorY; c.ok = std::fabs(c.offM) <= tolM; return c;
+inline FloorCheck floorCheck(const std::vector<Horiz>& fits, float metaFloorY, bool metaKnown, float tolM = 0.05f, float furnitureM = 0.15f, float minArea = 1.5f) {
+    FloorCheck c; if (!metaKnown) return c;
+    bool any = false; float best = 0;
+    for (auto& h : fits) if (h.area >= minArea) { float off = h.y - metaFloorY; if (!any || std::fabs(off) < std::fabs(best)) best = off; any = true; }
+    if (!any || best > furnitureM) return c;
+    c.known = true; c.offM = best; c.ok = std::fabs(best) <= tolM; return c;
 }
 }  // namespace roomframe

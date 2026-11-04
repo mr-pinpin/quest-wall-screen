@@ -40,9 +40,12 @@ int main() {
     check(std::fabs(oF.p.y - (-1.4f)) > 0.08f, "control: the anchors' frame puts the floor 10 cm off");
     // Floor check in LOCAL: Meta's floor vs the fitted one (a table top at 0.75 m is ignored: lowest wins).
     float metaY = compose(roomTrue, meta[4].inRoom).p.y;
-    check(floorCheck({fitF.p.y, fitF.p.y + 0.75f}, metaY, true).ok, "floor check passes the right floor");
-    check(!floorCheck({fitF.p.y + 0.12f}, metaY, true).ok, "floor 12 cm off: commit refused");
-    check(floorCheck({}, metaY, true).ok && floorCheck({fitF.p.y + 0.3f}, 0, false).ok, "unknown: no verdict");
+    check(floorCheck({{fitF.p.y, 8}, {fitF.p.y + 0.75f, 2}}, metaY, true).ok, "floor check passes the right floor");
+    check(!floorCheck({{fitF.p.y + 0.12f, 6}}, metaY, true).ok, "floor 12 cm off: commit refused");
+    check(!floorCheck({{fitF.p.y - 0.09f, 6}}, metaY, true).ok, "floor 9 cm below Meta's: refused");
+    FloorCheck bed = floorCheck({{fitF.p.y + 0.21f, 3}}, metaY, true); check(bed.ok && !bed.known, "the bed 21 cm up with the floor unseen: no verdict");
+    check(floorCheck({{fitF.p.y + 0.10f, 0.6f}}, metaY, true).ok, "a small low shelf is not the floor");
+    check(floorCheck({}, metaY, true).ok && floorCheck({{fitF.p.y + 0.3f, 5}}, 0, false).ok, "unknown: no verdict");
     // Fallbacks: one scene plane is not enough -> anchors; none -> anchors; neither -> not ok.
     r = choose(stored, {seen[0]}, af); check(r.ok && r.source == "anchors", "one scene plane: anchors");
     r = choose({}, seen, af); check(r.ok && r.source == "anchors", "nothing stored yet (first commit): anchors");

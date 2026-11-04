@@ -1583,7 +1583,7 @@ struct App {
         }
         if (!have) { scanErr = "no anchor saved"; toast("scan", "SCAN NOT SAVED: NO ANCHOR", red, 4); event("scan: no anchor, nothing committed"); return; }
         // Sanity: the fitted floor against Meta's floor (both LOCAL). More than 5 cm off: the frame or the fit is wrong.
-        { std::vector<float> fy; for (auto& w : scanResult) if (w.kind == wallfit::Kind::floor) fy.push_back(w.centre.y);
+        { std::vector<roomframe::Horiz> fy; for (auto& w : scanResult) if (w.kind == wallfit::Kind::floor) fy.push_back({w.centre.y, w.w * w.h});
           float my = 0; bool mk = false; for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.label.find("FLOOR") != std::string::npos) { my = e.pose.position.y; mk = true; }
           roomframe::FloorCheck fc = roomframe::floorCheck(fy, my, mk);
           if (!fc.ok) { scanErr = "floor " + std::to_string((int)std::lround(fc.offM * 100)) + " cm off Meta's"; toast("scan", "SCAN NOT SAVED: FLOOR " + std::to_string((int)std::lround(std::fabs(fc.offM) * 100)) + " CM OFF", red, 4);
@@ -1593,7 +1593,7 @@ struct App {
         json::Value none; const json::Value& doc = d ? *d : none;
         // Scene walls in LOCAL, to say which house wall each fitted surface is.
         std::vector<wallfit::HouseWall> scene; std::vector<std::string> sceneIds;
-        for (auto& e : entities) if (e.located && e.has2d) {
+        for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.space != XR_NULL_HANDLE) {  // Meta's own planes only
             V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
             XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height}); sceneIds.push_back(e.uuid);
         }
