@@ -28,6 +28,8 @@
 #include "select_house.h"
 #include "panel_texture.h"
 #include "dictation.h"
+#include "settings_menu.h"
+#include "flags_data.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -256,7 +258,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -543,7 +545,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 49;
+    static constexpr int kMenuItems = 50;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -568,7 +570,8 @@ struct App {
         {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"},
         {"RECEPTION", "EXPERIMENTAL", "CLAUDE IN THE RING TALKS TO WORK-DF"},
         {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
-        {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"}};
+        {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
+        {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -611,6 +614,7 @@ struct App {
         if (l == "CTLTOP") return ctlTopMenu;
         if (l == "PANELTEX") return panelTexMenu;
         if (l == "DICTQ") return dictQMenu;
+        if (l == "SETCAT") return setCatMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -623,9 +627,40 @@ struct App {
         return -1;
     }
     void layoutMenu() {
-        std::vector<UiGrid::Item> items; menuShown.clear();
-        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) { items.push_back({menuItems[i].label, menuItems[i].section, menuItems[i].hint}); menuShown.push_back(i); }
+        std::vector<UiGrid::Item> items; menuShown.clear(); menuCellLabel.clear(); menuCellAction.clear();
+        if (setCatMenu) {  // SETCAT: MOST USED + a button per category (+ CLOSE); a category cascades beside this panel
+            shoulder::Level root = setTree().root({"CLOSE", "HIDE THIS PANEL", "set:CLOSE"});
+            for (size_t k = 0; k < root.items.size(); k++) {
+                const shoulder::Item& it = root.items[k];
+                if (it.label == "CLOSE" && !itemVisible("CLOSE")) continue;
+                int idx = -2 - (int)menuShown.size();  // not a menuItems switch: a code for menuHover
+                if (it.action.rfind("set:", 0) == 0) for (int i = 0; i < kMenuItems; i++) if (it.action.substr(4) == menuItems[i].label) idx = i;
+                items.push_back({it.label, it.section, it.hint}); menuShown.push_back(idx); menuCellLabel.push_back(it.label); menuCellAction.push_back(it.action);
+            }
+            menuGrid.layout(items); return;
+        }
+        for (int i = 0; i < kMenuItems; i++) if (itemVisible(menuItems[i].label)) {
+            items.push_back({menuItems[i].label, menuItems[i].section, menuItems[i].hint}); menuShown.push_back(i);
+            menuCellLabel.push_back(menuItems[i].label); menuCellAction.push_back(std::string("set:") + menuItems[i].label);
+        }
         menuGrid.layout(items);
+    }
+    // SETCAT: the registry (flags.json, compiled in as flags_data.h) and the category tree over menuItems.
+    flagreg::Registry flagReg; bool flagRegLoaded = false; std::vector<std::string> menuCellLabel, menuCellAction;
+    setmenu::Tree setTree() {
+        if (!flagRegLoaded) { flagRegLoaded = true; if (!flagReg.load(kFlagsJson)) event("settings: flags registry did not parse"); }
+        setmenu::Tree t; t.reg = &flagReg;
+        for (auto& m : menuItems) t.entries.push_back({m.label, m.section, m.hint});
+        return t;
+    }
+    // A cell of the standalone panel that is not a switch (a category button): its cascade opens beside the panel.
+    void menuCellPress(int k) {
+        if (k < 0 || k >= (int)menuCellAction.size()) return;
+        const std::string& a = menuCellAction[k];
+        if (a.rfind("open:", 0) != 0) return;
+        if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
+        sm.openBeside(sp(v3(head.position)), sp(v3(menu.pose.position)), menuHalfW(), a.substr(5));
+        event("settings: " + a.substr(5) + " opened beside the panel");
     }
     bool palmFacing(V3& at) {
         if (!handActive[0]) return false;
@@ -677,7 +712,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -749,7 +784,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -808,6 +843,7 @@ struct App {
         else if (l == "CTLTOP") ctlTopMenu = !ctlTopMenu;                       // screen controls on top
         else if (l == "PANELTEX") panelTexMenu = !panelTexMenu;                 // SETTINGS as one texture
         else if (l == "DICTQ") dictQMenu = !dictQMenu;                          // queued assistant dictation
+        else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -895,6 +931,7 @@ struct App {
         int cell = menuGrid.hit(x, y);
         if (cell >= 0) menuHover = menuShown[cell];
         if (menuHover >= 0 && ray[1].pinch && !pinchPrev[1]) choose(menuHover);
+        else if (menuHover <= -2 && ray[1].pinch && !pinchPrev[1]) menuCellPress(-2 - menuHover);
         return true;
     }
     // ---- Shoulder menu (flag SHOULDER; room_lab/shoulder.h, docs/house-onboarding.md). A button by the shoulder opens a
@@ -936,6 +973,8 @@ struct App {
             if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
             for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
             L.items.push_back({"BACK", "ONE MENU BACK", "back"});
+        } else if (setCatMenu && (n == "SETTINGS" || n.rfind("SET ", 0) == 0)) {
+            L = setTree().level(n);
         } else if (n == "SETTINGS") {
             L.grid.cols = 5;  // 30 switches: wide rather than tall
             for (auto& m : menuItems) if (std::string(m.label) != "CLOSE") L.items.push_back({m.label, m.hint, std::string("set:") + m.label});
@@ -954,7 +993,8 @@ struct App {
         { std::string msg; long v; { std::lock_guard<std::mutex> g(appsLock); msg.swap(appsToast); v = appsVersion; }
           if (!msg.empty()) { const float c[4] = {0.35f, 0.85f, 1.0f, 1}; toast("apps", msg, c, 3); }
           if (v != appsSeen) { appsSeen = v; if (sm.open() && sm.stack.back().name.rfind("APPS ", 0) == 0) sm.refresh(); } }
-        if (!shoulderOn() && !wristOn()) { sm.stack.clear(); smPokePrev = false; return false; }
+        if (sm.open() && sm.stack[0].anchored && !(menuOpen && setCatMenu)) sm.stack.clear();  // SETCAT: the panel it hangs beside closed
+        if (!shoulderOn() && !wristOn() && !(sm.open() && sm.stack[0].anchored)) { sm.stack.clear(); smPokePrev = false; return false; }
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         bool edge = handActive[1] && ray[1].pinch && !pinchPrev[1];
@@ -1036,7 +1076,7 @@ struct App {
         }
     }
     void drawShoulder(Batch& b) {
-        if (!shoulderOn() && !wristOn()) return;
+        if (!shoulderOn() && !wristOn() && !(sm.open() && sm.stack[0].anchored)) return;
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         const float idleB[4] = {0.75f, 0.8f, 0.9f, 0.85f}, hotB[4] = {0.3f, 0.75f, 1.0f, 1.0f};
         auto menuButton = [&](V3 c, float r, bool hot) {  // a ring with three bars: "menu"
@@ -1079,8 +1119,8 @@ struct App {
             for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
                 const UiGrid::Cell& cl = L.grid.cells[i]; const shoulder::Item& it = L.items[i];
                 bool on = (it.action.rfind("set:", 0) == 0 && itemOn(it.action.substr(4)) > 0) || appIsOn(it.action);
-                const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
-                float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
+                const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f}, grey[4] = {0.11f, 0.11f, 0.12f, 0.9f};
+                float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : it.dim ? grey[q] : idle[q];  // dim: an off flag (SETCAT)
                 f[3] *= fade;
                 if (top && smHover.level == (int)k && smHover.item == (int)i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
                 float x0 = (cl.x - cl.w / 2) * s, x1 = (cl.x + cl.w / 2) * s, y0 = (cl.y - cl.h / 2) * s, y1 = (cl.y + cl.h / 2) * s;
@@ -4220,7 +4260,7 @@ void main(){
     std::atomic<bool> menuTexBusy{false}, menuTexFresh{false}; GLuint menuTexId = 0; bool menuTexValid = false, menuTexShow = false; V3 menuTexC[4]; long menuTexRenders = 0;
     bool menuTexture() {
         std::vector<std::string> labels; std::vector<bool> on;
-        for (int i : menuShown) { labels.push_back(menuItems[i].label); on.push_back(itemOn(menuItems[i].label) > 0); }
+        for (auto& l : menuCellLabel) { labels.push_back(l); on.push_back(itemOn(l) > 0); }
         menuTexP.set(paneltex::fromGrid(menuGrid, labels, on, "SETTINGS"));
         if (menuTexP.dirty() && !menuTexBusy) {
             menuTexBusy = true; auto job = std::make_shared<paneltex::Panel>(menuTexP); menuTexP.dirty_ = false;
@@ -4293,13 +4333,13 @@ void main(){
                 if (menuHover == i) b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), hl);
                 continue;
             }
-            bool on = itemOn(menuItems[i].label) > 0;
+            const char* label = menuCellLabel[k].c_str(); bool on = itemOn(label) > 0;
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
             if (menuHover == i) for (int q = 0; q < 3; q++) f[q] = std::fmin(1.0f, f[q] + 0.2f);
             b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f),
                    P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), f);
-            text(b, menu, c.x, c.labelY, 0.004f, c.px, menuItems[i].label, white);
+            text(b, menu, c.x, c.labelY, 0.004f, c.px, label, white);
             if (!c.hint1.empty()) text(b, menu, c.x, c.hint1Y, 0.004f, c.hintPx, c.hint1.c_str(), dim);
             if (!c.hint2.empty()) text(b, menu, c.x, c.hint2Y, 0.004f, c.hintPx, c.hint2.c_str(), dim);
         }

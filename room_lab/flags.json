@@ -806,6 +806,19 @@
      "commit": "f960dbc"
     }
    ]
+  },
+  {
+   "name": "SETCAT",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "visual-taste",
+   "reason": "SETTINGS in categories: a MOST USED row and seven category buttons; each category opens its switches in a cascaded panel beside it, paged under 1 m, hidden flags left out and off flags greyed with their reason (room_lab/settings_menu.h). Off until the user has tried it; the flat panel is 3.7 m tall with 50 switches.",
+   "evidence": [
+    {
+     "commit": "204da8d"
+    }
+   ]
   }
  ]
 }
