@@ -1259,6 +1259,7 @@ struct App {
         scanResult.erase(std::remove_if(scanResult.begin(), scanResult.end(), [](const wallfit::Wall& w) { return w.confidence < 0.5f; }), scanResult.end());
         if (scanResult.empty()) { scanState = ScanState::failed; scanErr = "nothing solid captured"; const float red[4] = {1, 0.3f, 0.25f, 1}; toast("scan", "SCAN: NOTHING SOLID YET, TRY AGAIN", red, 4); return; }
         scanState = ScanState::anchoring; anchorT0 = std::chrono::steady_clock::now();
+        scanAddDepthWalls();
         if (roomFrame.ok || !xrCreateSpatialAnchorFB_) return;  // the room is already anchored (or anchors unsupported: commit in LOCAL is refused)
         std::vector<wallfit::V3> c; for (auto& w : scanResult) if (w.kind == wallfit::Kind::wall) c.push_back(w.centre);
         if (c.empty()) for (auto& w : scanResult) c.push_back(w.centre);
@@ -1332,7 +1333,11 @@ struct App {
                 uuid = sceneIds[m.index];
                 for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == uuid) id = hw["id"].str();
                 if (id.empty()) id = "w-" + uuid.substr(0, 8);
-            } else { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); id = b; }
+            } else {
+                size_t k = &w - &scanResult[0];
+                if (k < scanIds.size() && !scanIds[k].empty()) id = scanIds[k];  // the depth wall this scan already added
+                else { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); id = b; }
+            }
             json::Value o = house::obj();
             for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
             o.o["id"] = house::str(id); o.o["room"] = house::str("r1"); o.o["kind"] = house::str(wallfit::kindName(w.kind));
@@ -1754,6 +1759,33 @@ struct App {
     // the cache (only when they moved). status "placement" reports per screen where it is drawn from and its STAGE spot.
     json::Value sceneTest; bool sceneTestRead = false;
     std::set<std::string> stageChecked; long stageMoves = 0; float stageJumpM = 0;
+    // SCAN's own walls (multi-room): solid fitted walls no Meta scene wall matches, kept in STAGE in files/depthwalls.json
+    // and shown as walls of their own (ids "w-d..."), so screens can be placed in rooms Meta never scanned.
+    std::map<std::string, pguard::CachedWall> depthWalls; bool depthWallsLoaded = false; std::vector<std::string> scanIds;
+    void scanAddDepthWalls() {
+        scanIds.assign(scanResult.size(), "");
+        if (!stageOk) { event("scan: no STAGE, scanned walls not kept"); return; }
+        std::vector<wallfit::HouseWall> scene;
+        for (auto& e : entities) if (e.located && e.has2d && !e.standIn && e.space != XR_NULL_HANDLE) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height});
+        }
+        static std::mt19937 rng((unsigned)time(nullptr)); int added = 0;
+        for (size_t i = 0; i < scanResult.size(); i++) {
+            const wallfit::Wall& w = scanResult[i];
+            if (w.kind != wallfit::Kind::wall || w.w < 0.6f || w.h < 0.6f) continue;
+            if (wallfit::match(w, scene, 0.08f, 5.0f).index >= 0) continue;  // Meta already has this wall
+            bool known = false;  // a wall an earlier scan already added: keep its id, refresh its pose
+            for (auto& [id, c] : depthWalls) {
+                wallfit::Pose cl = pguard::toLocal(wp(stageInLocal), c);
+                if (wallfit::match(w, {{cl, c.w, c.h}}, 0.08f, 5.0f).index >= 0) { scanIds[i] = id; known = true; break; }
+            }
+            if (!known) { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); scanIds[i] = b; }
+            depthWalls[scanIds[i]] = pguard::fromLocal(scanIds[i], wp(stageInLocal), w.pose(), -w.w / 2, -w.h / 2, w.w, w.h); added++;
+        }
+        if (added) house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
+        event("scan: " + std::to_string(added) + " scanned walls kept as placement targets");
+    }
     pguard::Requery pg; std::map<std::string, pguard::CachedWall> wallCache; bool wallCacheLoaded = false;
     std::chrono::steady_clock::time_point wallCacheSaved{};
     XrPosef stageInLocal{{0, 0, 0, 1}, {0, 0, 0}}; bool stageOk = false;
@@ -1774,6 +1806,15 @@ struct App {
         if (running && (state == XR_SESSION_STATE_VISIBLE || state == XR_SESSION_STATE_FOCUSED) && pg.due(now(), need, have) && sceneState.rfind("querying", 0) != 0) {
             pg.started(now()); querySpaces(); event("placement: re-query (" + std::to_string(have.size()) + " real walls located)");
         }
+        // Our depth walls (SCAN): permanent walls of their own, posed from STAGE every frame.
+        if (!depthWallsLoaded) { depthWallsLoaded = true; std::string txt; if (house::readFile(gDir + "/depthwalls.json", txt)) depthWalls = pguard::load(txt);
+                                 if (!depthWalls.empty()) event("placement: " + std::to_string(depthWalls.size()) + " scanned walls"); }
+        if (stageOk) for (auto& [id, c] : depthWalls) {
+            Entity* e = nullptr; for (auto& x : entities) if (x.uuid == id) e = &x;
+            if (!e) { entities.push_back(Entity{}); e = &entities.back(); e->uuid = id; e->label = "WALL_FACE"; e->has2d = true; }
+            e->r2 = {{c.ox, c.oy}, {c.w, c.h}}; e->pose = xp(pguard::toLocal(wp(stageInLocal), c)); e->located = true;
+        }
+        for (auto& e : entities) if (e.space == XR_NULL_HANDLE && !e.standIn && depthWalls.count(e.uuid)) have.insert(e.uuid);
         // Stand-ins: add or move them; drop those whose real wall is here.
         entities.erase(std::remove_if(entities.begin(), entities.end(), [&](const Entity& e) { return e.standIn && have.count(e.uuid); }), entities.end());
         if (stageOk) for (auto& u : pguard::standIns(need, have, wallCache)) {
@@ -2253,7 +2294,7 @@ void main(){
         std::ifstream f(gDir + "/placement.json"); if (!f) return;
         std::string s((std::istreambuf_iterator<char>(f)), {});
         char wall[64] = {}; float x, y, w, h;
-        if (sscanf(s.c_str(), "{\"wall\":\"%63[0-9a-f]\",\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f", wall, &x, &y, &w, &h) == 5) {
+        if (sscanf(s.c_str(), "{\"wall\":\"%63[0-9a-zA-Z-]\",\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f", wall, &x, &y, &w, &h) == 5) {
             placed.active = true; placed.wall = wall; placed.x = x; placed.y = y; placed.w = w; placed.h = h; placed.valid = true;
             event(std::string("restored placement on wall ") + wall);
         }
@@ -2909,7 +2950,7 @@ void main(){
         sscanf(j.c_str(), "{\"next\":%d", &nextScreenId);
         for (size_t at = j.find("{\"id\":"); at != std::string::npos; at = j.find("{\"id\":", at + 1)) {
             Screen sc{}; char wall[64] = {};
-            if (sscanf(j.c_str() + at, "{\"id\":%d,\"wall\":\"%63[0-9a-f]\",\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f", &sc.id, wall, &sc.p.x, &sc.p.y, &sc.p.w, &sc.p.h) == 6) {
+            if (sscanf(j.c_str() + at, "{\"id\":%d,\"wall\":\"%63[0-9a-zA-Z-]\",\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f", &sc.id, wall, &sc.p.x, &sc.p.y, &sc.p.w, &sc.p.h) == 6) {
                 sc.p.active = true; sc.p.valid = true; sc.p.wall = wall; extras.push_back(sc);
             }
         }
@@ -3721,7 +3762,7 @@ void main(){
             XrSpaceLocation hl{XR_TYPE_SPACE_LOCATION};
             if (XR_SUCCEEDED(xrLocateSpace(view, local, fs.predictedDisplayTime, &hl)) && (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) head = hl.pose;
             for (auto& e : entities) {
-                if (e.standIn) continue;
+                if (e.standIn || e.space == XR_NULL_HANDLE) continue;
                 XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
                 if (XR_SUCCEEDED(xrLocateSpace(e.space, local, fs.predictedDisplayTime, &sl)) && (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
                     (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) { e.pose = sl.pose; e.located = true; }
