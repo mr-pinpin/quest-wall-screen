@@ -5,7 +5,7 @@
    "app": "timer"
   }
  ],
- "by": "headset",
+ "by": "apps",
  "links": [],
  "menu": {
   "panel": {
@@ -22,7 +22,7 @@
   }
  },
  "nextScreenId": 4,
- "rev": 20,
+ "rev": 24,
  "rooms": [
   {
    "anchors": [
@@ -127,7 +127,7 @@
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-04T04:41:07Z",
+ "updated": "2026-11-04T05:09:42Z",
  "walls": [
   {
    "h": 2.50954533,
