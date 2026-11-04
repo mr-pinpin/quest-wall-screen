@@ -29,6 +29,7 @@ run "assistant backend (offline model + screen mocks)" python3 bench/assistant_m
 run "assistant client: SSE, chat, wrapping (room_lab/assist.h)" bash bench/assist_test.sh
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
+run "depth wall fitting on a real Quest depth frame (both eyes agree on the wall)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_replay.cpp -o $T/wfreplay && $T/wfreplay house/fixtures/depth-47041720"
 run "wall tools (room_lab/wallshape.h) + shapes valid in house/schema.py" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/wallshape_test.cpp -o $T/wallshape && (ulimit -v 1500000; timeout 60 $T/wallshape $T/shapes.json) && python3 house/check_fragment.py $T/shapes.json"
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"

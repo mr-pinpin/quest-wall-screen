@@ -161,14 +161,18 @@ inline void axesFor(V3 n, V3& right, V3& up) {
     up = norm(ref - n * dot(ref, n)); right = cross(up, n);
 }
 
+// Defaults tuned on real Quest 3 environment depth (house/fixtures/depth-47041720: ~1.5% depth noise, a wall at 2.6 m
+// fits with rms 25-40 mm): a 7x7 normal window, curvature up to 0.3, 25 degree normal gate, inlier band 1.2 cm + 3% of
+// depth. With them both eyes of the real frame agree on that wall within 1 degree / 9 mm; the synthetic suite passes at
+// 0.5%, 1% and 1.5% noise.
 struct Params {
     int targetPoints = 20000;    // grid points per frame (the frame is subsampled to about this many)
-    int normalHalf = 2;          // normal window: (2*normalHalf+1)^2 grid points
+    int normalHalf = 3;          // normal window: (2*normalHalf+1)^2 grid points
     float edgeRel = 0.04f;       // a neighbour further than this fraction of depth (+ 2 cm) is across a depth edge
-    float maxCurvature = 0.12f;  // smallest / total eigenvalue of the normal window: above this, not a flat spot
+    float maxCurvature = 0.3f;   // smallest / total eigenvalue of the normal window: above this, not a flat spot
     float inlier = 0.012f;       // point-to-plane distance for an inlier: inlier + inlierRel * depth (m); depth noise
-    float inlierRel = 0.015f;    // grows with distance, so the band does too
-    float normalDeg = 15;        // point normal vs plane normal for an inlier
+    float inlierRel = 0.03f;     // grows with distance, so the band does too
+    float normalDeg = 25;        // point normal vs plane normal for an inlier
     int iterations = 60;         // RANSAC hypotheses per plane
     int scoreSample = 1000;      // points scored per hypothesis
     int maxPlanes = 12;          // per frame

@@ -80,7 +80,7 @@ static Fuser survey(float noise, int size = 256) {
 
 int main() {
     // single frame facing the front wall
-    for (float noise : {0.005f, 0.01f}) {
+    for (float noise : {0.005f, 0.01f, 0.015f}) {
         Synth s; s.noise = noise;
         FrameFit ff = fitFrame(s.render(EYE, yawPitch(0, -10)));
         const Observation* fw = nullptr;
