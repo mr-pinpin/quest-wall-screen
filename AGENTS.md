@@ -20,5 +20,8 @@
 - **Headset:** never ask the user to wear it for a test; `bench/headset_hold.py` holds it awake unworn and lets go
   the moment the real sensor sees a wearer. Every headset change ships as a settings flag, off until proven.
 - **No rm on the laptop** (it prompts the user): move things aside, `launchctl bootout`, or `"enabled": false`.
+- **Never execute a third-party binary to probe it** (`--version`, `--help` included): read its strings or source, or its
+  logs. On 2026-11-04, `sunshine --version` on the Mini booted a second Sunshine with the default config and truncated
+  the live sunshine.log.
 - **PinPin Host:** never change its bundle id or signing identity (every permission would need new clicks).
 - Commit as "Mr. PinPin" <miguelemosreverte@gmail.com>; `git pull --rebase --autostash` before pushing.
