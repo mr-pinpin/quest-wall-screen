@@ -28,3 +28,4 @@
 - 07:50 check: 34 active (A2 waits for a quiet Air); c4, 42, ad waiting on the user (hand checks, morning list, the geometry-on removal decision). Nothing stuck
 - 08:10 check: unchanged; 34 waiting on a quiet Air, the others waiting on the user
 - 08:30 check: unchanged. Check-ins reduced from every 20 min to hourly (the user is past wake time; everyone is waiting on the user or a quiet Air)
+- 09:30 check: c4 reinstalling v0.63 while the user wears it (the first try rolled back on a strict fps bar); 34 on house consolidation; 42 on the receptionist Air proxy; ad on standby
