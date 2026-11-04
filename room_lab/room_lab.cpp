@@ -2624,8 +2624,21 @@ void main(){
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {
-                std::ifstream mf(gDir + "/model.json");
-                if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
+                // files/model.json picks the model and its pose in LOCAL space. Without one (or without "pos"), MODELS used
+                // to do nothing at all (2026-11-04: the user turned it on and saw nothing; the rollback had removed
+                // model.json). Now: the helmet from the Mini, 1 m in front of where the user looks when it starts.
+                std::ifstream mf(gDir + "/model.json"); std::string cfg;
+                if (mf) { std::stringstream ms; ms << mf.rdbuf(); cfg = ms.str(); }
+                bool ok = false; json::Value c = json::parse(cfg, &ok);
+                if (!ok || c.type != json::Value::Obj) { c = house::obj(); c.o["url"] = house::str("http://192.168.0.50:8099/DamagedHelmet/model.glb"); c.o["scale"] = house::num(0.3); }
+                if (!c.has("pos")) {
+                    V3 f = rot(head.orientation, {0, 0, -1}); f.y = 0; f = norm(f); if (len(f) < 0.5f) f = {0, 0, -1};
+                    V3 at = v3(head.position) + f * 1.0f; at.y -= 0.15f;
+                    json::Value pos = house::arr(); pos.a = {house::num(at.x), house::num(at.y), house::num(at.z)}; c.o["pos"] = pos;
+                    c.o["yaw"] = house::num(std::atan2(-f.x, -f.z) * 57.29578f);  // degrees; the model faces the user
+                }
+                model.start(house::dump(c)); modelStarted = true;
+                event(std::string("model: loading ") + model.url + (mf ? "" : " (no files/model.json: the default, in front of you)"));
             }
             launcher.h264 = codecMenu || codecFile;
         }
