@@ -2250,6 +2250,39 @@ struct App {
         depthPlaced++; event("depthplace: wall " + id + " (" + std::to_string(w.w).substr(0, 4) + " x " + std::to_string(w.h).substr(0, 4) + " m, conf " + std::to_string(w.confidence).substr(0, 4) + ") kept as a placement target");
         return true;
     }
+    static wallfit::Pose unitPose(wallfit::Pose p) {
+        float l = std::sqrt(p.q.x * p.q.x + p.q.y * p.q.y + p.q.z * p.q.z + p.q.w * p.q.w);
+        if (l > 1e-6f) p.q = {p.q.x / l, p.q.y / l, p.q.z / l, p.q.w / l};
+        return p;
+    }
+    // One-time repair of depthwalls.json written in a stale STAGE frame (v0.63-v0.66). The depth walls SCAN committed
+    // at 09:32 are in the house in our anchors' frame: each one whose id and size match gives one estimate of the
+    // correction (true STAGE pose via the anchors, now, against the stored stale one); the consensus (anchors::solve,
+    // 10 cm / 3 deg, at least 2) moves every depth wall and the cache's copies. files/depthwalls-repaired: done.
+    bool depthRepairDone = false;
+    void repairDepthWalls() {
+        if (depthRepairDone || !stageOk || !roomFrame.ok || depthWalls.empty()) return;
+        if (access((gDir + "/depthwalls-repaired").c_str(), F_OK) == 0) { depthRepairDone = true; return; }
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        if (!d) return;
+        depthRepairDone = true;
+        std::vector<anchors::Seen> est; std::string ids;
+        for (auto& [u, dw] : depthWalls) for (auto& w : (*d)["walls"].a) {
+            if (w["id"].str() != u || w["kind"].str() != "wall" || !w.has("pose")) continue;
+            if (std::fabs((float)w["w"].num() - dw.w) > 0.05f || std::fabs((float)w["h"].num() - dw.h) > 0.05f) continue;
+            wallfit::Pose trueStage = anchors::compose(anchors::inverse(wp(stageInLocal)), anchors::compose(roomFrame.roomInLocal, poseFrom(w["pose"])));
+            est.push_back({"x", unitPose(anchors::compose(trueStage, anchors::inverse(unitPose(dw.stage))))}); ids += " " + u.substr(0, 9);
+        }
+        anchors::Frame f = anchors::solve({{"x", wallfit::Pose{{0, 0, 0, 1}, {0, 0, 0}}}}, est, 0.10f, 3.0f);
+        house::writeAtomic(gDir + "/depthwalls-repaired", "1");
+        if (!f.ok || f.used < 2) { event("depthwalls: repair skipped, " + std::to_string(est.size()) + " matches, " + std::to_string(f.used) + " agree"); return; }
+        wallfit::Pose T = unitPose(f.roomInLocal);
+        for (auto& [u, dw] : depthWalls) { dw.stage = unitPose(anchors::compose(T, dw.stage)); if (wallCache.count(u)) wallCache[u].stage = dw.stage; }
+        house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls)); house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
+        for (auto& e : entities) if (depthWalls.count(e.uuid)) e.pose = xp(pguard::toLocal(wp(stageInLocal), depthWalls[e.uuid]));
+        event("depthwalls: repaired by " + std::to_string((int)(wallfit::len(T.p) * 100)) + " cm / " + std::to_string((int)anchors::angleDeg(T.q, wallfit::Quat{})) + " deg from " +
+              std::to_string(f.used) + " of " + std::to_string(est.size()) + " house walls (" + ids + " )");
+    }
     pguard::Requery pg; std::map<std::string, pguard::CachedWall> wallCache; bool wallCacheLoaded = false;
     std::chrono::steady_clock::time_point wallCacheSaved{};
     XrPosef stageInLocal{{0, 0, 0, 1}, {0, 0, 0}}; bool stageOk = false;
@@ -2270,6 +2303,7 @@ struct App {
         if (running && (state == XR_SESSION_STATE_VISIBLE || state == XR_SESSION_STATE_FOCUSED) && pg.due(now(), need, have) && sceneState.rfind("querying", 0) != 0) {
             pg.started(now()); querySpaces(); event("placement: re-query (" + std::to_string(have.size()) + " real walls located)");
         }
+        repairDepthWalls();
         // Our depth walls (SCAN): permanent walls of their own, posed from STAGE every frame.
         if (!depthWallsLoaded) { depthWallsLoaded = true; std::string txt; if (house::readFile(gDir + "/depthwalls.json", txt)) depthWalls = pguard::load(txt);
                                  if (!depthWalls.empty()) event("placement: " + std::to_string(depthWalls.size()) + " scanned walls"); }
@@ -2291,14 +2325,18 @@ struct App {
         }
         // STAGE moved (2026-11-04: 2.5 m between two sessions after a dark-room relocalisation): the first real wall that
         // arrives more than 10 cm from its cached spot gives the rigid correction; every cached wall is rebased with it.
-        if (stageOk) for (auto& e : entities) if (!e.standIn && e.located && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
+        // Only Meta's own walls can tell (2026-11-04: our depth walls, posed from depthwalls.json and never rebased, were
+        // taken as the reference, "stage moved 526 cm", and the cache was shifted the wrong way; screens 6 and 7 vanished).
+        if (stageOk) for (auto& e : entities) if (!e.standIn && e.located && e.space != XR_NULL_HANDLE && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
             stageChecked.insert(e.uuid);
             pguard::CachedWall& c = wallCache[e.uuid];
             wallfit::Pose realStage = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose));
             float jump = wallfit::len(realStage.p - c.stage.p);
             if (jump > 0.10f) {
                 wallfit::Pose T = anchors::compose(realStage, anchors::inverse(c.stage));
-                for (auto& [u, cw] : wallCache) cw.stage = anchors::compose(T, cw.stage);
+                for (auto& [u, cw] : wallCache) cw.stage = unitPose(anchors::compose(T, cw.stage));
+                for (auto& [u, dw] : depthWalls) dw.stage = unitPose(anchors::compose(T, dw.stage));   // our walls move with STAGE too
+                if (!depthWalls.empty()) house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
                 stageMoves++; stageJumpM = jump; house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
                 event("placement: stage moved " + std::to_string((int)(jump * 100)) + " cm since the cache (wall " + e.uuid.substr(0, 8) + "); cache rebased");
             }
