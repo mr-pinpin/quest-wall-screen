@@ -31,6 +31,10 @@ cleanup() {
   [ -n "$CAFF" ] && kill "$CAFF" 2>/dev/null
   setbase ""            # revert to the real house
   sleep 5               # let PinPin Host restart the plugin from the changed spec
+  # the app-build case assigns an app to screen 60 via the apps server (LIVE house, not scratch) — unassign it
+  TOKEN=$(cat ~/.local/share/pinpin-apps/token 2>/dev/null)
+  curl -s -m8 -X POST "http://192.168.0.50:57830/api/screens/60/app" -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' -d '{"app":null}' >/dev/null 2>&1
   curl -s -m5 -X POST "http://127.0.0.1:57710/remove?id=60" >/dev/null 2>&1
   [ -d "$L" ] && mv "$L" "$L.done-$(date +%s)"
   echo "CLEANUP: house reverted to real ($(curl -s -m4 http://127.0.0.1:57840/health >/dev/null 2>&1 && echo up)), display 60 removed, lock released"
