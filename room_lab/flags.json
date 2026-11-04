@@ -1,0 +1,616 @@
+{
+ "schema": 1,
+ "updated": "2026-11-04",
+ "states": {
+  "on": "shipped on by default",
+  "off": "available, off by default",
+  "hidden": "no measured gain or broken: greyed in the menu with the reason as its hint"
+ },
+ "categories": {
+  "perf": "decided by benchmarks (bench/verdict.py)",
+  "visual-taste": "the user's choice; no benchmark decides it",
+  "experimental": "feature in development or diagnostic"
+ },
+ "flags": [
+  {
+   "name": "QUAD",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Main screen as a compositor layer: sharper text. On by default because the user preferred it.",
+   "evidence": [
+    {
+     "commit": "ebeb44f"
+    }
+   ],
+   "menu": "PANEL"
+  },
+  {
+   "name": "MIPQ",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Lanczos-2 mip chain instead of a 2x2 box: crisper text when a screen is shrunk, at some GPU cost. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "623d4cb"
+    }
+   ]
+  },
+  {
+   "name": "CURVE",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "visual-taste",
+   "reason": "User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "43eb2d9"
+    }
+   ],
+   "menu": "DISPLAY"
+  },
+  {
+   "name": "MARGIN",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "visual-taste",
+   "reason": "Off: the transparent margin shrank the panel and moved the edge line outward. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "00a158f"
+    }
+   ],
+   "menu": "BORDER"
+  },
+  {
+   "name": "SUPER",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Meta's quality super-sampling for the main screen layer: smoother edges for some GPU. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "ebeb44f"
+    }
+   ],
+   "menu": "BORDER"
+  },
+  {
+   "name": "BEZEL",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "A frame over the panel edge; on by default because it removed the edge line completely. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "fe42de2"
+    }
+   ],
+   "menu": "BORDER"
+  },
+  {
+   "name": "FADE",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "visual-taste",
+   "reason": "User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "00a158f"
+    }
+   ],
+   "menu": "BEZEL"
+  },
+  {
+   "name": "GLASS",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "visual-taste",
+   "reason": "User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "21e74b2"
+    }
+   ],
+   "menu": "BEZEL"
+  },
+  {
+   "name": "AMBI",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "The frame glows with the screen's colours: the user's pick.",
+   "evidence": [
+    {
+     "commit": "21e74b2"
+    }
+   ],
+   "menu": "BEZEL"
+  },
+  {
+   "name": "SPELL",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Draw a circle in the air to summon a screen. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "f15fc2c"
+    }
+   ],
+   "menu": "GESTURES"
+  },
+  {
+   "name": "MACDISP",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Extra screens are real Mac displays streamed back; off shows placeholders and removes them from the Mac.",
+   "evidence": [
+    {
+     "commit": "798dcbf"
+    }
+   ],
+   "menu": "SCREENS"
+  },
+  {
+   "name": "SAVESET",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Remember the toggles across launches. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "8a29b4e"
+    }
+   ],
+   "menu": "MEMORY"
+  },
+  {
+   "name": "RESUME",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "visual-taste",
+   "reason": "Reopen the last source at start. User's choice: how it looks or feels; no benchmark decides it.",
+   "evidence": [
+    {
+     "commit": "8a29b4e"
+    }
+   ],
+   "menu": "MEMORY"
+  },
+  {
+   "name": "HOSTRES",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "perf",
+   "reason": "Find the laptop by mDNS name instead of a fixed address; on by default since v0.40.",
+   "evidence": [
+    {
+     "commit": "aaa6782"
+    }
+   ],
+   "menu": "SOURCE"
+  },
+  {
+   "name": "H264",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Game stream in H.264 instead of HEVC (low-latency rate control). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain. Equal latency keeps HEVC (better quality per bit).",
+   "evidence": [
+    {
+     "commit": "b5f543e"
+    },
+    {
+     "result": "docs/bench-scoreboard.md"
+    }
+   ],
+   "menu": "SOURCE"
+  },
+  {
+   "name": "VT",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Virtual texturing: full detail only where you look, tails for hidden screens. Paired with the sender vt flag. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "67d81b9"
+    },
+    {
+     "result": "bench/results/sender-profile-2026-11-03.md"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "BUDGET",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "One arbiter shares Wi-Fi between atlas, game and assets. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "7e1ca79"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "GPUTIME",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "GPU timer queries for diagnostics; feeds BUDGET. Measurement only.",
+   "evidence": [
+    {
+     "commit": "ae1ecf8"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "WIFILL",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Android low-latency Wi-Fi lock. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "aaa6782"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "LODPOSE",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Detail level from viewing distance and angle. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "c6a2900"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "HERO",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "A big, focused screen gets its own stream instead of the atlas. Paired with the sender hero flag. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "a9d12f7"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "KEYREQ",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Ask the sender for a keyframe after loss instead of waiting for a periodic one. Pairs with sender noperiodic. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "34844e6"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "MODELS",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Show a streamed 3D model. Feature in development.",
+   "evidence": [
+    {
+     "commit": "a90e869"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "SHOULDER",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Menu button by the shoulder (house onboarding). Feature in development.",
+   "evidence": [
+    {
+     "commit": "b91678f"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "HOUSE",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Keep the layout in house.json on the Mini (house/README.md). Feature in development.",
+   "evidence": [
+    {
+     "commit": "4d4e9cb"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "DEPTHGAP",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Measure screens against the real walls from depth (wallfit.h). Diagnostic.",
+   "evidence": [
+    {
+     "commit": "ef2705a"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "WRIST",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Tap the wrist for a ring menu. Feature in development.",
+   "evidence": [
+    {
+     "commit": "188a6fb"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "SCAN",
+   "where": "headset",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Scan button in the menus: fit the walls in front of you into house.json. Feature in development.",
+   "evidence": [
+    {
+     "commit": "5853772"
+    }
+   ],
+   "menu": "EXPERIMENTAL"
+  },
+  {
+   "name": "vt",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Sender half of virtual texturing (levels, tiles, mip tails). Single Wi-Fi pair: fresh 48 -> 56 fps but gap p99 32 -> 105 ms; synth localhost 62 fps. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "43dc9ba"
+    },
+    {
+     "result": "docs/bench-scoreboard.md"
+    }
+   ]
+  },
+  {
+   "name": "longgop",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Periodic keyframes every 10 s instead of 2 s. Air A/B: keyframes 16 -> 4, fresh 40 -> 46 fps (one pair). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "a656876"
+    }
+   ]
+  },
+  {
+   "name": "noperiodic",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "No periodic keyframes at all; keyframes only on connect, layout change or headset request (KEYREQ). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "bec2fc0"
+    }
+   ]
+  },
+  {
+   "name": "bpcut",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Bitrate x0.7 under backpressure. Single A/B at 3 Mbit/s WAN: frames 148 -> 318, keyframes 23 -> 7, gap p99 583 -> 343 ms. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "f2c359f"
+    }
+   ]
+  },
+  {
+   "name": "damage",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Skip copies of unchanged frames. encprobe showed no effect: ScreenCaptureKit marks every frame dirty. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "78f0d6f"
+    },
+    {
+     "result": "bench/results/encshare-2026-11-03.md"
+    }
+   ]
+  },
+  {
+   "name": "prifps",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Background screens at 10-15 fps by priority. encprobe: atlas 40 -> 29 fps. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "78f0d6f"
+    },
+    {
+     "result": "bench/results/encshare-2026-11-03.md"
+    }
+   ]
+  },
+  {
+   "name": "gameyield",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "While a game plays, the atlas encodes 1 tick in 2-4 so the game gets the media engine. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "ae89104"
+    },
+    {
+     "result": "bench/results/encshare-2026-11-03.md"
+    }
+   ]
+  },
+  {
+   "name": "gamecap",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "While a game plays, the atlas is laid out within 1920x1200. With gameyield: game encode 40 fps / 277 ms -> 60 fps / 13 ms (encprobe). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "78f0d6f"
+    },
+    {
+     "result": "bench/results/encshare-2026-11-03.md"
+    }
+   ]
+  },
+  {
+   "name": "capfast",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Capture interval half a refresh (1/120 s at 60 fps) so frames landing a hair early are not skipped. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "7e550b8"
+    },
+    {
+     "result": "bench/results/sender-profile-2026-11-03.md"
+    }
+   ]
+  },
+  {
+   "name": "nodelay",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "TCP_NODELAY on the headset connections (Nagle held each frame's last partial segment for an ACK). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "81da0a6"
+    }
+   ]
+  },
+  {
+   "name": "pend1",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Encode only when nothing is still in flight to any peer (default: up to 1 frame queued). Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "81da0a6"
+    }
+   ]
+  },
+  {
+   "name": "pace",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Paced sends: 16 KB chunks at 1.5x the bitrate, so Wi-Fi sees no bursts. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "81da0a6"
+    }
+   ]
+  },
+  {
+   "name": "hero",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "perf",
+   "reason": "Sender half of HERO: own HEVC stream for the hero screen, with a share of the BUDGET. Off until the benchmark campaign (stand-in + Air, 3x A/B vs v0.37 defaults) shows a measurable gain.",
+   "evidence": [
+    {
+     "commit": "43dc9ba"
+    },
+    {
+     "commit": "1801c63"
+    }
+   ]
+  },
+  {
+   "name": "nowake",
+   "where": "sender",
+   "default": false,
+   "state": "off",
+   "category": "experimental",
+   "reason": "Turns OFF the display wake while a headset is connected. The wake is a fix (virtual displays vanish when the Mac display sleeps), so this stays off; kept only for tests.",
+   "evidence": [
+    {
+     "commit": "a4709fe"
+    }
+   ]
+  }
+ ]
+}
