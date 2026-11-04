@@ -60,6 +60,17 @@ def context_note(msgs):
 
 
 def chat_system_prompt(screen):
+    if str(screen) == "room":
+        return (
+            "You are the PinPin room assistant — you help with the whole room, not one screen. Call house_info to "
+            "see the house's walls (by id and size) and screens (by id). You can add, move, resize and close wall "
+            "screens — new_screen (on a named wall), move_screen, resize_screen, close_screen — always naming the "
+            "screen by its id; and build apps (authoring_guide, put_app, assign_app). The user speaks from anywhere: "
+            "\"make screen 3 bigger\", \"put a weather screen on the big wall\", \"turn off the screen by the window\". "
+            "If a request names a wall by feel (\"by the door\") and you can't map it to a wall id, say what walls "
+            "exist and ask which. You do NOT have a single screen's pointer tools (screenshot/click) here. Keep "
+            "replies short and in Markdown, and confirm what changed in one line."
+        )
     return (
         f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
         f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
@@ -292,6 +303,9 @@ class ModelBackend:
 
     def ask(self, prompt, system=None, want_json=False, model=None):  # one-shot, no screen actions
         raise NotImplementedError
+
+    def auth_ok(self):  # (authed, detail) — is the model reachable (claude login valid)?
+        return True, "n/a"
 
 
 class MockBackend(ModelBackend):
@@ -558,6 +572,18 @@ class ClaudeCliBackend(ModelBackend):
                 return {"text": text, "json": None}
         return {"text": text}
 
+    def auth_ok(self):
+        try:
+            out = subprocess.run([self.claude, "-p", "ok", "--model", MODEL_CHAT, "--output-format", "json"],
+                                 capture_output=True, text=True, timeout=30)
+            blob = out.stdout + out.stderr
+            if any(k in blob for k in ("Not logged in", "authentication_failed", "Please run /login",
+                                       "OAuth", "Invalid API key")):
+                return False, "claude login expired — run `claude` login on this machine"
+            return True, "ok"
+        except Exception as e:
+            return False, str(e)[:160]
+
 
 # ---- assistant --------------------------------------------------------------
 class Assistant:
@@ -606,6 +632,10 @@ class Assistant:
     def ask(self, app, screen, prompt, system=None, want_json=False, model=None):
         self.store.log_action(screen or "ask", {"type": "ask", "app": app, "prompt": prompt[:200], "model": model})
         return self.backend.ask(prompt, system=system, want_json=want_json, model=model)
+
+    def auth_status(self):
+        ok, detail = self.backend.auth_ok()
+        return {"authed": ok, "detail": detail, "ts": NOW()}
 
     def _apps_ids(self):
         try:
@@ -677,6 +707,8 @@ def make_handler(assistant):
             parts = [p for p in u.path.split("/") if p]
             if u.path == "/health":
                 return self._json(200, {"ok": True, "port": PORT, "ts": NOW()})
+            if u.path == "/health/auth":  # green once the claude login is valid (poll after re-auth)
+                return self._json(200, assistant.auth_status())
             if len(parts) == 2 and parts[0] == "session":
                 s = assistant.store.load(parts[1])
                 return self._json(200, {

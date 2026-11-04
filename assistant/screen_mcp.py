@@ -94,6 +94,49 @@ def _close_screen(args):
     return {"ok": True, "screen": sid, "closed": True, "rev": res.get("rev")}
 
 
+def _wall_of(doc, wid):
+    return next((w for w in doc.get("walls", []) if w.get("id") == wid), None)
+
+
+def _move_screen(args):
+    doc, rev = _house_get()
+    sid = args.get("screen", SCREEN)
+    s = next((x for x in doc.get("screens", []) if str(x.get("id")) == str(sid)), None)
+    if not s:
+        return {"error": f"no screen {sid} in the house"}
+    if args.get("wall"):
+        if not any(w.get("id") == args["wall"] and w.get("scene") for w in doc["walls"]):
+            return {"error": f"wall {args['wall']} is not a scene-located wall"}
+        s["wall"] = args["wall"]
+    if args.get("x_m") is not None:
+        s["x"] = round(float(args["x_m"]), 3)
+    if args.get("y_m") is not None:
+        s["y"] = round(float(args["y_m"]), 3)
+    wall = _wall_of(doc, s["wall"])
+    if wall and wall.get("w"):  # clamp to the wall extent (3 cm margin)
+        lim = wall["w"] / 2 - s["w"] / 2 - 0.03
+        s["x"] = max(-lim, min(lim, s["x"]))
+    res = _house_put(doc, rev)
+    return {"ok": True, "screen": sid, "wall": s["wall"], "x": s["x"], "y": s["y"], "rev": res.get("rev")}
+
+
+def _resize_screen(args):
+    doc, rev = _house_get()
+    sid = args.get("screen", SCREEN)
+    s = next((x for x in doc.get("screens", []) if str(x.get("id")) == str(sid)), None)
+    if not s:
+        return {"error": f"no screen {sid} in the house"}
+    new_w = float(args["width_m"])
+    aspect = (s["h"] / s["w"]) if s.get("w") else (1000.0 / 1600.0)
+    wall = _wall_of(doc, s.get("wall"))
+    if wall and wall.get("w") and new_w > wall["w"] - 0.06:
+        return {"error": f"{new_w:.2f} m is too wide for that wall ({wall['w']:.2f} m)"}
+    s["w"] = round(new_w, 3)
+    s["h"] = round(new_w * aspect, 3)
+    res = _house_put(doc, rev)
+    return {"ok": True, "screen": sid, "w": s["w"], "h": s["h"], "rev": res.get("rev")}
+
+
 def _house_info():
     doc, rev = _house_get()
     walls = [{"id": w["id"], "w": w.get("w"), "h": w.get("h")}
@@ -200,6 +243,12 @@ TOOLS = [
          "app": {"type": "string"}, "url": {"type": "string"}}}},
     {"name": "close_screen", "description": "Turn a screen off (reversible). Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}}}},
+    {"name": "move_screen", "description": "Move a screen along its wall (x_m,y_m in metres from wall centre) or to another scene wall. Defaults to THIS screen.",
+     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "x_m": {"type": "number"},
+                     "y_m": {"type": "number"}, "wall": {"type": "string"}}}},
+    {"name": "resize_screen", "description": "Set a screen's width in metres (height keeps its aspect). Defaults to THIS screen.",
+     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "width_m": {"type": "number"}},
+                     "required": ["width_m"]}},
 ]
 
 
@@ -246,6 +295,10 @@ def call(name, args):
         return {"content": [{"type": "text", "text": json.dumps(_new_screen(args))}]}
     if name == "close_screen":
         return {"content": [{"type": "text", "text": json.dumps(_close_screen(args))}]}
+    if name == "move_screen":
+        return {"content": [{"type": "text", "text": json.dumps(_move_screen(args))}]}
+    if name == "resize_screen":
+        return {"content": [{"type": "text", "text": json.dumps(_resize_screen(args))}]}
     # Mutating actions. verify-after-act (work-df): every action returns a fresh screenshot of the TARGET screen,
     # so the model confirms the real result from the pixels instead of trusting the call returned.
     if name == "move":
