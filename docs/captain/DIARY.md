@@ -38,3 +38,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The user's room chat went to the room assistant, not to me, and that confused them. An entry point needs to say who you are talking to.
 - **Learned:** the Air's slowdown per extra screen is the aerial wallpaper plus colorsync, not our capture (~5%). Only the user can switch it.
 - **Next:** v0.65 confirmed on the headset; k5 integrates v0.66; c4 does HOUSE sync (K9) and the headset fps profile; the user returns about 10:50.
+
+## 2026-11-04 11:00 UTC
+- **Decided:**
+  - The user now talks to me from the headset: CLAUDE in the ring (v0.65) → receptionist → work-df.
+  - Shipped v0.66/0.67: HOUSE sync with a local-first push, and the 6/7 repair attempt.
+  - A 5th agent (work-0e) builds headers and integrates them, so c4 isn't the bottleneck.
+- **Broke, the big one:** work-42's PinPin Displays deploy left THREE owners (PinPin Host child, a launchd KeepAlive agent, an `open` copy). They fought over :57710, displays were re-created every few seconds, the Air hit load 246, and the user couldn't use their Mac. I fixed it by hand: booted out the agent, killed the extras, so only the Host child runs.
+- **Lesson:** each service has one owner, and on a live machine never "restart until it works". Now in AGENTS.md (b296d20).
+- **Broke:** screens 6/7 couldn't be recovered automatically, because depth walls lived in STAGE and wrong rebases corrupted the cache. The user re-places them. v0.67 has the Meta-only check.
+- **Broke:** colorsync was pegged since 02:04. It was NOT the wallpaper; I relayed a wrong diagnosis and sent the user on a detour. A reboot fixed most of it (100% → 30%).
+- **Broke:** after the reboot the Air joined the ZyXEL with Tailscale off. Rejoined it to RT-5WiFi (.105), removed the other home networks, started Tailscale.
+- **Next:** work-0e's combined v0.68 (dictation, STEADY, select, panels, chat history); the campaign resumes; a network-health check on /status.
