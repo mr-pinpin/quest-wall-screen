@@ -151,10 +151,16 @@ def main():
                     'wake_lock': sh(SU.format('cat /sys/power/wake_lock')).strip(), 'autosleep': sh(SU.format('oculuspreferences --getc autosleep_time')).strip()}
             RES.mkdir(exist_ok=True); origf.write_text(json.dumps(orig, indent=1))
         log('originals: ' + origf.read_text().replace('\n', ' '))
+        # Root (Magisk, /debug_ramdisk/su) is lost on every reboot and is not re-rooted without the user's say-so. Without
+        # it only the non-root parts apply (doze whitelist, Wi-Fi hi-perf); the wake lock is logged as unavailable.
+        root = 'uid=0' in sh(SU.format('id'))
+        if not root:
+            sh('dumpsys deviceidle disable all'); sh(f'dumpsys deviceidle whitelist +{stress.PKG}'); r = sh('cmd wifi force-hi-perf-mode enabled').strip()
+            log('NO ROOT: wake lock unavailable; applied doze off + whitelist + wifi hi-perf only (' + (r or 'ok') + ')')
         import base64
         b64 = base64.b64encode(loop.encode()).decode()
         sh(f'echo {b64} | base64 -d > /data/local/tmp/pinpin-nosleep.sh && chmod 755 /data/local/tmp/pinpin-nosleep.sh && touch /data/local/tmp/pinpin-nosleep.run')
-        if 'pinpin-nosleep.sh' not in sh('ps -A -o ARGS | grep pinpin-nosleep | grep -v grep'):
+        if root and 'pinpin-nosleep.sh' not in sh('ps -A -o ARGS | grep pinpin-nosleep | grep -v grep'):
             sh(SU.format('nohup /data/local/tmp/pinpin-nosleep.sh >/dev/null 2>&1 &'))
         sh('dumpsys deviceidle disable all'); sh(f'dumpsys deviceidle whitelist +{stress.PKG}')
         sh(SU.format('iw dev wlan0 set power_save off')); r = sh('cmd wifi force-hi-perf-mode enabled').strip()
@@ -162,16 +168,18 @@ def main():
         log('applied: wake_lock=' + sh(SU.format('cat /sys/power/wake_lock')).strip() + ' | guard=' + sh('ps -A -o ARGS | grep pinpin-nosleep.sh | grep -v grep').strip()
             + ' | deviceidle=' + sh('dumpsys deviceidle enabled').strip().replace('\n', ' ') + ' | power_save=' + sh(SU.format('iw dev wlan0 get power_save')).strip()
             + ' | hi-perf: ' + (r or 'ok') + ' | ' + sh('tail -2 /data/local/tmp/pinpin-nosleep.log').strip().replace('\n', ' / '))
-        stress.activity('START headset nosleep (kernel wake lock while powered, doze off, wifi power save off); restore: headset_awake.py restore-nosleep')
+        stress.activity('START headset nosleep (' + ('kernel wake lock while powered, ' if root else 'NO ROOT: no wake lock; ') + 'doze off, wifi power save off); restore: headset_awake.py restore-nosleep')
         out = RES / f'headset-awake-{datetime.date.today()}.jsonl'
         t0, up, down = time.time(), 0, 0
         while time.time() - t0 < watch * 60:
             ok = reachable()
             r = {'t': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), 'mode': 'nosleep', 'adb': ok, **(state() if ok else {})}
             if ok:
-                r['lock'] = 'pinpin' in sh(SU.format('cat /sys/power/wake_lock'))
+                r['root'] = 'uid=0' in sh(SU.format('id'))
+                r['lock'] = r['root'] and 'pinpin' in sh(SU.format('cat /sys/power/wake_lock'))
                 r['guard'] = 'pinpin-nosleep.sh' in sh('ps -A -o ARGS | grep pinpin-nosleep.sh | grep -v grep')
-                if not r['guard'] and r.get('powered'):  # e.g. after a reboot: start it again
+                if not r['root']: r['note'] = 'no root, wake lock unavailable'
+                if r['root'] and not r['guard'] and r.get('powered'):  # e.g. after a reboot with root back: start it again
                     sh('touch /data/local/tmp/pinpin-nosleep.run'); sh(SU.format('nohup /data/local/tmp/pinpin-nosleep.sh >/dev/null 2>&1 &')); r['guardRestarted'] = True
             up += ok; down += not ok
             with out.open('a') as f: f.write(json.dumps(r) + '\n')

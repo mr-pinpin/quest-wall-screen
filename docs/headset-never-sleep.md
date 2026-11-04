@@ -26,9 +26,15 @@ Root is available (`/debug_ramdisk/su`). The fix has four parts:
 4. **The display is never touched.** There is no simulated wear (prox_close) and no screen-on. The display still follows
    the mount sensor, so there is no burn-in and no light at night.
 
+**Without root.** Magisk root is lost on every reboot, and nobody re-roots without the user's say-so.
+- Without root, only parts 2 and 3 apply (doze and Wi-Fi). The kernel wake lock, `iw`, and the guard need root.
+- The watch logs `"root": false, "note": "no root, wake lock unavailable"`.
+- The guard is restarted after a reboot only if root is back.
+- Whether the non-root parts alone keep adb up is exactly what the watch log shows.
+
 The watch logs once a minute: adb reachable, powered, battery level, wakefulness, VR state, whether the wake lock is held
-and whether the guard is running. It goes to `bench/results/headset-awake-<date>.jsonl`. After a reboot the guard is gone,
-and the next watch round restarts it.
+and whether the guard is running. It goes to `bench/results/headset-awake-<date>.jsonl`. After a reboot the guard is gone; the next watch
+round restarts it only if root is back.
 
 ## Undo
 
