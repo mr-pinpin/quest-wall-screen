@@ -9,3 +9,4 @@
 - 02:20 c4: v0.47 built (WALLTOOL, ASSIST UI, SCROLL; flags off); NOSLEEP active since 01:50 with root; v0.47 session GO
 - 02:10 check: all four active. User woke briefly: screens misplaced = Meta relocalised in the dark (lights on fixed it); perf flags were back on in settings.json, now off. New user rule: deploy/restart any time unless the user says not to disturb
 - 02:30 check: all four active. v0.47 installed (P0 fix, ASSIST on); campaign block A running; apps runner test pass; Safari cleanup put on the morning list
+- 02:50 check: c4 (v0.49 chat UX installing), 34 (campaign A, benchlock races fixed, roommesh.h done), 42 (M8 app-building e2e) busy; ad idle -> app picker + 3 apps

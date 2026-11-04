@@ -32,12 +32,12 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 ## User feedback 2026-11-04 ~02:20 UTC
 - [x] P0 placements never disappear (v0.47 e3f5487; headset regress deferred to day)
 - [x] v0.47 installed with ASSIST on (02:26; not yet seen running)
-- [ ] screens made from the menu get the move bar like the main one (c4)
+- [x] move bar on every screen, ALLBARS (v0.48)
 - [ ] screens can be created on walls in rooms we scanned (multi-room placement) (c4)
-- [ ] close button on unlocked screens with a double-press confirm (c4)
+- [x] close X with double-pinch confirm, CLOSEX (v0.48)
 - [ ] progressive tessellated scan mesh like Meta (TSDF + marching cubes) (34 core, c4 render)
 - [ ] GEOMETRY flag to show the room mesh and walls (c4 + 34)
-- [ ] assistant: per-screen Chrome window lands on its display; verify-after-act (42 + ad)
+- [x] assistant lands on its display + verify-after-act (42+ad, e2e PASS on display 60)
 
 ## Next
 - [ ] SCAN on demand: own persisted anchors, sweep progress cue, commit to house.json (c4 + 09)
