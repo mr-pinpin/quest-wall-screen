@@ -27,6 +27,7 @@ APPS_BASE = os.environ.get("PINPIN_APPS_BASE", "http://192.168.0.50:57830")  # m
 RECEPT_BASE = os.environ.get("PINPIN_RECEPT_BASE", "http://100.109.138.51:57850")  # VPS over Tailscale
 RECEPT_TOKEN_FILE = os.path.expanduser(os.environ.get(
     "PINPIN_RECEPT_TOKEN_FILE", "~/.local/share/pinpin-assistant/receptionist-token"))
+ROOM_TO_CAPTAIN = os.environ.get("PINPIN_ROOM_TO_CAPTAIN", "") == "1"  # ASK… room session -> receptionist -> work-df
 
 _APPS_TOKEN = ""
 
@@ -839,6 +840,11 @@ def make_handler(assistant):
                 pass
 
         def _sse_message(self, screen, body):
+            # Bridge: the room session (ASK…) relays to the captain (work-df) via the receptionist,
+            # behind a reversible flag. Per-screen chats are unaffected.
+            if str(screen) == "room" and ROOM_TO_CAPTAIN:
+                raw = json.dumps({"conversation_id": "room", "text": body.get("text", "")}).encode()
+                return self._proxy_reception("POST", "turn", raw)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
