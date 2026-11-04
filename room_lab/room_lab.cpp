@@ -30,6 +30,7 @@
 #include "wallfit.h"
 #include "anchors.h"
 #include "scroll.h"
+#include "wallshape.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -212,6 +213,8 @@ struct App {
     bool scanMenu = false, scanFile = false; bool scanOn() const { return scanMenu || scanFile; }
     // SCROLL flag (room_lab/scroll.h): an open hand, palm away, waved up/down/left/right scrolls the screen pointed at.
     bool scrollMenu = false, scrollFile = false; bool scrollOn() const { return scrollMenu || scrollFile; }
+    // WALLTOOL flag (room_lab/wallshape.h): draw lines and circles on the walls, extrude lines into skins; saved in house.json.
+    bool wallToolMenu = false, wallToolFile = false; bool wallToolOn() const { return wallToolMenu || wallToolFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -471,7 +474,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 35;
+    static constexpr int kMenuItems = 36;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -488,7 +491,8 @@ struct App {
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
         {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
-        {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"}};
+        {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"},
+        {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -517,6 +521,7 @@ struct App {
         if (l == "WRIST") return wristOn();
         if (l == "SCAN") return scanOn();
         if (l == "SCROLL") return scrollOn();
+        if (l == "WALLTOOL") return wallToolOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -577,7 +582,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -606,7 +611,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -645,6 +650,7 @@ struct App {
         else if (l == "WRIST") { wristMenu = !wristMenu; if (!wristOn() && !shoulderOn()) sm.stack.clear(); }  // wrist ring menu
         else if (l == "SCAN") scanMenu = !scanMenu;                           // the scan button in SHOULDER / WRIST
         else if (l == "SCROLL") scrollMenu = !scrollMenu;                       // wave to scroll
+        else if (l == "WALLTOOL") wallToolMenu = !wallToolMenu;                // wall drawing tool
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -739,10 +745,16 @@ struct App {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
+            if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
         } else if (n == "ROOT") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
             if (scanOn()) L.items.insert(L.items.end() - 1, scanItem());
+            if (wallToolOn()) L.items.insert(L.items.end() - 1, {"WALLS", "DRAW ON THE WALLS", "open:WALLS"});
+        } else if (n == "WALLS") {
+            L.items = {{"LINE", "POINT A THEN B ON A WALL", "wt:line"}, {"CIRCLE", "CENTRE THEN EDGE", "wt:circle"}, {"CONFIRM", "KEEP THE DASHED SHAPE", "wt:confirm"},
+                       {"EXPAND", "PULL THE LINE INTO A SURFACE", "wt:expand"}, {"DONE", "FINISH THIS SHAPE", "wt:finish"}, {"UNDO", "STEP BACK", "wt:undo"},
+                       {"CANCEL", "DROP WHAT YOU ARE DRAWING", "wt:cancel"}, {wtFill ? "FILL ON" : "FILL OFF", "FILLED CIRCLES", "wt:fill"}, {"BACK", "ONE MENU BACK", "back"}};
         } else if (n == "SCREENS") {
             if (placed.active) L.items.push_back({"MAIN", "THE BIG SCREEN", "open:SCREEN 1"});
             for (auto& e : extras) L.items.push_back({"SCREEN " + std::to_string(e.id), "AN EXTRA SCREEN", "open:SCREEN " + std::to_string(e.id)});
@@ -810,6 +822,7 @@ struct App {
     void shoulderAction(const std::string& level, const std::string& a) {
         const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         event("shoulder: " + level + " " + a);
+        if (a.rfind("wt:", 0) == 0) { wallToolAction(a.substr(3)); return; }
         if (a == "scan") { sm.stack.clear(); scanStart(); return; }
         if (a == "scan-done") { sm.stack.clear(); scanFinish(); return; }
         if (a.rfind("set:", 0) == 0) { for (int i = 0; i < kMenuItems; i++) if (a.substr(4) == menuItems[i].label) { choose(i); break; } return; }
@@ -1250,6 +1263,18 @@ struct App {
             o.o["fit"] = fit;
             edits.push_back({"walls", id, o});
         }
+        // Every located scene wall whose house wall has no fitted pose gets its scene pose in the room frame, so one
+        // SCAN orients the whole floor plan; depth-fitted poses (with fit) are kept.
+        std::set<std::string> fitted; for (auto& e : edits) fitted.insert(e.id);
+        for (auto& hw : doc["walls"].a) if (hw.has("fit")) fitted.insert(hw["id"].str());
+        for (size_t i = 0; i < scene.size(); i++) {
+            std::string id; for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == sceneIds[i]) id = hw["id"].str();
+            if (id.empty() || fitted.count(id)) continue;
+            json::Value o = house::obj(); for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
+            o.o["pose"] = poseJson(anchors::compose(anchors::inverse(room), scene[i].pose)); o.o["w"] = house::num(scene[i].w); o.o["h"] = house::num(scene[i].h);
+            if (!o.has("source")) o.o["source"] = house::str("scene");
+            edits.push_back({"walls", id, o});
+        }
         json::Value r1 = house::obj(); r1.o["id"] = house::str("r1"); r1.o["name"] = house::str("home");
         for (auto& r : doc["rooms"].a) if (r["id"].str() == "r1") r1 = r;
         json::Value an = r1["anchors"].type == json::Value::Arr ? r1["anchors"] : house::arr();
@@ -1319,6 +1344,85 @@ struct App {
             sendto(mouseSock, msg, n, 0, (sockaddr*)&a, sizeof a);
         }
         scrollSent++; scrollUnits += std::abs(o.dx) + std::abs(o.dy);
+    }
+    // ---- WALLTOOL (flag; room_lab/wallshape.h by work-34). The walls are the located Meta scene walls in LOCAL under their
+    // house ids, posed at the rect centre (the same frame SCAN writes to house.json), so shape coordinates are wall-2D
+    // metres from the wall centre. The WALLS submenu (SHOULDER / WRIST) starts LINE or CIRCLE and stays open as the
+    // palette; the right ray goes to the tool only while tool.hovering(), so screens keep the pointer otherwise.
+    // Every change is a whole-shape edit to house.json; saved shapes are drawn whenever the flag is on.
+    wallshape::Tool wt; bool wtLoaded = false, wtFill = false; long wtEdits = 0;
+    std::string houseWallId(const json::Value& doc, const std::string& uuid) {
+        for (auto& hw : doc["walls"].a) for (auto& u : hw["scene"].a) if (u.str() == uuid) return hw["id"].str();
+        return "w-" + uuid.substr(0, 8);
+    }
+    void wallToolWalls() {
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        json::Value none; const json::Value& doc = d ? *d : none;
+        if (!wtLoaded && d) { wt.load(doc["shapes"]); wtLoaded = true; }
+        std::vector<wallshape::WallRef> w;
+        for (auto& e : entities) if (e.located && isWall(e)) {
+            V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
+            XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z};
+            w.push_back({houseWallId(doc, e.uuid), wp(cp), e.r2.extent.width, e.r2.extent.height});
+        }
+        wt.setWalls(std::move(w));
+    }
+    void wallToolAction(const std::string& a) {
+        wallToolWalls();
+        if (a == "line") wt.begin(wallshape::Mode::Line);
+        else if (a == "circle") { wt.setFill(wtFill); wt.begin(wallshape::Mode::Circle); }
+        else if (a == "confirm") wt.confirm();
+        else if (a == "expand") wt.expand();
+        else if (a == "finish") wt.finish();
+        else if (a == "undo") wt.undo();
+        else if (a == "cancel") wt.cancel();
+        else if (a == "fill") { wtFill = !wtFill; wt.setFill(wtFill); }
+        wallToolFlush();
+        event(std::string("walltool: ") + a + " -> " + wallshape::stateName(wt.state()));
+    }
+    void wallToolFlush() {
+        auto edits = wt.takeEdits(); if (edits.empty()) return;
+        houseStart();
+        std::lock_guard<std::mutex> g(houseLock);
+        for (auto& e : edits) { houseQueue.push_back({"shapes", e.id, e.obj}); wtEdits++; }
+    }
+    // Returns true when the tool takes the right hand this frame.
+    bool updateWallTool() {
+        if (!wallToolOn()) return false;
+        if (!wtLoaded || frames % 72 == 0) wallToolWalls();
+        if (wt.state() == wallshape::State::Idle || !(handActive[1] && ray[1].valid)) return false;
+        wallshape::Input in; in.origin = {ray[1].o.x, ray[1].o.y, ray[1].o.z}; in.dir = {ray[1].d.x, ray[1].d.y, ray[1].d.z}; in.pinch = ray[1].pinch;
+        wt.update(in);
+        wallToolFlush();
+        return wt.hovering();
+    }
+    void drawWallTool(Batch& b) {
+        if (!wallToolOn()) return;
+        V3 hp = v3(head.position);
+        auto draw = [&](const wallshape::Mesh& m) {
+            for (auto& sg : m.segs) {
+                V3 a{sg.first.x, sg.first.y, sg.first.z}, c{sg.second.x, sg.second.y, sg.second.z};
+                b.line(a, c, norm(hp - a), std::fmax(m.width, 0.004f), m.rgba);
+            }
+            for (size_t i = 0; i + 2 < m.idx.size(); i += 3) {
+                auto P = [&](uint32_t k) { return V3{m.pos[k].x, m.pos[k].y, m.pos[k].z}; };
+                const float col[4] = {m.rgba[0], m.rgba[1], m.rgba[2], m.rgba[3] * 0.6f};
+                b.quad(P(m.idx[i]), P(m.idx[i + 1]), P(m.idx[i + 2]), P(m.idx[i + 2]), col);
+            }
+        };
+        for (auto& m : wt.meshes()) draw(m);
+        for (auto& m : wt.previewMeshes()) draw(m);
+        const float hcol[4] = {1, 1, 1, 0.9f}, ccol[4] = {1.0f, 0.8f, 0.2f, 1};
+        auto ring = [&](V3 c, float r, const float* col) {
+            V3 toHead = norm(hp - c), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
+            for (int i = 0; i < 16; i++) {
+                float a0 = i * 0.3927f, a1 = (i + 1) * 0.3927f;
+                b.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.003f, col);
+            }
+        };
+        if (wt.state() == wallshape::State::Confirmed || wt.state() == wallshape::State::Done || wt.state() == wallshape::State::Dragging)
+            for (auto& h : wt.handles()) ring({h.pos.x, h.pos.y, h.pos.z}, 0.025f, hcol);
+        if (wt.cursor().ok() && wt.state() != wallshape::State::Idle) ring({wt.cursor().world.x, wt.cursor().world.y, wt.cursor().world.z}, 0.012f, ccol);
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -2433,7 +2537,7 @@ void main(){
         updateSpell();
         updateScan();
         updateScroll();
-        if (updateShoulder() || updateMenu() || updateExtras()) {
+        if (updateShoulder() || updateWallTool() || updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
             return;
@@ -2755,6 +2859,7 @@ void main(){
         drawMenu(over);
         drawShoulder(over);
         drawScan(occ);
+        drawWallTool(occ);
         drawVoice(over);
         drawExtras(occ);
         drawSpell(over);
@@ -2956,6 +3061,8 @@ void main(){
             wristFile = access((gDir + "/wrist-on").c_str(), F_OK) == 0;        // forces WRIST for self-tests
             scanFile = access((gDir + "/scan-on").c_str(), F_OK) == 0;          // forces SCAN for self-tests
             scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
+            wallToolFile = access((gDir + "/walltool-on").c_str(), F_OK) == 0;  // forces WALLTOOL for self-tests
+            if (wallToolOn()) houseStart();                                      // shapes live in the house file
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
@@ -3136,6 +3243,7 @@ void main(){
         { std::lock_guard<std::mutex> g(houseLock);
           j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
+        j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";
         j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
         j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"
           << ",\"anchors\":{\"stored\":" << storedAnchors.size() << ",\"found\":" << ours.size() << ",\"located\":" << anchorsLocated << ",\"used\":" << roomFrame.used
