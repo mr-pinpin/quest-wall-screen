@@ -22,6 +22,7 @@ MAX_STEPS = int(os.environ.get("PINPIN_ASSIST_MAX_STEPS", "12"))
 MAX_WALL_S = float(os.environ.get("PINPIN_ASSIST_MAX_WALL_S", "90"))
 DISPLAYS_HTTP = os.environ.get("PINPIN_DISPLAYS_HTTP", "http://127.0.0.1:57710")
 DISPLAYS_UDP = (os.environ.get("PINPIN_DISPLAYS_HOST", "127.0.0.1"), 57711)
+APPS_BASE = os.environ.get("PINPIN_APPS_BASE", "http://192.168.0.50:57830")  # mini-apps server (work-ad's Chrome runner)
 MODEL_FAST = os.environ.get("PINPIN_ASSIST_MODEL", "sonnet")
 MODEL_THINK = os.environ.get("PINPIN_ASSIST_MODEL_THINK", "opus")
 NOW = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -129,10 +130,29 @@ class LiveScreenController(ScreenController):
         return self.place_window(screen, bundle)
 
     def open_url(self, screen, url):
-        subprocess.run(["open", url], timeout=10, check=True)
-        time.sleep(1.2)
-        # best-effort: focus the default browser window onto this screen
-        return b"opened"
+        # Land the page deterministically on THIS screen via work-ad's shared Chrome runner (mini-apps server):
+        # it ensures the screen's Chrome --app window exists on that virtual display and navigates it. We poll
+        # shown_seq == seq to confirm the page actually landed (verify, not trust). This replaces launching Safari
+        # (which opened on the user's main display and could not be moved from ssh).
+        self.resolve(screen)  # never-main guarantee: must be a PinPin virtual display
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = "https://" + url
+        body = json.dumps({"url": url}).encode()
+        req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/open", data=body,
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=8) as r:
+            resp = json.load(r)
+        seq = resp.get("seq")
+        deadline = time.time() + 10
+        while seq is not None and time.time() < deadline:
+            with urllib.request.urlopen(f"{APPS_BASE}/api/screens", timeout=5) as r:
+                data = json.load(r)
+            rows = data if isinstance(data, list) else data.get("screens", [])
+            e = next((x for x in rows if str(x.get("screen")) == str(screen)), None)
+            if e and e.get("shown_seq") is not None and e["shown_seq"] >= seq:
+                return f"navigated screen {screen} to {url} (seq {seq})"
+            time.sleep(0.5)
+        return f"requested {url} on screen {screen} (seq {seq}; not confirmed landed within 10s)"
 
     def type_text(self, screen, text):
         # Keyboard reaches the focused window; place focus on this screen first, then inject via the host input tool.
@@ -200,7 +220,7 @@ class ModelBackend:
         """Drive one user turn. Call emit({...}) for SSE events. Return stopReason: end|max_steps|timeout|error."""
         raise NotImplementedError
 
-    def ask(self, prompt, system=None, want_json=False):  # one-shot, no screen actions
+    def ask(self, prompt, system=None, want_json=False, model=None):  # one-shot, no screen actions
         raise NotImplementedError
 
 
@@ -230,7 +250,7 @@ class MockBackend(ModelBackend):
         emit({"type": "text", "delta": "Okay. (mock) You said: " + text})
         return "end"
 
-    def ask(self, prompt, system=None, want_json=False):
+    def ask(self, prompt, system=None, want_json=False, model=None):
         if want_json:
             return {"text": "", "json": {"echo": prompt}}
         return {"text": "(mock) " + prompt}
@@ -248,8 +268,11 @@ class ClaudeCliBackend(ModelBackend):
         model = MODEL_THINK if think else MODEL_FAST
         sys_prompt = (
             f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
-            f"mcp__screen__ tools; never touch any other display. Keep replies short and in Markdown. When asked "
-            f"to do something on the screen, do it with the tools, then confirm in one line."
+            f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
+            f"THIS screen's browser window to a page (it lands on this display), and click/scroll/type act inside "
+            f"it. Every action returns a screenshot of the screen — read it to CONFIRM the result actually "
+            f"happened before you say it did; if it didn't, try again or report what you see. Keep replies short "
+            f"and in Markdown, and confirm in one line what the user now sees."
         )
         argv = [self.claude, "-p", text, "--output-format", "stream-json", "--verbose",
                 "--model", model, "--append-system-prompt", sys_prompt,
@@ -301,8 +324,8 @@ class ClaudeCliBackend(ModelBackend):
                 p.kill()
         return stop
 
-    def ask(self, prompt, system=None, want_json=False):
-        argv = [self.claude, "-p", prompt, "--output-format", "json", "--model", MODEL_FAST]
+    def ask(self, prompt, system=None, want_json=False, model=None):
+        argv = [self.claude, "-p", prompt, "--output-format", "json", "--model", model or MODEL_FAST]
         if system:
             argv += ["--append-system-prompt", system]
         out = subprocess.run(argv, capture_output=True, text=True, timeout=MAX_WALL_S)
@@ -364,9 +387,9 @@ class Assistant:
         self.store.save(screen)
         out({"type": "done", "stopReason": stop})
 
-    def ask(self, app, screen, prompt, system=None, want_json=False):
-        self.store.log_action(screen or "ask", {"type": "ask", "app": app, "prompt": prompt[:200]})
-        return self.backend.ask(prompt, system=system, want_json=want_json)
+    def ask(self, app, screen, prompt, system=None, want_json=False, model=None):
+        self.store.log_action(screen or "ask", {"type": "ask", "app": app, "prompt": prompt[:200], "model": model})
+        return self.backend.ask(prompt, system=system, want_json=want_json, model=model)
 
 
 # ---- HTTP -------------------------------------------------------------------
@@ -400,6 +423,16 @@ def make_handler(assistant):
                     "screen": s["screen"], "claudeSessionId": s["claudeSessionId"], "turns": s["turns"],
                     "messages": [{"role": m["role"], "text": m["content"],
                                   "actions": m.get("actions", []), "t": m["ts"]} for m in s["messages"]]})
+            if len(parts) == 3 and parts[0] == "debug" and parts[1] == "screenshot":
+                # Capture one screen as PNG. Works because the service runs as a PinPin Host child (Screen
+                # Recording inherited); a bare ssh-launched screencap would not have the grant.
+                try:
+                    png, w, h = assistant.ctl.screenshot(parts[2])
+                except Exception as e:
+                    return self._json(500, {"error": str(e)})
+                self.send_response(200); self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png))); self.end_headers(); self.wfile.write(png)
+                return
             if len(parts) == 3 and parts[0] == "session" and parts[2] == "actions":
                 self.send_response(200); self.send_header("Content-Type", "application/x-ndjson")
                 b = assistant.store.actions(parts[1]).encode()
@@ -414,7 +447,7 @@ def make_handler(assistant):
                 if u.path == "/api/ask":
                     b = self._body()
                     r = assistant.ask(b.get("app"), b.get("screen"), b.get("prompt", ""),
-                                      b.get("system"), bool(b.get("json")))
+                                      b.get("system"), bool(b.get("json")), b.get("model"))
                     return self._json(200, r)
                 if len(parts) == 3 and parts[0] == "session" and parts[2] == "reset":
                     assistant.store.reset(parts[1]); return self._json(200, {"ok": True})

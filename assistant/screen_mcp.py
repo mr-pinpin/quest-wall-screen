@@ -32,13 +32,19 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "key", "description": "Press a key combo, e.g. 'return', 'cmd+l', 'cmd+t'.",
      "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}}, "required": ["combo"]}},
-    {"name": "open_app", "description": "Open an app by bundle id and place it on this screen.",
-     "inputSchema": {"type": "object", "properties": {"bundle": {"type": "string"}}, "required": ["bundle"]}},
-    {"name": "open_url", "description": "Open a URL in the default browser on this screen.",
+    {"name": "open_url", "description": "Navigate this screen's browser window to a URL (it lands on this screen).",
      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-    {"name": "place_window", "description": "Move an app's focused window to fill this screen.",
-     "inputSchema": {"type": "object", "properties": {"app": {"type": "string"}}, "required": ["app"]}},
 ]
+
+
+def _shot(s):
+    """A screenshot content block for screen s, or an error note if capture failed."""
+    try:
+        png, w, h = CTL.screenshot(s)
+        return [{"type": "text", "text": f"[screen {s} now, {w}x{h} backing px]"},
+                {"type": "image", "data": base64.b64encode(png).decode(), "mimeType": "image/png"}]
+    except Exception as e:
+        return [{"type": "text", "text": f"[screenshot after action failed: {e}]"}]
 
 
 def call(name, args):
@@ -46,27 +52,29 @@ def call(name, args):
     if s is None:
         raise RuntimeError("PINPIN_SCREEN not set")
     if name == "screenshot":
-        png, w, h = CTL.screenshot(s)
-        return {"content": [
-            {"type": "text", "text": f"screen {s}, {w}x{h} backing px"},
-            {"type": "image", "data": base64.b64encode(png).decode(), "mimeType": "image/png"}]}
+        return {"content": _shot(s)}
+    # Mutating actions. verify-after-act (work-df): every action returns a fresh screenshot of the TARGET screen,
+    # so the model confirms the real result from the pixels instead of trusting the call returned.
     if name == "move":
-        CTL.move(s, args["u"], args["v"]); return _ok(f"moved to {args['u']},{args['v']}")
-    if name == "click":
-        CTL.click(s, args["u"], args["v"]); return _ok(f"clicked {args['u']},{args['v']}")
-    if name == "scroll":
-        CTL.scroll(s, args["u"], args["v"], args["dy"], args.get("dx", 0)); return _ok("scrolled")
-    if name == "type":
-        CTL.type_text(s, args["text"]); return _ok("typed")
-    if name == "key":
-        CTL.key(s, args["combo"]); return _ok("key " + args["combo"])
-    if name == "open_app":
-        CTL.open_app(s, args["bundle"]); return _ok("opened " + args["bundle"])
-    if name == "open_url":
-        CTL.open_url(s, args["url"]); return _ok("opened " + args["url"])
-    if name == "place_window":
-        CTL.place_window(s, args["app"]); return _ok("placed " + args["app"])
-    raise RuntimeError("unknown tool " + name)
+        CTL.move(s, args["u"], args["v"]); msg = f"moved to {args['u']},{args['v']}"
+    elif name == "click":
+        CTL.click(s, args["u"], args["v"]); msg = f"clicked {args['u']},{args['v']}"
+    elif name == "scroll":
+        CTL.scroll(s, args["u"], args["v"], args["dy"], args.get("dx", 0)); msg = "scrolled"
+    elif name == "type":
+        CTL.type_text(s, args["text"]); msg = "typed"
+    elif name == "key":
+        CTL.key(s, args["combo"]); msg = "key " + args["combo"]
+    elif name == "open_app":
+        CTL.open_app(s, args["bundle"]); msg = "opened " + args["bundle"]
+    elif name == "open_url":
+        CTL.open_url(s, args["url"]); msg = "opened " + args["url"]
+    elif name == "place_window":
+        CTL.place_window(s, args["app"]); msg = "placed " + args["app"]
+    else:
+        raise RuntimeError("unknown tool " + name)
+    time.sleep(0.6)  # let the UI settle before the confirming screenshot
+    return {"content": [{"type": "text", "text": msg + " — verify from the screenshot:"}] + _shot(s)}
 
 
 def _ok(msg):

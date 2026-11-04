@@ -4,6 +4,7 @@
 // first. Needs Accessibility, inherited as a child of PinPin Host.
 import Foundation
 import CoreGraphics
+import ApplicationServices
 
 func typeUnicode(_ s: String) {
     let src = CGEventSource(stateID: .combinedSessionState)

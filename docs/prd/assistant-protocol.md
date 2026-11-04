@@ -68,11 +68,12 @@ Mini-apps (`192.168.0.50:57830`) forward their `/api/ask` to the backend so apps
 computer use:
 ```
 POST /api/ask
-{ "app":"recipes", "screen":"<id>", "prompt":"...", "system":"...optional...", "json": false }
+{ "app":"recipes", "screen":"<id>", "prompt":"...", "system":"...optional...", "json": false, "model":"haiku" }
 -> { "text":"...", "json": <object, only when json:true> }
 ```
 This is one-shot (no stream, no screen actions) and is served by the **Mini** instance. `json:true` asks the
-model for a single JSON object and returns it parsed in `json`.
+model for a single JSON object and returns it parsed in `json`. `model` is optional — apps that want speed over
+depth (e.g. recipes) can pass `"haiku"`; the default is the conversational default (sonnet).
 
 ## 6. Voice routing (agreed with work-c4 + work-ad)
 
@@ -86,8 +87,15 @@ does so as a `type` computer-use action, which the app sees as normal keyboard i
 
 ## 7. Computer use (what `action` events can report)
 
-Scoped to the one screen's CGVirtualDisplay, reusing PinPin Displays (`:57710` HTTP, `:57711` UDP mouse) plus a
-new per-display screenshot. Tool set: `screenshot`, `move(u,v)`, `click(u,v)` (u,v in 0..10000 across that
-display), `type(text)`, `key(combo)`, `open_app(bundle)`, `open_url(url)`, `place_window(app)`. Every call is
-logged per screen and surfaced as an `action` event. The backend never sends input to any display but the
-target screen's, and never to the main/built-in display.
+Scoped to the one screen's CGVirtualDisplay, reusing PinPin Displays (`:57710` HTTP, `:57711` UDP mouse/scroll)
+plus a per-display screenshot. Tool set: `screenshot`, `move(u,v)`, `click(u,v)`, `scroll(u,v,dy,dx)` (u,v in
+0..10000 across that display), `type(text)`, `key(combo)`, `open_url(url)`. Every call is logged per screen and
+surfaced as an `action` event. The backend never sends input to any display but the target screen's, and never
+to the main/built-in display (the main display is never in PinPin Displays' list, so it is simply unreachable).
+
+- **`open_url` uses the shared per-screen Chrome runner** (mini-apps server,
+  `POST 192.168.0.50:57830/api/screens/<id>/open {url}`): the page lands on exactly that screen's Chrome `--app`
+  window, confirmed by polling `shown_seq == seq`. The backend does not launch its own browser (an ssh-launched
+  browser can't reach the GUI and would open on the user's main display).
+- **Verify-after-act:** every mutating tool returns a fresh screenshot of the target screen, so the model
+  confirms the real result from the pixels rather than trusting the call returned.
