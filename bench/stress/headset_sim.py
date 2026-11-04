@@ -27,7 +27,11 @@ import argparse, json, math, socket, struct, threading, time
 PX_PER_RAD = 1260.0
 
 
-BASE = 2  # the first screen id (--base): 2 for the user's numbering; stress.py's sck pool starts at 80
+IDS = None  # screen ids in demand order (--ids); default 2..n+1. stress.py's sck runs pass its display pool (90.., 99)
+
+
+def sid(k):
+    return IDS[k] if IDS else k + 2
 
 
 def demand(n, sweep, t, scenario='ring'):
@@ -38,12 +42,12 @@ def demand(n, sweep, t, scenario='ring'):
     vr:     a full VR game: no screen visible at all; the atlas should cost almost nothing
     wall:   every screen visible at once as a small tile (~500 px): the worst case for the atlas"""
     if scenario == 'cinema':
-        return [{'id': BASE, 'vis': 1, 'px': 3000, 'pri': 1.0}] + [
-            {'id': k + BASE, 'vis': int(k in (1, n - 1)), 'px': 300 if k in (1, n - 1) else 0, 'pri': 0.1 if k in (1, n - 1) else 0.0} for k in range(1, n)]
+        return [{'id': sid(0), 'vis': 1, 'px': 3000, 'pri': 1.0}] + [
+            {'id': sid(k), 'vis': int(k in (1, n - 1)), 'px': 300 if k in (1, n - 1) else 0, 'pri': 0.1 if k in (1, n - 1) else 0.0} for k in range(1, n)]
     if scenario == 'vr':
-        return [{'id': k + BASE, 'vis': 0, 'px': 0, 'pri': 0.0} for k in range(n)]
+        return [{'id': sid(k), 'vis': 0, 'px': 0, 'pri': 0.0} for k in range(n)]
     if scenario == 'wall':
-        return [{'id': k + BASE, 'vis': 1, 'px': 500, 'pri': 1.0 if k == 0 else 0.3} for k in range(n)]
+        return [{'id': sid(k), 'vis': 1, 'px': 500, 'pri': 1.0 if k == 0 else 0.3} for k in range(n)]
     tau = 2 * math.pi
     gaze = math.fmod(t / (sweep * n), 1.0) * tau
     out = []
@@ -54,7 +58,7 @@ def demand(n, sweep, t, scenario='ring'):
         half = math.atan(0.7 / dist)
         vis = off - half < 0.95
         pri = 0.0 if not vis else 1.0 if off < 0.21 else max(0.1, 1.0 - (off - 0.21) / 0.75)
-        out.append({'id': k + BASE, 'vis': int(vis), 'px': int(2 * half * PX_PER_RAD), 'pri': round(pri, 2)})
+        out.append({'id': sid(k), 'vis': int(vis), 'px': int(2 * half * PX_PER_RAD), 'pri': round(pri, 2)})
     return out
 
 
@@ -89,7 +93,7 @@ class V2:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('host'); ap.add_argument('--port', type=int, default=57730); ap.add_argument('--demand-port', type=int, default=57731)
-    ap.add_argument('--base', type=int, default=2, help='first screen id (stress.py passes its sck pool start)')
+    ap.add_argument('--ids', default='', help='screen ids in demand order, comma-separated (default 2..n+1)')
     ap.add_argument('--n', type=int, default=10); ap.add_argument('--secs', type=float, default=120); ap.add_argument('--sweep', type=float, default=3)
     ap.add_argument('--budget', type=int, default=60000)
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'])
@@ -99,7 +103,7 @@ def main():
     ap.add_argument('--game', action='store_true', help='demand says a game stream is playing ("game":1), like room_lab while streaming')
     a = ap.parse_args()
     if a.hero: a.v2 = True
-    global BASE; BASE = a.base
+    global IDS; IDS = [int(x) for x in a.ids.split(',')] if a.ids else None
     keyreqs = [0]
     t0 = time.time(); stop = threading.Event()
     v2 = V2() if a.v2 else None; last_msg = {}; v2_layouts = []; below = [0, 0]  # visible screen-ticks below wanted, total

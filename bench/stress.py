@@ -45,7 +45,8 @@ BENCH_CHIP, BENCH_MODEL = 'Apple M1', 'MacBookAir10,1'  # the pinned benchmark h
 # Older than LOCK_STALE_S means its holder died: taken over.
 BENCH_LOCK = '~/.local/share/pinpin-bench.lock'
 LOCK_STALE_S = 1800
-POOL0 = 80  # the test-display pool: screen ids 80..(80 + n - 1); the user's own screens are 2..~50
+POOL0, CINEMA_ID = 90, 99  # the bench's display pool (AGENTS.md K24 table): 90..98 at 1920x1200 @1, 99 the cinema-sized
+                           # one (a size of its own, never a resize); ids 2-39 are the house's real screens
 HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
 TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731', '--stat-secs', '5'],
                'log': '~/.local/share/pinpin-atlas/atlas-sim.log', 'truncateLog': True, 'restartDelay': 1.5}
@@ -554,7 +555,11 @@ def main():
     # virtual display create/remove permanently raises colorsync's polling on the Air until a reboot (work-ad,
     # 2026-11-04: 92 -> 203 req/min over 4 events). Before this, runs used ids 2..N+1, which are the user's own
     # screens (captured as they were) and created/removed the rest every run. synth: no displays at all.
-    ids = list(range(POOL0, POOL0 + a.n)) if a.source == 'sck' else list(range(2, a.n + 2))
+    if a.source == 'sck':
+        if a.n > (CINEMA_ID - POOL0) + (1 if cinema else 0): sys.exit(f'stress: --n {a.n} is beyond the bench display pool (AGENTS.md K24)')
+        ids = ([CINEMA_ID] + list(range(POOL0, POOL0 + a.n - 1))) if cinema else list(range(POOL0, POOL0 + a.n))
+    else:
+        ids = list(range(2, a.n + 2))
     t0 = time.strftime('%Y%m%d-%H%M%S')
     phase('setup')
     print(f'stress: {a.n} screens for {a.secs} s, wan={a.wan}, demand from {"stand-in on the Mini" if sim else "the headset"}')
@@ -580,7 +585,7 @@ def main():
         # 1. displays and pattern
         have = {d['screen']: (d.get('w'), d.get('h')) for d in displays()}
         if cinema and ids[0] in have and have[ids[0]] != cinema:  # never recreated (churn): the pool screen as it is
-            print(f'  note: pool screen {ids[0]} is {have[ids[0]]}, not the asked {cinema}; used as it is')
+            print(f'  note: pool screen {ids[0]} is {have[ids[0]]}, not the asked {cinema}; used as it is (one cinema size per pool)')
         created = [i for i in ids if i not in have]  # only the first run (or a bigger --n) creates; nothing is removed
         if created: activity(f'creating pool test displays {created} (kept for later runs: colorsync churn rule)')
         for i in created:
@@ -663,7 +668,7 @@ def main():
         air_proc = None
         if sim:
             sim_cmd = (f"python3 - {'127.0.0.1' if a.sim_on == 'air' else lap_ip} --port 57730 --demand-port 57731 --n {a.n} "
-                       f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario} --base {ids[0]}")
+                       f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario} --ids {",".join(map(str, ids))}")
             if 'vt' in a.flags.split(','): sim_cmd += ' --v2'  # the vt flag only acts on v2 demand
             if a.sim_extra: sim_cmd += ' ' + a.sim_extra  # e.g. "--v2 --hero --keyreq 15": the same demand for every config of an A/B
             stdin = (HERE / 'headset_sim.py').read_text()
