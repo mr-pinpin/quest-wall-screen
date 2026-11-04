@@ -218,9 +218,15 @@ static CGPoint pointOn(int sid, int u, int v, BOOL *ok) {
     return CGPointMake(b.origin.x + b.size.width * fmin(fmax(u, 0), 10000) / 10000.0,
                        b.origin.y + b.size.height * fmin(fmax(v, 0), 10000) / 10000.0);
 }
-static void post(CGEventType t, CGPoint p) {
-    CGEventRef e = CGEventCreateMouseEvent(NULL, t, p, kCGMouseButtonLeft);
-    if (e) { CGEventPost(kCGHIDEventTap, e); CFRelease(e); }
+static CGEventSourceRef gEventSrc;  // one source for all synthetic input (created in main)
+static void post(CGEventType t, CGPoint p, int clickState) {
+    // A real event source + a click state make synthetic clicks look like hardware ones; without them some apps
+    // (seen with Chrome) silently ignore the click. clickState 1 = single click; 0 for plain moves.
+    CGEventRef e = CGEventCreateMouseEvent(gEventSrc, t, p, kCGMouseButtonLeft);
+    if (e) {
+        if (clickState > 0) CGEventSetIntegerValueField(e, kCGMouseEventClickState, clickState);
+        CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+    }
 }
 static void scrollAt(int sid, int u, int v, int dy, int dx) {
     BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
@@ -241,13 +247,16 @@ static void mouse(const char *msg) {
     BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
     if (op == 'm') CGWarpMouseCursorPosition(p);
     if (op == 'c') {
-        post(kCGEventMouseMoved, p); post(kCGEventLeftMouseDown, p);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ post(kCGEventLeftMouseUp, p); });
+        CGWarpMouseCursorPosition(p);          // hover first: some apps ignore a click with no prior pointer there
+        post(kCGEventMouseMoved, p, 0);
+        post(kCGEventLeftMouseDown, p, 1);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ post(kCGEventLeftMouseUp, p, 1); });
     }
 }
 int main(void) {
     @autoreleasepool {
         displays = [NSMutableDictionary dictionary]; sizes = [NSMutableDictionary dictionary];
+        gEventSrc = CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
         NSString *dir = dataDir = [NSHomeDirectory() stringByAppendingPathComponent:@".local/share/pinpin-displays"];
         [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
         statePath = [dir stringByAppendingPathComponent:@"displays.json"];

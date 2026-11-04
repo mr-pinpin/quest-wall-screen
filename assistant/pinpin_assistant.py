@@ -12,7 +12,7 @@ the product; the mocks are only for the hardware-free test.
 
 Python stdlib only (matches the mini-apps server). Protocol: docs/prd/assistant-protocol.md.
 """
-import json, os, sys, time, threading, subprocess, urllib.request, urllib.parse, socket, base64, pathlib, queue, shutil
+import json, os, sys, time, threading, subprocess, urllib.request, urllib.parse, urllib.error, socket, base64, pathlib, queue, shutil, re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---- config -----------------------------------------------------------------
@@ -23,8 +23,22 @@ MAX_WALL_S = float(os.environ.get("PINPIN_ASSIST_MAX_WALL_S", "90"))
 DISPLAYS_HTTP = os.environ.get("PINPIN_DISPLAYS_HTTP", "http://127.0.0.1:57710")
 DISPLAYS_UDP = (os.environ.get("PINPIN_DISPLAYS_HOST", "127.0.0.1"), 57711)
 APPS_BASE = os.environ.get("PINPIN_APPS_BASE", "http://192.168.0.50:57830")  # mini-apps server (work-ad's Chrome runner)
-MODEL_FAST = os.environ.get("PINPIN_ASSIST_MODEL", "sonnet")
-MODEL_THINK = os.environ.get("PINPIN_ASSIST_MODEL_THINK", "opus")
+MODEL_FAST = os.environ.get("PINPIN_ASSIST_MODEL", "sonnet")      # tool/build turns
+MODEL_THINK = os.environ.get("PINPIN_ASSIST_MODEL_THINK", "opus")  # "think harder"
+MODEL_CHAT = os.environ.get("PINPIN_ASSIST_MODEL_CHAT", "haiku")   # plain conversation (fast first word)
+
+# A turn that looks like it wants to act on the screen (or build) goes to the stronger tool model; plain chat goes
+# to haiku for latency. The model still has the tools either way, so a missed match just uses a cheaper model.
+_ACTION_RE = re.compile(
+    r"\b(open|go ?to|visit|browse|search|show|play|watch|pull up|bring up|make|build|create|set up|"
+    r"turn this|put a|add a|click|scroll|type|press|close|move|resize|weather|timer|youtube|google|website|app)\b"
+    r"|https?://|\w+\.(com|org|net|io|tv)\b", re.I)
+
+
+def pick_model(text, think):
+    if think:
+        return MODEL_THINK
+    return MODEL_FAST if _ACTION_RE.search(text or "") else MODEL_CHAT
 NOW = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 _VERB = {"open_url": "opening", "open_app": "opening", "place_window": "placing",
@@ -106,14 +120,33 @@ class LiveScreenController(ScreenController):
         msg = f"{verb} {int(screen)} {int(u)} {int(v)}".encode()
         self._udp.sendto(msg, DISPLAYS_UDP)
 
+    def _cdp(self, screen, verb, body):
+        # Route input through work-ad's CDP runner for web/runner-owned screens (reliable; pinpin-displays'
+        # CGEvent clicks don't register on Chrome --app windows). Returns True if handled. On 409 (no runner
+        # window = native screen), 404 (endpoint not live yet) or 502 (runner unreachable), fall back to CGEvent.
+        try:
+            req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/{verb}",
+                                         data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=6) as r:
+                json.load(r)
+            return True
+        except Exception:
+            return False
+
     def move(self, screen, u, v): self._mouse("m", screen, u, v)
-    def click(self, screen, u, v): self._mouse("c", screen, u, v)
+
+    def click(self, screen, u, v):
+        if self._cdp(screen, "click", {"u": int(u), "v": int(v)}):
+            return
+        self._mouse("c", screen, u, v)
 
     def scroll(self, screen, u, v, dy, dx=0):
-        # Same wheel datagram the headset's SCROLL sends: "w <id> <u> <v> <dy> <dx>" (pinpin-displays handles it).
+        if self._cdp(screen, "scroll", {"u": int(u), "v": int(v), "dy": int(dy), "dx": int(dx)}):
+            return
+        # Fallback: the "w <id> <u> <v> <dy> <dx>" datagram the headset's SCROLL also sends (pinpin-displays).
         self.resolve(screen)
-        msg = f"w {int(screen)} {int(u)} {int(v)} {int(dy)} {int(dx)}".encode()
-        self._udp.sendto(msg, DISPLAYS_UDP)
+        self._udp.sendto(f"w {int(screen)} {int(u)} {int(v)} {int(dy)} {int(dx)}".encode(), DISPLAYS_UDP)
 
     def _post(self, path, **params):
         self.resolve(params.get("screen", params.get("id", 0)))
@@ -155,11 +188,15 @@ class LiveScreenController(ScreenController):
         return f"requested {url} on screen {screen} (seq {seq}; not confirmed landed within 10s)"
 
     def type_text(self, screen, text):
-        # Keyboard reaches the focused window; place focus on this screen first, then inject via the host input tool.
+        if self._cdp(screen, "type", {"text": text}):
+            return
+        # Fallback (native screens): keyboard reaches the focused window via the host input tool.
         subprocess.run([os.path.expanduser("~/.local/share/pinpin-assistant/pinpin-type")],
                        input=text.encode(), timeout=15, check=True)
 
     def key(self, screen, combo):
+        if self._cdp(screen, "key", {"combo": combo}):
+            return
         subprocess.run([os.path.expanduser("~/.local/share/pinpin-assistant/pinpin-type"), "--key", combo],
                        timeout=10, check=True)
 
@@ -265,7 +302,7 @@ class ClaudeCliBackend(ModelBackend):
         self.mcp_config = mcp_config or os.path.expanduser("~/.local/share/pinpin-assistant/screen-mcp.json")
 
     def _argv(self, session, text, think, screen):
-        model = MODEL_THINK if think else MODEL_FAST
+        model = pick_model(text, think)
         sys_prompt = (
             f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
             f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
@@ -279,9 +316,13 @@ class ClaudeCliBackend(ModelBackend):
             f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
         )
         argv = [self.claude, "-p", text, "--output-format", "stream-json", "--verbose",
+                "--include-partial-messages",  # token-level text deltas -> first word streams immediately
                 "--model", model, "--append-system-prompt", sys_prompt,
-                "--mcp-config", self.mcp_config, "--allowedTools", "mcp__screen__*",
                 "--max-turns", str(MAX_STEPS)]
+        # A plain-chat turn (haiku route) needs no screen tools, so skip loading the MCP server — that saves the
+        # tool-init round-trip and gets the first word out faster. Tool/build/think turns keep the tools.
+        if model != MODEL_CHAT:
+            argv += ["--mcp-config", self.mcp_config, "--allowedTools", "mcp__screen__*"]
         if session.get("claudeSessionId"):
             argv += ["--resume", session["claudeSessionId"]]
         return argv, {**os.environ, "PINPIN_SCREEN": str(screen)}
@@ -291,6 +332,7 @@ class ClaudeCliBackend(ModelBackend):
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, bufsize=1, text=True)
         steps = 0
         stop = "end"
+        streamed_text = False  # did token deltas (stream_event) carry the text? then don't re-emit the full block
         try:
             for line in p.stdout:
                 if time.time() > deadline:
@@ -305,10 +347,17 @@ class ClaudeCliBackend(ModelBackend):
                 t = ev.get("type")
                 if t == "system" and ev.get("session_id"):
                     session["claudeSessionId"] = ev["session_id"]
+                elif t == "stream_event":
+                    e = ev.get("event", {})
+                    if e.get("type") == "content_block_delta":
+                        d = e.get("delta", {})
+                        if d.get("type") == "text_delta" and d.get("text"):
+                            streamed_text = True
+                            emit({"type": "text", "delta": d["text"]})
                 elif t == "assistant":
                     for block in ev.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            emit({"type": "text", "delta": block["text"]})
+                        if block.get("type") == "text" and not streamed_text:
+                            emit({"type": "text", "delta": block["text"]})  # fallback when no partial streaming
                         elif block.get("type") == "tool_use":
                             steps += 1
                             name = block.get("name", "").replace("mcp__screen__", "")
