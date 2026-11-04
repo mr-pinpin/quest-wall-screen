@@ -1,0 +1,345 @@
+{
+ "block": "A",
+ "stress": [
+  "--scenario",
+  "cinema",
+  "--n",
+  "10",
+  "--secs",
+  "60",
+  "--sim-on",
+  "mini",
+  "--source",
+  "synth",
+  "--sim-extra",
+  "--v2 --hero --keyreq 15"
+ ],
+ "configs": {
+  "base": "",
+  "longgop": "longgop",
+  "noperiodic": "noperiodic",
+  "prifps": "prifps",
+  "nodelay": "nodelay",
+  "pend1": "pend1",
+  "pace": "pace",
+  "vt": "vt",
+  "vthero": "vt,hero"
+ },
+ "runs": {
+  "base": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-015657-cinema~synth-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-033037-cinema~synth-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-035330-cinema~synth-n10.json"
+  ],
+  "longgop": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-015921-cinema~synth+longgop-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-025556-cinema~synth+longgop-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-044137-cinema~synth+longgop-n10.json"
+  ],
+  "noperiodic": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-020143-cinema~synth+noperiodic-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-025818-cinema~synth+noperiodic-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-033310-cinema~synth+noperiodic-n10.json"
+  ],
+  "prifps": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-021906-cinema~synth+prifps-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-030044-cinema~synth+prifps-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-033547-cinema~synth+prifps-n10.json"
+  ],
+  "nodelay": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-022552-cinema~synth+nodelay-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-030308-cinema~synth+nodelay-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-033820-cinema~synth+nodelay-n10.json"
+  ],
+  "pend1": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-022900-cinema~synth+pend1-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-031332-cinema~synth+pend1-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-034049-cinema~synth+pend1-n10.json"
+  ],
+  "pace": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-023544-cinema~synth+pace-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-031903-cinema~synth+pace-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-034605-cinema~synth+pace-n10.json"
+  ],
+  "vt": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-024441-cinema~synth+vt-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-032538-cinema~synth+vt-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-034837-cinema~synth+vt-n10.json"
+  ],
+  "vthero": [
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-024701-cinema~synth+vt,hero-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-032809-cinema~synth+vt,hero-n10.json",
+   "/root/work/quest-wall-screen-sharp/bench/results/stress-20261104-035100-cinema~synth+vt,hero-n10.json"
+  ]
+ },
+ "medians": {
+  "base": {
+   "below": 100.0,
+   "cpu": 28.7,
+   "fps": 49,
+   "gapP99": 110.8,
+   "keyframes": 26,
+   "mbps": 30.1,
+   "silence": 0.4,
+   "vtValid": 0
+  },
+  "longgop": {
+   "below": 100.0,
+   "cpu": 29.3,
+   "fps": 52,
+   "gapP99": 39.4,
+   "keyframes": 9,
+   "mbps": 34.2,
+   "silence": 0.2,
+   "vtValid": 0
+  },
+  "noperiodic": {
+   "below": 100.0,
+   "cpu": 27.8,
+   "fps": 52,
+   "gapP99": 109.0,
+   "keyframes": 6,
+   "mbps": 32.0,
+   "silence": 0.4,
+   "vtValid": 0
+  },
+  "prifps": {
+   "below": 100.0,
+   "cpu": 23.2,
+   "fps": 49,
+   "gapP99": 96.7,
+   "keyframes": 28,
+   "mbps": 30.8,
+   "silence": 0.4,
+   "vtValid": 0
+  },
+  "nodelay": {
+   "below": 100.0,
+   "cpu": 30.4,
+   "fps": 52,
+   "gapP99": 107.4,
+   "keyframes": 28,
+   "mbps": 32.7,
+   "silence": 0.4,
+   "vtValid": 0
+  },
+  "pend1": {
+   "below": 100.0,
+   "cpu": 24.9,
+   "fps": 45,
+   "gapP99": 109.9,
+   "keyframes": 26,
+   "mbps": 29.2,
+   "silence": 0.4,
+   "vtValid": 0
+  },
+  "pace": {
+   "below": 100.0,
+   "cpu": 39.8,
+   "fps": 51,
+   "gapP99": 100.4,
+   "keyframes": 29,
+   "mbps": 31.8,
+   "silence": 0.1,
+   "vtValid": 0
+  },
+  "vt": {
+   "below": 0.0,
+   "cpu": 30.4,
+   "fps": 62,
+   "gapP99": 28.5,
+   "keyframes": 34,
+   "mbps": 40.8,
+   "silence": 0.1,
+   "vtValid": 1
+  },
+  "vthero": {
+   "below": 33.3,
+   "cpu": 18.8,
+   "fps": 62,
+   "gapP99": 27.3,
+   "heroFps": 60.0,
+   "heroMbps": 30.1,
+   "keyframes": 35,
+   "mbps": 40.2,
+   "silence": 0.1,
+   "vtValid": 1
+  }
+ },
+ "verdicts": {
+  "longgop (longgop vs base)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": [
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 113.7 -> 112.9 ms, keyframes 22 -> 8, mbps 26.3 -> 27.0"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "gap p99 108.0 -> 39.4 ms, keyframes 27 -> 9, mbps 31.7 -> 34.2"
+    },
+    {
+     "verdict": "EXCLUDED",
+     "why": "contaminated by background load: start: colorsync.displayservices 62%; end: colorsync.displayservices 62%"
+    }
+   ]
+  },
+  "noperiodic (noperiodic vs base)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": [
+    {
+     "verdict": "DROP",
+     "why": "gap p99 113.7 -> 116.5 ms, keyframes 22 -> 8, mbps 26.3 -> 25.2"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "gap p99 108.0 -> 33.4 ms, keyframes 27 -> 6, mbps 31.7 -> 35.0"
+    },
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 110.8 -> 109.0 ms, keyframes 26 -> 6, mbps 30.1 -> 32.0"
+    }
+   ]
+  },
+  "prifps (prifps vs base)": {
+   "verdict": "DROP",
+   "rounds": [
+    {
+     "verdict": "DROP",
+     "why": "mbps 26.3 -> 26.7, fresh fps 39 -> 40, sender cpu 30.9 -> 22.4%"
+    },
+    {
+     "verdict": "DROP",
+     "why": "mbps 31.7 -> 34.6, fresh fps 50 -> 52, sender cpu 28.7 -> 26.6%"
+    },
+    {
+     "verdict": "DROP",
+     "why": "mbps 30.1 -> 30.8, fresh fps 49 -> 49, sender cpu 23.5 -> 23.2%"
+    }
+   ]
+  },
+  "nodelay (nodelay vs base)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": [
+    {
+     "verdict": "DROP",
+     "why": "gap p99 113.7 -> 115.4 ms, fresh fps 39 -> 40, mbps 26.3 -> 25.3"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "gap p99 108.0 -> 41.4 ms, fresh fps 50 -> 52, mbps 31.7 -> 32.7"
+    },
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 110.8 -> 107.4 ms, fresh fps 49 -> 52, mbps 30.1 -> 33.7"
+    }
+   ]
+  },
+  "pend1 (pend1 vs base)": {
+   "verdict": "DROP",
+   "rounds": [
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 113.7 -> 97.3 ms, fresh fps 39 -> 40, mbps 26.3 -> 26.7"
+    },
+    {
+     "verdict": "DROP",
+     "why": "gap p99 108.0 -> 109.9 ms, fresh fps 50 -> 48, mbps 31.7 -> 30.1"
+    },
+    {
+     "verdict": "DROP",
+     "why": "gap p99 110.8 -> 112.2 ms, fresh fps 49 -> 45, mbps 30.1 -> 29.2"
+    }
+   ]
+  },
+  "pace (pace vs base)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": [
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 113.7 -> 108.6 ms, fresh fps 39 -> 40, mbps 26.3 -> 26.3"
+    },
+    {
+     "verdict": "RERUN",
+     "why": "gap p99 108.0 -> 100.4 ms, fresh fps 50 -> 51, mbps 31.7 -> 31.8"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "gap p99 110.8 -> 37.3 ms, fresh fps 49 -> 53, mbps 30.1 -> 34.6"
+    }
+   ]
+  },
+  "vt-cinema (vt vs base)": {
+   "verdict": "DROP",
+   "rounds": [
+    {
+     "verdict": "DROP",
+     "why": "mbps 26.3 -> 40.8, fresh fps 39 -> 62, below wanted 0.0%, layouts valid True"
+    },
+    {
+     "verdict": "DROP",
+     "why": "mbps 31.7 -> 40.5, fresh fps 50 -> 62, below wanted 0.0%, layouts valid True"
+    },
+    {
+     "verdict": "DROP",
+     "why": "mbps 30.1 -> 40.8, fresh fps 49 -> 62, below wanted 0.0%, layouts valid True"
+    }
+   ]
+  },
+  "hero (vthero vs vt)": {
+   "verdict": "INCONCLUSIVE",
+   "rounds": [
+    {
+     "verdict": "RERUN",
+     "why": "hero stream fps 60.3 vs atlas fps 62, total mbps 40.8 -> 40.3, atlas gap p99 25.1 -> 23.4 ms"
+    },
+    {
+     "verdict": "RERUN",
+     "why": "hero stream fps 60.0 vs atlas fps 62, total mbps 40.5 -> 40.2, atlas gap p99 28.5 -> 27.3 ms"
+    },
+    {
+     "verdict": "RERUN",
+     "why": "hero stream fps 59.9 vs atlas fps 62, total mbps 40.8 -> 40.1, atlas gap p99 28.6 -> 31.6 ms"
+    }
+   ]
+  },
+  "vt-latency (vt vs base)": {
+   "verdict": "KEEP",
+   "rounds": [
+    {
+     "verdict": "KEEP",
+     "why": "fresh fps 39 -> 62, gap p99 113.7 -> 25.1 ms, mbps 26.3 -> 40.8 (budget 42)"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "fresh fps 50 -> 62, gap p99 108.0 -> 28.5 ms, mbps 31.7 -> 40.5 (budget 42)"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "fresh fps 49 -> 62, gap p99 110.8 -> 28.6 ms, mbps 30.1 -> 40.8 (budget 42)"
+    }
+   ]
+  },
+  "hero-budget (vthero vs vt)": {
+   "verdict": "KEEP",
+   "rounds": [
+    {
+     "verdict": "KEEP",
+     "why": "hero fps 60.3, total mbps 40.3 (budget 42), others' fresh fps 62 -> 62"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "hero fps 60.0, total mbps 40.2 (budget 42), others' fresh fps 62 -> 62"
+    },
+    {
+     "verdict": "KEEP",
+     "why": "hero fps 59.9, total mbps 40.1 (budget 42), others' fresh fps 62 -> 62"
+    }
+   ]
+  },
+  "vt (either rule)": {
+   "verdict": "KEEP",
+   "rounds": []
+  }
+ }
+}
