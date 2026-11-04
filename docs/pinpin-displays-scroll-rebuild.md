@@ -4,8 +4,9 @@ Status: scroll+click binary DEPLOYED 2026-11-04 as a PinPin Host plugin child (A
 one instance on :57710). **Native CLICK VERIFIED working** (2026-11-04): a `c <screen> <u> <v>` over
 pinpin-displays UDP :57711 closed a TextEdit window on a scratch display (window count 1→0), so
 synthetic clicks register on native apps on the extra displays — the user's original "clicks don't
-register on screen 4" bug is fixed. Scroll uses the same granted event path (not separately re-measured
-yet; the first attempt's page returned HTTP 429). Owner: work-42.
+register on screen 4" bug is fixed. **Scroll also VERIFIED** (2026-11-04): a `w <screen> …` wave on a
+long web page moved window.scrollY 0→1200, so the native scroll registers too. Both click and scroll
+confirmed on the extra displays. Owner: work-42.
 
 > **SUPERSEDED (2026-11-04):** Section A below assumed pinpin-displays is a standalone ad-hoc app that
 > re-prompts for Accessibility on rebuild. It is actually a **PinPin Host plugin**, and the Host is its
