@@ -1,5 +1,10 @@
 {
- "apps": [],
+ "apps": [
+  {
+   "screen": 60,
+   "app": "timer"
+  }
+ ],
  "by": "apps",
  "links": [],
  "menu": {
@@ -17,7 +22,7 @@
   }
  },
  "nextScreenId": 4,
- "rev": 18,
+ "rev": 19,
  "rooms": [
   {
    "anchors": [
@@ -122,7 +127,7 @@
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-04T03:53:39Z",
+ "updated": "2026-11-04T04:07:58Z",
  "walls": [
   {
    "fit": {
