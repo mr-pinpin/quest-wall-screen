@@ -96,9 +96,14 @@ def main():
         per = []
         for r in range(a.rounds):
             A, B = load(results[off][r]), load(results[on][r])
-            per.append(verdict.verdict(rule, A, B) if A and B else ('RERUN', 'missing run'))
+            if not (A and B): per.append(('RERUN', 'missing run')); continue
+            dirty = '; '.join(x for x in ((A.get('contaminated') or ''), (B.get('contaminated') or '')) if x)
+            if dirty: per.append(('EXCLUDED', 'contaminated by background load: ' + dirty)); continue
+            per.append(verdict.verdict(rule, A, B))
         votes = [v for v, _ in per]
-        final = 'KEEP' if votes.count('KEEP') >= 2 else 'DROP' if votes.count('DROP') >= 2 else 'INCONCLUSIVE'
+        clean = len([v for v in votes if v != 'EXCLUDED'])
+        final = 'KEEP' if votes.count('KEEP') >= 2 else 'DROP' if votes.count('DROP') >= 2 else \
+                ('INCONCLUSIVE (contaminated)' if clean < 2 else 'INCONCLUSIVE')
         report['verdicts'][f'{rule} ({on} vs {off})'] = {'verdict': final, 'rounds': [{'verdict': v, 'why': w} for v, w in per]}
     res = HERE / 'results'
     (res / f'campaign-{a.block}-{stamp}.json').write_text(json.dumps(report, indent=1))

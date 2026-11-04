@@ -89,4 +89,10 @@ stress.IN_USE_FILE.write_text('{"t": %f}' % (_t.time() - 130))
 check(not stress.headset_recently_used() and stress.busy(False, sim=True) == '', '2 min after use: sim runs resume')
 stress.mini = lambda cmd, **k: (_ for _ in ()).throw(RuntimeError('unreachable'))
 check(not stress.headset_in_use(), 'an unreachable headset is not in use')
+# background load: a run is contaminated by load > 4 or a foreign process > 50% CPU; our own processes do not count
+clean = {'start': {'load1': 2.1, 'topAll': [[90.0, 'pinpin-atlas-test'], [60.0, 'WindowServer'], [30.0, 'Spotify']]}}
+check(stress.contamination(clean) == '', 'our own load is not contamination')
+check('load 6.8' in stress.contamination({'end': {'load1': 6.8, 'topAll': []}}), 'high load average contaminates')
+check('Spotify 186%' in stress.contamination({'start': {'load1': 2, 'topAll': [[186.0, 'Spotify Helper (Renderer)']]}}).replace(' Helper (Renderer)', ''), 'a foreign process over 50% contaminates')
+check(stress.contamination({'start': {'error': 'unreachable'}}) == '', 'no sample: not judged')
 print(f'guard self-test: {fails} failures'); sys.exit(1 if fails else 0)

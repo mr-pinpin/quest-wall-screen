@@ -406,6 +406,35 @@ def _stamp(t):
             'sinceStartS': round(t - PHASES[0]['t'], 1) if PHASES else 0.0}
 
 
+# Background load on the Air (2026-11-04: Spotify's renderer at ~186% CPU and load ~8-9 all night): sampled at the start
+# and end of each measurement; a run is "contaminated" when the load average is over 4 or a process that is not ours
+# takes more than half a core. campaign.py leaves contaminated pairs out of the verdicts. Ours: the sender, the displays
+# helper, the stand-ins, and what capture itself drives (WindowServer, replayd).
+BENCH_PROCS = re.compile(r'^(pinpin-|encprobe|stresspattern|python3?$|sshd|WindowServer$|replayd$|ps$)')
+
+
+def air_load():
+    try:
+        out = air('sysctl -n vm.loadavg; ps -Arco pcpu,comm | head -6', timeout=20)
+        lines = out.strip().splitlines(); load = [float(x) for x in lines[0].strip('{} ').split()[:3]]
+        top = []
+        for l in lines[2:]:
+            parts = l.strip().split(None, 1)
+            if len(parts) == 2: top.append([float(parts[0]), parts[1]])
+        return {'load1': load[0], 'load5': load[1], 'top': top[:3], 'topAll': top}
+    except Exception as ex:
+        return {'error': str(ex)[:100]}
+
+
+def contamination(samples):
+    why = []
+    for when, smp in samples.items():
+        if 'load1' not in smp: continue
+        if smp['load1'] > 4: why.append(f'{when}: load {smp["load1"]}')
+        why += [f'{when}: {c} {cpu:.0f}%' for cpu, c in smp.get('topAll', []) if cpu > 50 and not BENCH_PROCS.match(c)]
+    return '; '.join(why)
+
+
 def phase(name):
     t = time.time()
     PHASES.append(dict(phase=name, t=t, **_stamp(t)))
@@ -578,6 +607,7 @@ def main():
                                    input=src, capture_output=True, text=True, timeout=300)
             if 'have' not in built.stdout and 'built' not in built.stdout: raise SystemExit(f'encprobe build failed: {built.stderr[-300:]}')
         phase('measure')
+        load_samples = {'start': air_load()}
         # 3. measure (in the background, while watching that nobody starts using the gear)
         rx0, tx0 = link_bytes(air, 'en0'); w0 = link_bytes(mini, 'en1'); st0 = time.time()
         probe = (f"(ping -b en1 -i 0.2 -t {a.secs} 1.1.1.1 > /tmp/stress-wan.txt 2>&1 &);"
@@ -648,6 +678,7 @@ def main():
         wan, lan = pings(mini('cat /tmp/stress-wan.txt')), pings(mini('cat /tmp/stress-lan.txt'))
         lap = pings(mini('cat /tmp/stress-laptop.txt'))  # the stand-in's own link (the headset may be asleep: lanPingMs)
         zyxel = pings(mini('cat /tmp/stress-zyxel.txt'))  # the Mini's 2.4 GHz hop alone: link jitter vs the internet
+        load_samples['end'] = air_load()
     finally:
         phase('teardown')
         # 4. teardown
@@ -698,6 +729,8 @@ def main():
         # The content rate: the stress pattern redraws at the virtual displays' 60 Hz; still screens have none.
         'contentHz': 60 if (pattern or (a.source == 'synth' and moving)) else None,
         'patternScreens': moving,  # the screens animated (the source); gate.py judges fresh fps against them
+        'airLoad': {k: {kk: vv for kk, vv in v.items() if kk != 'topAll'} for k, v in load_samples.items()},
+        'contaminated': contamination(load_samples),  # '' = clean
     }
     r['senderCpuPct'] = round(statistics.mean(cpu), 1) if cpu else None  # the atlas sender, sampled every 10 s
     checks = {
