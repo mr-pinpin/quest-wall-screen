@@ -35,6 +35,7 @@
 #include "vt_strip.h"
 #include "marks.h"
 #include "consolidate.h"
+#include "cleanplace.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -1715,7 +1716,7 @@ struct App {
             XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height}); sceneIds.push_back(e.uuid);
         }
         std::vector<house::Edit> edits; char stamp[32]; time_t now = time(nullptr); strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
-        std::mt19937 rng((unsigned)now);
+        std::mt19937 rng((unsigned)now); std::set<std::string> committedIds;
         for (auto& w : scanResult) {
             std::string id, uuid; wallfit::Match m = wallfit::match(w, scene, 0.08f, 5.0f);
             if (m.index >= 0) {
@@ -1726,6 +1727,7 @@ struct App {
                 size_t k = &w - &scanResult[0];
                 if (k < scanIds.size() && !scanIds[k].empty()) id = scanIds[k];  // the depth wall this scan already added
                 else { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); id = b; }
+                if (cleanLiveMenu && !committedIds.insert(id).second) continue;  // CLEANLIVE: several raw fits of one clean wall, one edit
             }
             json::Value o = house::obj();
             for (auto& hw : doc["walls"].a) if (hw["id"].str() == id) o = hw;
@@ -1853,7 +1855,7 @@ struct App {
     // and junk dropped) are drawn over the raw fits. Depth walls in the house without a "frame" field (pre-v0.65, drifted
     // against Meta) are left out, as work-34's consolidate/2 will. Committing the clean walls as the placement targets is
     // the next step (work-c4). status.json "clean".
-    struct CleanWall { V3 c, r, u, n; float w = 0, h = 0; bool scene = false; };
+    struct CleanWall { V3 c, r, u, n; float w = 0, h = 0; bool scene = false; std::vector<std::string> members; };
     std::mutex cleanLock; std::vector<CleanWall> cleanWalls; std::atomic<bool> cleanBusy{false}; float cleanAt = -10;
     long cleanRuns = 0; double cleanUs = 0; int cleanDropped = 0, cleanInput = 0; bool cleanNeedsRooms = false; double cleanTh = 0;
     void updateCleanLive() {
@@ -1883,7 +1885,9 @@ struct App {
                 wallfit::Pose pl = anchors::compose(roomInLocal, pr);
                 XrPosef xpL = xp(pl); CleanWall c; c.c = v3(xpL.position);
                 c.r = rot(xpL.orientation, {1, 0, 0}); c.u = rot(xpL.orientation, {0, 1, 0}); c.n = rot(xpL.orientation, {0, 0, 1});
-                c.w = (float)w; c.h = (float)(sg.y1 - sg.y0); c.scene = consolidate::hasScene(sg); out.push_back(c);
+                c.w = (float)w; c.h = (float)(sg.y1 - sg.y0); c.scene = consolidate::hasScene(sg);
+                for (auto* m : sg.members) c.members.push_back(m->id);
+                out.push_back(c);
             }
             std::lock_guard<std::mutex> g(cleanLock);
             cleanWalls.swap(out); cleanUs = us; cleanRuns++; cleanDropped = (int)R.dropped.size(); cleanInput = (int)doc["walls"].a.size(); cleanNeedsRooms = R.needsRooms; cleanTh = consolidate::deg(R.th);
@@ -2505,6 +2509,38 @@ struct App {
     // SCAN's own walls (multi-room): solid fitted walls no Meta scene wall matches, kept in STAGE in files/depthwalls.json
     // and shown as walls of their own (ids "w-d..."), so screens can be placed in rooms Meta never scanned.
     std::map<std::string, pguard::CachedWall> depthWalls; bool depthWallsLoaded = false; std::vector<std::string> scanIds;
+    // CLEANLIVE (cleanplace.h, work-c4's rules): the clean depth walls are the placement targets. Old depth walls keep
+    // their ids (a clean wall merging several keeps them all, each snapped onto it with its own origin so screens stay
+    // put); only a wall nobody had gets a new id. Kept in STAGE (depthWalls). Each raw fit is committed under the id of
+    // the clean wall it went into. False (the raw path runs) when there are no clean depth walls yet.
+    bool scanAddCleanDepthWalls(const std::vector<wallfit::HouseWall>& scene) {
+        std::vector<CleanWall> cw; { std::lock_guard<std::mutex> g(cleanLock); cw = cleanWalls; }
+        std::vector<wallfit::Wall> clean; std::vector<const CleanWall*> src;
+        for (auto& c : cw) {
+            if (c.scene || c.w < 0.6f || c.h < 0.6f) continue;
+            wallfit::Wall W; W.centre = {c.c.x, c.c.y, c.c.z}; W.right = {c.r.x, c.r.y, c.r.z}; W.up = {c.u.x, c.u.y, c.u.z}; W.n = {c.n.x, c.n.y, c.n.z};
+            W.w = c.w; W.h = c.h; W.d = -wallfit::dot(W.n, W.centre); W.kind = wallfit::Kind::wall;
+            if (wallfit::match(W, scene, 0.08f, 5.0f).index >= 0) continue;  // Meta already has this wall
+            clean.push_back(W); src.push_back(&c);
+        }
+        if (clean.empty()) return false;
+        std::vector<cleanplace::Old> old;
+        for (auto& [id, c] : depthWalls) old.push_back({id, pguard::toLocal(wp(stageInLocal), c), c.ox, c.oy, c.w, c.h});
+        static std::mt19937 rng((unsigned)time(nullptr));
+        auto mint = [&] { char b[16]; snprintf(b, sizeof b, "w-d%06x", (unsigned)(rng() & 0xffffff)); return std::string(b); };
+        std::vector<cleanplace::Placed> P = cleanplace::assign(clean, old, mint);
+        int reused = 0, minted = 0;
+        for (auto& p : P) { depthWalls[p.id] = pguard::fromLocal(p.id, wp(stageInLocal), p.pose, p.ox, p.oy, p.w, p.h); (p.reused ? reused : minted)++; }
+        for (size_t k = 0; k < scanResult.size(); k++) {  // each raw fit: the id of the clean wall it went into
+            std::string live = "live-" + std::to_string(scanResult[k].id);
+            for (size_t i = 0; i < src.size() && scanIds[k].empty(); i++)
+                if (std::find(src[i]->members.begin(), src[i]->members.end(), live) != src[i]->members.end())
+                    for (auto& p : P) if (p.clean == (int)i) { scanIds[k] = p.id; break; }
+        }
+        house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
+        event("scan: " + std::to_string(clean.size()) + " clean walls kept as placement targets (" + std::to_string(reused) + " old ids kept, " + std::to_string(minted) + " new)");
+        return true;
+    }
     void scanAddDepthWalls() {
         scanIds.assign(scanResult.size(), "");
         if (!stageOk) { event("scan: no STAGE, scanned walls not kept"); return; }
@@ -2513,6 +2549,7 @@ struct App {
             V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
             XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z}; scene.push_back({wp(cp), e.r2.extent.width, e.r2.extent.height});
         }
+        if (cleanLiveMenu && scanAddCleanDepthWalls(scene)) return;
         static std::mt19937 rng((unsigned)time(nullptr)); int added = 0;
         for (size_t i = 0; i < scanResult.size(); i++) {
             const wallfit::Wall& w = scanResult[i];
