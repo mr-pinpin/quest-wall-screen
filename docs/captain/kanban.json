@@ -1,6 +1,6 @@
 {
- "rev": 66,
- "next": 26,
+ "rev": 70,
+ "next": 28,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -698,19 +698,24 @@
   {
    "title": "PinPin Displays input injection under PinPin Host (no Accessibility re-prompt on rebuild)",
    "details": "",
-   "column": "doing",
+   "column": "done",
    "owner": "work-42",
    "area": "platform",
    "links": [],
    "id": "K19",
    "created": "2026-11-04T10:47:21Z",
-   "updated": "2026-11-04T11:08:40Z",
+   "updated": "2026-11-04T11:56:49Z",
    "by": "work-42",
    "comments": [
     {
      "at": "2026-11-04T11:08:36Z",
      "by": "work-42",
      "text": "Scope (work-df): PinPin Host's plugin start is the SINGLE path for pinpin-displays — survives reboot, Host restart policy has backoff, and the binary must not recreate displays on a failed bind (bind-first; debug on a SCRATCH copy, different port+label). Done so far (b296d20): installer no longer bootstraps the retired io.mr-pinpin.displays agent + retires it; AGENTS.md documents one-owner rule; rebuild doc marked superseded. Remaining: bind-first binary change (scratch), confirm reboot-survival + Host backoff. Context: 3-owner incident 2026-11-04 (load 246), stabilized by work-df to one Host-child instance."
+    },
+    {
+     "at": "2026-11-04T11:56:45Z",
+     "by": "work-42",
+     "text": "DONE: PinPin Host is the single owner of pinpin-displays (work-df stabilized to one Host-child instance; survived the reboot as a Host plugin). Installer fixed (b296d20) to never bootstrap the retired launchd agent + retire it; AGENTS.md documents one-owner rule; rebuild=replace binary + Host restart, no re-prompt (grant on Host identity). Native CLICK verified working (0cd7b2f). Remaining as optional defensive nicety: bind-first in the binary (work-34 notes the singleton guard already covers the bind race) — on a scratch copy if ever wanted."
     }
    ],
    "history": [
@@ -731,6 +736,18 @@
      "what": "moved",
      "from": "backlog",
      "to": "doing"
+    },
+    {
+     "at": "2026-11-04T11:56:45Z",
+     "by": "work-42",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T11:56:49Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "doing",
+     "to": "done"
     }
    ]
   },
@@ -903,7 +920,49 @@
      "column": "review"
     }
    ]
+  },
+  {
+   "title": "Real-time consolidation on the headset (consolidate.h)",
+   "details": "",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "geometry",
+   "links": [],
+   "id": "K26",
+   "created": "2026-11-04T11:58:06Z",
+   "updated": "2026-11-04T11:58:06Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:58:06Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
+  },
+  {
+   "title": "Real-time consolidation on the headset",
+   "details": "",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "geometry",
+   "links": [],
+   "id": "K27",
+   "created": "2026-11-04T11:58:11Z",
+   "updated": "2026-11-04T11:58:11Z",
+   "by": "unknown",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:58:11Z",
+     "by": "unknown",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T11:52:10Z"
+ "updated": "2026-11-04T11:58:11Z"
 }
