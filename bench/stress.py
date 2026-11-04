@@ -293,7 +293,8 @@ def busy(force, sim=False):
     since our own Sunshine's input tickle resets it). Agents coordinate through the bench lock and bench/activity.log.
     The headset still never runs while a person really wears it."""
     own = headset_owner()
-    if own == 'user' and not sim: return 'the user owns the headset (bench/headset_owner)'
+    # sim runs too: they pause the LIVE sender for the run, so the user's screens in the headset would freeze
+    if own == 'user': return 'the bench lock is held (the user owns the headset: bench/headset_owner)'  # worded so retry loops wait
     if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
@@ -583,7 +584,7 @@ def main():
             try: cpu.append(float(air(f"ps -Ao %cpu,comm | awk '$2 ~ /{sender}$/ {{print $1; exit}}'", timeout=15).strip()))
             except ValueError: pass
             idle = laptop_idle_s()
-            if not sim and headset_owner() == 'user': aborted = 'the user took the headset (bench/headset_owner)'
+            if headset_owner() == 'user': aborted = 'the user took the headset (bench/headset_owner)'  # sim too: the live sender is paused
             elif sim and headset_owner() == '' and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             idle_before = idle
             if aborted:
