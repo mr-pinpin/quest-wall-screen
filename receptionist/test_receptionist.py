@@ -113,6 +113,27 @@ def test_audit():
         svc.AUDIT_LOG = old; shutil.rmtree(d)
 
 
+def test_reply_cleaner():
+    c = svc.ReplyCleaner()
+    md = ("Here is the plan:\n"
+          "| Screen | Where |\n"
+          "|--------|-------|\n"
+          "| 3 | kitchen |\n"
+          "- first item\n"
+          "* second item\n"
+          "### A heading\n")
+    out = c.feed(md) + c.flush()
+    check("table separator row dropped", "---" not in out)
+    check("table row flattened to cells", "Screen: Where" in out and "3: kitchen" in out)
+    check("no pipes remain", "|" not in out)
+    check("list markers stripped", "first item" in out and "- first item" not in out and "* second item" not in out)
+    check("heading hashes stripped", "A heading" in out and "###" not in out)
+    # streaming: a line split across feeds is held until its newline
+    c2 = svc.ReplyCleaner()
+    check("partial line buffered (no premature emit)", c2.feed("hello wo") == "")
+    check("line completes on newline", c2.feed("rld\n").strip() == "hello world")
+
+
 def test_block():
     old = svc.BLOCKED; svc.BLOCKED = {"work-df", "deadbeef"}
     try:
@@ -124,7 +145,8 @@ def test_block():
 
 
 if __name__ == "__main__":
-    for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch, test_audit, test_block):
+    for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch,
+              test_reply_cleaner, test_audit, test_block):
         print(t.__name__); t()
     print("\n%d passed, %d failed" % (PASS, FAIL))
     sys.exit(1 if FAIL else 0)

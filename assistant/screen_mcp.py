@@ -264,8 +264,9 @@ pinpin.ready.then(()=>{end=pinpin.store.get('end',0);
 </script></body></html>"""
 
 TOOLS = [
-    {"name": "screenshot", "description": "Capture the current screen as a PNG image so you can see it.",
-     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "screenshot", "description": "Capture a screen as a PNG image so you can see it. Defaults to this "
+                    "screen; in the room assistant (no single screen) pass the screen id to capture, e.g. {screen:3}.",
+     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}}}},
     {"name": "move", "description": "Move the pointer to u,v (0..10000 across this screen, 0,0 = top-left).",
      "inputSchema": {"type": "object", "properties": {"u": {"type": "number"}, "v": {"type": "number"}},
                      "required": ["u", "v"]}},
@@ -345,7 +346,11 @@ def call(name, args):
     if s is None:
         raise RuntimeError("PINPIN_SCREEN not set")
     if name == "screenshot":
-        return {"content": _shot(s)}
+        tgt = args.get("screen", s)
+        if not str(tgt).isdigit():   # room assistant isn't tied to one screen
+            return {"content": [{"type": "text", "text": "I'm not on a single screen here — say which "
+                                 "screen to capture, e.g. screenshot screen 3."}]}
+        return {"content": _shot(str(tgt))}
     # App-building tools (no screen capture; they return JSON the model reads to iterate).
     if name == "authoring_guide":
         return {"content": [{"type": "text", "text": _authoring_guide()}]}

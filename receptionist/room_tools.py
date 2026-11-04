@@ -13,7 +13,7 @@ TEST writes against the SCRATCH house (:57801), never the real house, until the 
 import json, os, sys, hashlib, urllib.request, subprocess, time
 
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://100.64.243.30:57800")   # Mini, Tailscale
-KANBAN = os.environ.get("PINPIN_KANBAN", "/root/work/quest-wall-screen/docs/captain/KANBAN.md")
+KANBAN_API = os.environ.get("PINPIN_KANBAN_API", "http://100.64.243.30:57830/api/kanban")  # work-ad's board
 NUDGE_DEFAULT = 0.12      # a nudge is a small fixed step
 NUDGE_MAX = 0.30
 _DIRS = {"left": ("x", -1), "right": ("x", 1), "up": ("y", 1), "down": ("y", -1)}
@@ -86,15 +86,27 @@ def clear():
     print(json.dumps({"ok": True, "selected": None, "rev": res.get("rev")}))
 
 
+def _apps_token():
+    p = os.path.expanduser("~/.local/share/pinpin-apps/token")
+    try:
+        return open(p).read().strip()
+    except OSError:
+        pass
+    r = subprocess.run(["sudo", "-n", "cat", "/root/.config/pinpin-apps/token"],
+                       capture_output=True, timeout=5)
+    return r.stdout.decode().strip() if r.returncode == 0 else ""
+
+
 def add_card(title, details=""):
-    line = "- [ ] **%s** — %s  _(via headset %s)_\n" % (
-        title, details, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    # the repo is root-owned; append with sudo (work-df runs this as pinpin-claude with sudo)
-    p = subprocess.run(["sudo", "-n", "tee", "-a", KANBAN], input=line.encode(),
-                       capture_output=True, timeout=10)
-    if p.returncode != 0:
-        sys.exit("could not append to %s: %s" % (KANBAN, p.stderr.decode()))
-    print(json.dumps({"ok": True, "kanban": KANBAN, "card": title}))
+    # Append to work-ad's live board (docs/captain/KANBAN.md is generated from it, so file appends
+    # would be overwritten). Cards spoken via the headset are attributed to the user.
+    body = json.dumps({"title": title, "details": details, "by": "user (headset)"}).encode()
+    req = urllib.request.Request(KANBAN_API, data=body, method="POST",
+                                 headers={"Authorization": "Bearer " + _apps_token(),
+                                          "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        card = json.load(r)
+    print(json.dumps({"ok": True, "card": card.get("id"), "title": title}))
 
 
 def main(argv):
