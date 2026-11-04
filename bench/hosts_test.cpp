@@ -48,6 +48,20 @@ int main(int argc, char** argv) {
     CHECK(res.ip == "192.168.0.104" && res.via == "last known", "mDNS miss falls back to last known: %s via %s", res.ip.c_str(), res.via.c_str());
 
     if (argc > 1) { std::string ip = hosts::resolve(argv[1], 1500, argc > 2 ? argv[2] : nullptr); printf("live mDNS %s -> %s\n", argv[1], ip.empty() ? "(no answer)" : ip.c_str()); CHECK(!ip.empty(), "live query answered"); }
+    // Several A records (the stale 192.168.0.102 / 192.168.1.37 next to the real .105 after the Air rebooted): all kept;
+    // the pick is the first that connects, the last known one tried first.
+    {
+        std::vector<uint8_t> r2 = {0x12, 0x34, 0x84, 0x00}; put16(r2, 0); put16(r2, 3); put16(r2, 0); put16(r2, 0);
+        const uint8_t ips[3][4] = {{192, 168, 0, 102}, {192, 168, 1, 37}, {192, 168, 0, 105}};
+        for (auto& ip : ips) { label(r2, "Miguels-MacBook-Air"); label(r2, "local"); r2.push_back(0); put16(r2, 1); put16(r2, 0x8001); put16(r2, 0); put16(r2, 120); put16(r2, 4); r2.insert(r2.end(), ip, ip + 4); }
+        auto all = hosts::parseAll(r2.data(), r2.size(), "Miguels-MacBook-Air.local");
+        CHECK(all.size() == 3 && all[0] == "192.168.0.102" && all[2] == "192.168.0.105", "all A records (%zu)", all.size());
+        auto only105 = [](const std::string& ip, int, int) { return ip == "192.168.0.105"; };
+        CHECK(hosts::pickReachable(all, "192.168.0.102", 47989, +only105) == "192.168.0.105", "the one that connects wins over the stale last-known");
+        auto none = [](const std::string&, int, int) { return false; };
+        CHECK(hosts::pickReachable(all, "192.168.1.37", 47989, +none) == "192.168.1.37", "none connects: last known first");
+        CHECK(hosts::pickReachable({}, "x", 1).empty(), "nothing resolved");
+    }
     printf("%d failures\n", fails);
     return fails ? 1 : 0;
 }

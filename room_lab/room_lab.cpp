@@ -1997,10 +1997,14 @@ struct App {
     }
     void assistScreens(std::vector<int>& ids) { ids.clear(); if (placed.active) ids.push_back(1); for (auto& e : extras) ids.push_back(e.id); }
     V3 assistButton(const Placement& p, const Entity& w) { return xform(w.pose, {p.x + p.w / 2 + 0.06f, p.y + p.h / 2 - 0.06f, 0.03f}); }
+    // The assistant runs on the Air: files/assist-host "laptop" (or no file) follows the laptop's resolved address
+    // (HOSTRES), so a new DHCP lease does not strand ASSIST / CLAUDE on the old one (2026-11-04: 192.168.0.102 -> .105).
+    std::string assistHostNow() { if (assistHost.empty()) { std::ifstream hf(gDir + "/assist-host"); std::string h; assistHost = (hf >> h) ? h : "laptop"; }
+                                  return assistHost == "laptop" ? laptop() : assistHost; }
     void assistLoadHistory() {
         if (assistHistoryLoaded) return; assistHistoryLoaded = true;
-        { std::ifstream hf(gDir + "/assist-host"); std::string h; assistHost = (hf >> h) ? h : "192.168.0.50"; }
-        std::vector<int> ids; assistScreens(ids); std::string host = assistHost;
+        { std::ifstream hf(gDir + "/assist-host"); std::string h; assistHost = (hf >> h) ? h : "laptop"; }
+        std::vector<int> ids; assistScreens(ids); std::string host = assistHostNow();
         std::thread([this, ids, host] {
             for (int id : ids) {
                 house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
@@ -2068,7 +2072,7 @@ struct App {
     std::string recHistorySource;
     static constexpr const char* kRecGreeting = "Hi, this goes to work-df. Speak, and pause when you are done.";
     void recRestoreHistory() {
-        std::string host = assistHost, conv = receptionId(), cache = gDir + "/reception-history.json";
+        std::string host = assistHostNow(), conv = receptionId(), cache = gDir + "/reception-history.json";
         std::thread([this, host, conv, cache] {
             house::Response r = house::http(host, 57840, "GET", "/api/reception/history?conv=" + conv + "&limit=" + std::to_string(kRecExchanges * 4));
             bool ok = false; json::Value v = json::parse(r.body, &ok);
@@ -2165,7 +2169,7 @@ struct App {
         static std::mt19937 rng((unsigned)time(nullptr)); char turn[24]; snprintf(turn, sizeof turn, "h%08x", (unsigned)rng());
         { std::lock_guard<std::mutex> g(assistLock); chats[id].user(text, turn); chatScroll[id] = 0; }
         assistSent++; event("assist: screen " + std::to_string(id) + " <- " + text);
-        std::string host = assistHost, tid = turn;
+        std::string host = assistHostNow(), tid = turn;
         if (id == 0 && receptionOn()) {
             std::string conv = receptionId(); receptionSent++;
             std::thread([this, text, host, conv] {
@@ -2198,7 +2202,7 @@ struct App {
             if (recKeepMenu) { house::writeAtomic(gDir + "/reception-open", "1"); recRestoreHistory(); }
             return;
         }
-        std::string host = assistHost;
+        std::string host = assistHostNow();
         std::thread([this, id, host] {  // the conversation so far, behind the greeting
             house::Response r = house::http(host, 57840, "GET", "/session/" + sessionName(id));
             bool ok = false; json::Value v = json::parse(r.body, &ok);
