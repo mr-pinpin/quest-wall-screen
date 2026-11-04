@@ -193,6 +193,51 @@ def headset_worn():
     return len(states) >= 3 and all(s == 'HEADSET_MOUNTED' for s in states)
 
 
+IN_USE_FILE = pathlib.Path('/tmp/pinpin-headset-inuse.json')  # when the headset was last seen in real use
+IN_USE_QUIET_S = 120  # the live atlas is touched again only after the app has been unfocused this long
+
+
+def our_wear_active():
+    # Simulated wear of ours (prox_close) is on when the last override any of our processes sent was prox_close.
+    try: lines = pathlib.Path(PROX_LOG).read_text().splitlines()
+    except OSError: return False
+    for l in reversed(lines):
+        if ' prox_close ' in l: return True
+        if ' automation_disable ' in l: return False
+    return False
+
+
+def headset_in_use():
+    # Real use: room_lab FOCUSED (XrSessionState 5) in a fresh status.json (written every second while it renders),
+    # with no simulated wear of ours making it so. owner=agents no longer means nobody is in it (the user wears the
+    # headset while agents install and restart), so runs that pause the LIVE atlas check this before and during.
+    try:
+        out = headset(f"pidof {PKG} >/dev/null && run-as {PKG} sh -c 'echo $(( $(date +%s) - $(stat -c %Y files/status.json) )); cat files/status.json'",
+                      allow_user=True, timeout=15)
+        lines = out.strip().splitlines(); age = int(lines[0]); st = json.loads(lines[-1]).get('state')
+    except Exception:
+        return False  # app not running, headset asleep or unreachable: nobody is looking at the screens
+    used = age <= 5 and st == 5 and not our_wear_active()
+    if used: IN_USE_FILE.write_text(json.dumps({'t': time.time()}))
+    return used
+
+
+def headset_recently_used():
+    if headset_in_use(): return True
+    try: return time.time() - json.loads(IN_USE_FILE.read_text())['t'] < IN_USE_QUIET_S
+    except (OSError, ValueError, KeyError): return False
+
+
+def note_in_use_wait():
+    # one activity line per waiting spell (not one per 12 s retry)
+    mark = pathlib.Path('/tmp/pinpin-inuse-wait.logged')
+    try: last = mark.stat().st_mtime
+    except OSError: last = 0
+    if time.time() - last > 600:
+        activity('WAIT live atlas untouched: the headset is in use (room_lab focused); sim runs resume 2 min after it is unfocused')
+    mark.touch()
+
+
 def simulate_wear(on):
     # Unworn, with prox_close the Quest renders exactly as when worn (measured: state 5, 72 fps, no throttling).
     with prox_lock(): prox('prox_close' if on else 'automation_disable', 'simulate_wear')
@@ -295,6 +340,8 @@ def busy(force, sim=False):
     own = headset_owner()
     # sim runs too: they pause the LIVE sender for the run, so the user's screens in the headset would freeze
     if own == 'user': return 'the bench lock is held (the user owns the headset: bench/headset_owner)'  # worded so retry loops wait
+    if sim and headset_recently_used():  # a sim run pauses the LIVE atlas: never while someone is in the headset
+        note_in_use_wait(); return 'the bench lock is held (the headset is in use: room_lab focused, or was within 2 min)'
     if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
@@ -585,6 +632,7 @@ def main():
             except ValueError: pass
             idle = laptop_idle_s()
             if headset_owner() == 'user': aborted = 'the user took the headset (bench/headset_owner)'  # sim too: the live sender is paused
+            elif sim and headset_in_use(): aborted = 'the headset came into use (room_lab focused); requeued'; note_in_use_wait()
             elif sim and headset_owner() == '' and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
             idle_before = idle
             if aborted:

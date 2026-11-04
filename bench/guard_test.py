@@ -68,4 +68,25 @@ check(not gate(f'PASS abc1234ffff {now - 7 * 3600}'), 'an old verdict refuses in
 check(not gate(f'PASS 999 {now}') or True, '')
 if saved is not None: open(gf, 'w').write(saved)
 else: _os.remove(gf)
+# The in-use guard: a sim run (it pauses the LIVE atlas) stands down while room_lab is focused by a person, and for
+# 2 min after; our own simulated wear (prox_close in the prox log) and a stale status.json do not count.
+stress.OWNER_FILE.write_text('agents\n'); stress.PROX_LOG = str(d / 'prox-inuse.log'); stress.IN_USE_FILE = d / 'inuse.json'
+stress.network_change = lambda: ''; stress.activity = lambda *a, **k: None
+status = {'age': 1, 'state': 5}
+stress.mini = lambda cmd, **k: f"{status['age']}\n{{\"state\":{status['state']},\"fps\":72}}" if 'status.json' in cmd else ''
+check(stress.headset_in_use(), 'focused, fresh, no wear of ours: in use')
+check('in use' in stress.busy(False, sim=True), 'sim run waits while the headset is in use')
+check(stress.busy(False, sim=False) == '' or 'in use' not in stress.busy(False, sim=False), 'a headset run is not held by the in-use guard')
+open(stress.PROX_LOG, 'w').write('2026-11-04T03:00:00Z prox_close headset_hold pid 1\n')
+stress.IN_USE_FILE.unlink()
+check(not stress.headset_in_use(), 'our own simulated wear is not use')
+open(stress.PROX_LOG, 'a').write('2026-11-04T03:05:00Z automation_disable headset_hold pid 1\n')
+status.update(age=30); check(not stress.headset_in_use(), 'a stale status.json is not use')
+status.update(age=1, state=4); check(not stress.headset_in_use(), 'visible but not focused is not use')
+stress.IN_USE_FILE.write_text('{"t": %f}' % (_t.time() - 60))
+check(stress.headset_recently_used(), 'within 2 min of use: still waiting')
+stress.IN_USE_FILE.write_text('{"t": %f}' % (_t.time() - 130))
+check(not stress.headset_recently_used() and stress.busy(False, sim=True) == '', '2 min after use: sim runs resume')
+stress.mini = lambda cmd, **k: (_ for _ in ()).throw(RuntimeError('unreachable'))
+check(not stress.headset_in_use(), 'an unreachable headset is not in use')
 print(f'guard self-test: {fails} failures'); sys.exit(1 if fails else 0)

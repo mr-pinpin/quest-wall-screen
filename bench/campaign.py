@@ -9,8 +9,8 @@ INCONCLUSIVE). Results: bench/results/campaign-<block>-<date>.md and .json. Runs
         --pairs "longgop:longgop:base,vt-cinema:vt:base,hero:vthero:vt" \\
         -- --scenario cinema --n 10 --secs 60 --sim-on mini --source synth --sim-extra "--v2 --hero --keyreq 15"
 
-Each run is one stress.py call holding the bench lock only for itself; when the lock is busy it waits (12 s steps,
-up to 30 min per run) so other sessions interleave. A config with no result after one retry is reported, not guessed.
+Each run is one stress.py call holding the bench lock only for itself; when the lock is busy, or the headset is in
+use (stress.py stands down rather than pause the live atlas), it waits (12 s steps, up to 4 h per run). A config with no result after one retry is reported, not guessed.
 """
 import argparse, datetime, json, os, pathlib, statistics, subprocess, sys, time
 
@@ -30,7 +30,7 @@ def log(msg):
         pass
 
 
-def run(flags, extra, deadline_s=1800):
+def run(flags, extra, deadline_s=4 * 3600):  # long: a run waits out a whole headset session (in-use guard)
     cmd = [sys.executable, str(HERE / 'stress.py')] + extra + (['--flags', flags] if flags else [])
     end = time.time() + deadline_s
     while time.time() < end:
