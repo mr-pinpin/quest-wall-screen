@@ -39,6 +39,21 @@ def pick_model(text, think):
     if think:
         return MODEL_THINK
     return MODEL_FAST if _ACTION_RE.search(text or "") else MODEL_CHAT
+
+
+def chat_system_prompt(screen):
+    return (
+        f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
+        f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
+        f"THIS screen's browser window to a page (it lands on this display), and click/scroll/type act inside "
+        f"it. Every action returns a screenshot of the screen — read it to CONFIRM the result actually "
+        f"happened before you say it did; if it didn't, try again or report what you see.\n"
+        f"To turn this screen into a custom mini-app (\"make this a kitchen timer\", \"build me X here\"): call "
+        f"authoring_guide first, write the app with put_app (create:true for a new app; id derived from the "
+        f"name) and iterate until check.errors is empty AND check.text matches what was asked, then assign_app "
+        f"to show it on this screen and confirm from a screenshot.\n"
+        f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
+    )
 NOW = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 _VERB = {"open_url": "opening", "open_app": "opening", "place_window": "placing",
@@ -293,28 +308,143 @@ class MockBackend(ModelBackend):
         return {"text": "(mock) " + prompt}
 
 
+class WarmProc:
+    """One persistent `claude --input-format stream-json` process for a screen, so chat turns skip the ~2 s cold
+    start. Context lives in the process across turns (fed over stdin). One turn at a time (lock). Only usable as a
+    PinPin Host child, where the claude login (Keychain) is reachable."""
+    def __init__(self, screen, claude_bin, mcp_config):
+        self.screen = screen
+        self.last = time.time()
+        self.lock = threading.Lock()
+        self.session_id = None
+        argv = [claude_bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+                "--include-partial-messages", "--model", MODEL_CHAT, "--verbose",
+                "--append-system-prompt", chat_system_prompt(screen),
+                "--mcp-config", mcp_config, "--allowedTools", "mcp__screen__*", "--max-turns", str(MAX_STEPS)]
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True, bufsize=1,
+                                     env={**os.environ, "PINPIN_SCREEN": str(screen)})
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def rss_mb(self):
+        try:
+            out = subprocess.run(["ps", "-o", "rss=", "-p", str(self.proc.pid)],
+                                 capture_output=True, text=True, timeout=3).stdout.strip()
+            return int(out) // 1024 if out.isdigit() else None
+        except Exception:
+            return None
+
+    def kill(self):
+        try:
+            self.proc.kill()
+        except Exception:
+            pass
+
+    def run_turn(self, text, emit, deadline):
+        with self.lock:
+            if not self.alive():
+                raise RuntimeError("warm proc not alive")  # pre-stream failure -> caller falls back to cold
+            self.last = time.time()
+            msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+            self.proc.stdin.write(json.dumps(msg) + "\n"); self.proc.stdin.flush()
+            steps = 0; stop = "end"; streamed = False
+            while True:
+                if time.time() > deadline:
+                    self.kill(); return "timeout"
+                line = self.proc.stdout.readline()
+                if line == "":
+                    if not streamed:
+                        raise RuntimeError("warm proc ended before output")  # fall back to cold
+                    return "error"
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                t = ev.get("type")
+                if t == "system" and ev.get("session_id"):
+                    self.session_id = ev["session_id"]
+                elif t == "stream_event":
+                    e = ev.get("event", {})
+                    if e.get("type") == "content_block_delta":
+                        d = e.get("delta", {})
+                        if d.get("type") == "text_delta" and d.get("text"):
+                            streamed = True; emit({"type": "text", "delta": d["text"]})
+                elif t == "assistant":
+                    for b in ev.get("message", {}).get("content", []):
+                        if b.get("type") == "text" and not streamed and b.get("text"):
+                            emit({"type": "text", "delta": b["text"]})
+                        elif b.get("type") == "tool_use":
+                            steps += 1
+                            name = b.get("name", "").replace("mcp__screen__", "")
+                            emit({"type": "action", "action": name,
+                                  "detail": json.dumps(b.get("input", {}))[:200], "status": "begin"})
+                            if steps >= MAX_STEPS:
+                                stop = "max_steps"
+                elif t == "result":
+                    if ev.get("is_error"):
+                        stop = "error"
+                    self.last = time.time()
+                    return stop
+
+
+class WarmPool:
+    """Per-screen warm processes, capped, with idle reaping. Chat turns reuse them; action/build/think stay cold."""
+    def __init__(self, claude_bin, mcp_config, cap=None, idle_s=None):
+        self.claude = claude_bin
+        self.mcp_config = mcp_config
+        self.cap = int(os.environ.get("PINPIN_ASSIST_WARM_CAP", cap or 4))
+        self.idle_s = float(os.environ.get("PINPIN_ASSIST_WARM_IDLE_S", idle_s or 600))
+        self.procs = {}
+        self.lock = threading.Lock()
+        threading.Thread(target=self._reaper, daemon=True).start()
+
+    def get(self, screen):
+        with self.lock:
+            wp = self.procs.get(screen)
+            if wp and wp.alive():
+                return wp
+            if wp:
+                wp.kill(); self.procs.pop(screen, None)
+            if len(self.procs) >= self.cap:
+                lru = min(self.procs.values(), key=lambda p: p.last)
+                lru.kill(); self.procs.pop(lru.screen, None)
+                sys.stderr.write(f"{NOW()} warm pool: evicted screen {lru.screen} (cap {self.cap})\n")
+            wp = WarmProc(screen, self.claude, self.mcp_config)
+            self.procs[screen] = wp
+            sys.stderr.write(f"{NOW()} warm pool: spawned screen {screen} rss={wp.rss_mb()}MB pool={len(self.procs)}\n")
+            return wp
+
+    def _reaper(self):
+        while True:
+            time.sleep(60)
+            now = time.time()
+            with self.lock:
+                for s, wp in list(self.procs.items()):
+                    if not wp.alive() or now - wp.last > self.idle_s:
+                        wp.kill(); self.procs.pop(s, None)
+                        sys.stderr.write(f"{NOW()} warm pool: reaped screen {s}\n")
+                if self.procs:  # memory per process, logged (work-df)
+                    mem = ", ".join(f"{s}={wp.rss_mb()}MB" for s, wp in self.procs.items())
+                    sys.stderr.write(f"{NOW()} warm pool: {len(self.procs)} proc(s) rss {mem}\n")
+
+
 class ClaudeCliBackend(ModelBackend):
     """The real backend: wraps `claude -p --output-format stream-json --resume <sid>` with a screen-scoped MCP
-    server for computer use. Session id per screen is remembered for --resume. Streams the model's text and tool
-    events out as SSE. Enforces the step/wall caps by capping --max-turns and killing at the deadline."""
+    server for computer use. Plain-chat turns use a WARM per-screen process (no cold start); action/build/think
+    turns run a cold process (model from the router), with the warm pool as the fast path and cold as fallback."""
     def __init__(self, claude_bin="claude", mcp_config=None):
         self.claude = claude_bin
         self.mcp_config = mcp_config or os.path.expanduser("~/.local/share/pinpin-assistant/screen-mcp.json")
+        self.pool = WarmPool(self.claude, self.mcp_config)
 
     def _argv(self, session, text, think, screen):
         model = pick_model(text, think)
-        sys_prompt = (
-            f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "
-            f"mcp__screen__ tools; never touch any other display. The screen is a web view: open_url navigates "
-            f"THIS screen's browser window to a page (it lands on this display), and click/scroll/type act inside "
-            f"it. Every action returns a screenshot of the screen — read it to CONFIRM the result actually "
-            f"happened before you say it did; if it didn't, try again or report what you see.\n"
-            f"To turn this screen into a custom mini-app (\"make this a kitchen timer\", \"build me X here\"): call "
-            f"authoring_guide first, write the app with put_app (create:true for a new app; id derived from the "
-            f"name) and iterate until check.errors is empty AND check.text matches what was asked, then assign_app "
-            f"to show it on this screen and confirm from a screenshot.\n"
-            f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
-        )
+        sys_prompt = chat_system_prompt(screen)
         argv = [self.claude, "-p", text, "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages",  # token-level text deltas -> first word streams immediately
                 "--model", model, "--append-system-prompt", sys_prompt,
@@ -327,6 +457,13 @@ class ClaudeCliBackend(ModelBackend):
         return argv, {**os.environ, "PINPIN_SCREEN": str(screen)}
 
     def run_turn(self, session, text, think, screen, ctl, emit, deadline):
+        # Plain-chat turns go to the warm per-screen process (no cold start). If the warm process can't be used
+        # (dead/spawn fail before any output), fall back to the cold path below. Action/build/think use cold.
+        if not think and pick_model(text, think) == MODEL_CHAT:
+            try:
+                return self.pool.get(str(screen)).run_turn(text, emit, deadline)
+            except Exception as e:
+                sys.stderr.write(f"{NOW()} warm turn failed ({e}); falling back to cold\n")
         argv, env = self._argv(session, text, think, screen)
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, bufsize=1, text=True)
         steps = 0
