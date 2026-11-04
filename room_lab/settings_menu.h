@@ -21,7 +21,7 @@ struct Category { std::string name, hint; std::vector<std::string> labels; };
 
 inline const std::vector<Category>& categories() {
     static const std::vector<Category> c = {
-        {"SCREENS", "SOURCES SIZES BARS", {"MINI", "LAPTOP", "SMALL", "MEDIUM", "LARGE", "LOCK", "MACDISP", "ALLBARS", "CLOSEX", "DEPTHPLACE", "CTLTOP", "RESUME", "SAVESET"}},
+        {"SCREENS", "SOURCES SIZES BARS", {"MINI", "LAPTOP", "SMALL", "MEDIUM", "LARGE", "LOCK", "MACDISP", "ALLBARS", "CLOSEX", "DEPTHPLACE", "CTLTOP", "MARKS", "RESUME", "SAVESET"}},
         {"INPUT", "HANDS AND GESTURES", {"STEADY", "SPELL", "SHOULDER", "WRIST", "SCROLL", "WALLTOOL"}},
         {"LOOK", "HOW SCREENS LOOK", {"QUAD", "CURVE", "MARGIN", "SUPER", "BEZEL", "FADE", "GLASS", "AMBI", "PANELTEX", "SETCAT", "BEZELFEW"}},
         {"ASSISTANT", "CLAUDE AND THE MIC", {"ASSIST", "RECEPTION", "DICTQ", "RECKEEP"}},

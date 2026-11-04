@@ -33,6 +33,7 @@
 #include "reception_persist.h"
 #include "mesh_arena.h"
 #include "vt_strip.h"
+#include "marks.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -261,7 +262,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true, marksMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -548,7 +549,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 53;
+    static constexpr int kMenuItems = 54;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -575,7 +576,8 @@ struct App {
         {"STEADY", "GESTURES", "STEADIER POINTER FOR SHAKY HANDS"}, {"CTLTOP", "SCREENS", "SCREEN CONTROLS ALWAYS ON TOP"},
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
         {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"},
-        {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"}};
+        {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"},
+        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -622,6 +624,7 @@ struct App {
         if (l == "RECKEEP") return recKeepMenu;
         if (l == "MESHBATCH") return meshBatchMenu;
         if (l == "BEZELFEW") return bezelFewMenu;
+        if (l == "MARKS") return marksMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -719,7 +722,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}, {"MARKS", marksMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -791,7 +794,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu); get("MARKS", marksMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -853,6 +856,7 @@ struct App {
         else if (l == "RECKEEP") recKeepMenu = !recKeepMenu;                    // CLAUDE chat across restarts
         else if (l == "MESHBATCH") meshBatchMenu = !meshBatchMenu;              // room mesh in one buffer, few draws
         else if (l == "BEZELFEW") bezelFewMenu = !bezelFewMenu;                 // AMBI under VT cut on tile edges only
+        else if (l == "MARKS") marksMenu = !marksMenu;                          // house marks on the walls
         else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -2351,7 +2355,7 @@ struct App {
     // that UI state synthetically, then the file is removed. Only menus/tool/panel state; nothing is sent anywhere.
     //   shoulder | settings | walls (WALLS palette + a dashed line preview on the wall in view) | wrist | assist
     //   (a local demo chat beside the main screen) | scan | scan-done | click:<id>:<u>:<v> | scroll:<id>:<dy> | close
-    //   | select:<id> (the gold outline, as house["selected"] would) | select-clear
+    //   | select:<id> (the gold outline, as house["selected"] would) | select-clear | marks-demo | marks-clear
     void uiDemo(const std::string& scene) {
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
@@ -2382,6 +2386,13 @@ struct App {
         } else if (scene == "scan-done") { scanFinish();
         } else if (scene.rfind("select:", 0) == 0) { sel.select(atoi(scene.c_str() + 7), now()); event("ui-demo: select " + scene.substr(7));
         } else if (scene == "select-clear") { sel.clear(now());
+        } else if (scene == "marks-demo") {  // a label, an arrow, a rect and a circle around the main screen (screen 1)
+            json::Value v = json::parse(R"({"marks":[{"id":"d1","kind":"label","screen":1,"x":0,"y":0.75,"text":"this screen","color":"gold"},
+              {"id":"d2","kind":"arrow","screen":1,"x":-1.1,"y":0.6,"dx":0.35,"dy":-0.35,"text":"here","color":"red"},
+              {"id":"d3","kind":"rect","screen":1,"x":0.9,"y":-0.6,"w":0.4,"h":0.25,"color":"green","text":"box"},
+              {"id":"d4","kind":"circle","screen":1,"x":-0.9,"y":-0.6,"r":0.15,"color":"#66aaff"}]})");
+            markDemo = marks::parse(v); event("ui-demo: marks");
+        } else if (scene == "marks-clear") { markDemo.clear();
         } else if (scene.rfind("click:", 0) == 0 || scene.rfind("scroll:", 0) == 0) {  // click:<id>:<u>:<v> / scroll:<id>:<dy>, the same routing as a pinch / wave
             int id = 0, a = 0, b = 0; bool click = scene[1] == 'l';
             sscanf(scene.c_str() + (click ? 6 : 7), "%d:%d:%d", &id, &a, &b);
@@ -4428,6 +4439,35 @@ void main(){
         for (size_t i = 0; i < costParts.size(); i++) j << (i ? "," : "") << "{\"name\":\"" << costParts[i].name << "\",\"us\":" << costParts[i].us << ",\"verts\":" << costParts[i].verts << "}";
         j << "]}"; return j.str();
     }
+    // ---- MARKS (kanban K1 DRAW, room_lab/marks.h): house["marks"] from work-42's room.sh draw/clear, labels / arrows /
+    // rectangles / circles at a wall position or relative to a screen, drawn in the ctl batch (after everything, no
+    // depth test: never hidden by the floor or the room mesh). Parsed when the house document changes; expired marks
+    // fade out and stop drawing. files/ui-demo "marks-demo" adds a sample set around the main screen, "marks-clear" drops it.
+    std::vector<marks::Mark> markList, markDemo; const json::Value* markDoc = nullptr; marks::Life markLife; int marksShown = 0, marksUnresolved = 0;
+    void drawMarks(Batch& b) {
+        marksShown = marksUnresolved = 0;
+        if (!marksMenu) return;
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        if (d && d.get() != markDoc) { markDoc = d.get(); markList = marks::parse(*d); }
+        double nowUnix = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); float t = now();
+        std::vector<const marks::Mark*> all; for (auto& m : markList) all.push_back(&m); for (auto& m : markDemo) all.push_back(&m);
+        for (const marks::Mark* mp : all) {
+            const marks::Mark& m = *mp; if (marks::expired(m, nowUnix)) continue;
+            Entity* w = nullptr; float x = m.x, y = m.y;
+            if (m.screen >= 0) {
+                Placement p; if (!screenFor(m.screen, p, w)) { marksUnresolved++; continue; }
+                x += p.x; y += p.y;
+            } else if (d) {
+                for (auto& hw : (*d)["walls"].a) if (hw["id"].str() == m.wall) for (auto& u : hw["scene"].a) if ((w = wallById(u.str()))) break;
+                if (!w && m.wall.rfind("w-", 0) == 0) for (auto& e : entities) if (e.uuid.rfind(m.wall.substr(2), 0) == 0) w = &e;  // "w-<uuid8>": not in the house yet
+            }
+            if (!w || !w->located) { marksUnresolved++; continue; }
+            marks::Geo g = marks::geometry(m, x, y, markLife.pop(m, t), marks::Life::alpha(m, nowUnix));
+            for (auto& q : g.quads) b.quad(xform(w->pose, {q.c[0].x, q.c[0].y, 0.045f}), xform(w->pose, {q.c[1].x, q.c[1].y, 0.045f}), xform(w->pose, {q.c[2].x, q.c[2].y, 0.045f}), xform(w->pose, {q.c[3].x, q.c[3].y, 0.045f}), q.col);
+            for (auto& tr : g.texts) text(b, *w, tr.x, tr.y, 0.047f, tr.px, tr.s.c_str(), tr.col);
+            marksShown++;
+        }
+    }
     void build(Batch& occ, Batch& over) {
         auto buildT0 = std::chrono::steady_clock::now(); costT = buildT0; costV = 0; costK = 0;
         build2(occ, over);
@@ -4466,6 +4506,7 @@ void main(){
         drawVoice(over);
         drawExtras(occ, bars); costMark("extra screens", occ, over);
         drawSelection(bars);
+        drawMarks(ctl);  // always on top
         drawSpell(over);
         drawToasts(over); costMark("outline, spell, toasts", occ, over);
         if (candidate.active) if (auto* w = wallById(candidate.wall)) {
@@ -4926,6 +4967,7 @@ void main(){
           j << ",\"assist\":{\"on\":" << (assistOn() ? 1 : 0) << ",\"armed\":" << assistArmed << ",\"sent\":" << assistSent << ",\"chats\":" << chats.size() << ",\"error\":\"" << jsonEscape(assistErr) << "\"}"; }
         j << ",\"placement\":" << placementJson();
         j << ",\"frameCost\":" << frameCostJson();
+        j << ",\"marks\":{\"on\":" << (marksMenu ? 1 : 0) << ",\"listed\":" << (markList.size() + markDemo.size()) << ",\"shown\":" << marksShown << ",\"unresolved\":" << marksUnresolved << "}";
         { std::lock_guard<std::mutex> g(appsLock); j << ",\"web\":{\"screens\":" << webScreens.size() << ",\"cdpSent\":" << cdpSent << ",\"cdpFailed\":" << cdpFailed << "}"; }
         { size_t nb; { std::lock_guard<std::mutex> g(meshLock); nb = meshBlocks.size(); }
           j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris

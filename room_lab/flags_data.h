@@ -870,6 +870,19 @@ inline const char* kFlagsJson = R"FJ({
           "commit": "7350d55"
         }
       ]
+    },
+    {
+      "name": "MARKS",
+      "where": "headset",
+      "default": true,
+      "state": "on",
+      "category": "experimental",
+      "reason": "House marks (kanban K1 DRAW): labels, arrows, rectangles and circles from house[\"marks\"] (work-42's room.sh draw/clear), at a wall position or beside a screen, drawn on top of everything, with colour and expiry (room_lab/marks.h). On: it draws only what the assistant puts there.",
+      "evidence": [
+        {
+          "commit": "4568da5"
+        }
+      ]
     }
   ]
 }
