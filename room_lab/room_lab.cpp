@@ -200,7 +200,7 @@ struct App {
     // old image (holdLayers) until the new one has arrived; demand carries the wanted level ("lvl") and the one
     // shown ("have"). files/vt-on forces it for self-tests.
     bool vtMenu = false, vtFile = false; bool vt() const { return vtMenu || vtFile; }
-    std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0; std::map<int, vt::Resident> vtResident;
+    std::map<int, PanelLayer> holdLayers; long vtHolds = 0, vtSkipped = 0; std::map<int, vt::Resident> vtResident; bool vtWas = false;
     // HERO flag (docs/virtual-texturing.md v3): screens chosen by vt::Heroes leave the atlas for their own stream,
     // demuxed from 0x81 packets into a decoder-only VideoStream each (created on the render thread; packets that
     // arrive first wait from their last IDR). files/hero-on forces it.
@@ -3760,6 +3760,11 @@ void main(){
         if (!atlasVideo.directHost.empty()) parseAtlas();  // the layout arrives before the first decoded frame
         bool atlasOk = !atlasVideo.directHost.empty() && atlasVideo.update(display) && atlasVideo.mipTex;
         extraLive.clear();
+        if (vt() != vtWas) {  // VT switched mid-session: drop VT's per-screen state so off -> on -> off returns to the baseline exactly
+            vtWas = vt(); vtResident.clear();
+            for (auto& [id, H] : holdLayers) H.destroy();
+            holdLayers.clear(); event(std::string("vt: ") + (vtWas ? "on" : "off") + ", per-screen state reset");
+        }
         if (heroOn() || !heroLayout.empty()) syncHeroStreams();
         for (auto& e : extras) {  // hero screens: their own decoder, straight into their layer
             if (!heroLayout.count(e.id)) continue;
