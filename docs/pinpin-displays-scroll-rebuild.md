@@ -1,8 +1,20 @@
 # Morning tasks: PinPin Displays rebuild (scroll + click fix) + a static wallpaper
 
-Status: staged 2026-11-04, waiting on the user. Owner: work-42.
+Status: scroll+click binary DEPLOYED 2026-11-04 as a PinPin Host plugin child (Accessibility granted,
+one instance on :57710). Owner: work-42.
 
-## A. Rebuild PinPin Displays — one Accessibility click
+> **SUPERSEDED (2026-11-04):** Section A below assumed pinpin-displays is a standalone ad-hoc app that
+> re-prompts for Accessibility on rebuild. It is actually a **PinPin Host plugin**, and the Host is its
+> SOLE owner (see AGENTS.md). Running `install-pinpin-displays.sh` in its old form **bootstrapped a
+> second launchd owner** of :57710 → three owners fought, crash-looped, and churned the displays,
+> spiking the Air to load 246 (incident 2026-11-04; stabilised by work-df to one Host-child instance).
+> The correct model: a Host child's grant is charged to the Host's permanent identity, so **rebuilds do
+> NOT re-prompt**. Upgrade path = build the binary + let the Host restart the plugin
+> (`POST http://127.0.0.1:57790/restart?name=<displays-plugin>`), never `launchctl bootstrap` the
+> agent and never `open` the app. The installer has been fixed to do exactly this and to retire the
+> stale agent. K19 tracks making the Host plugin start the single, reboot-surviving path.
+
+## A. (historical) Rebuild PinPin Displays — one Accessibility click
 
 The Air's running **PinPin Displays** is behind `main`. Rebuilding it picks up two committed changes:
 - the **scroll** `"w <id> <u> <v> <dy> <dx>"` UDP handler (headset wave-to-scroll + the assistant's computer-use

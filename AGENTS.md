@@ -24,4 +24,14 @@
   logs. On 2026-11-04, `sunshine --version` on the Mini booted a second Sunshine with the default config and truncated
   the live sunshine.log.
 - **PinPin Host:** never change its bundle id or signing identity (every permission would need new clicks).
+- **pinpin-displays is a PinPin Host plugin, and the Host is its SOLE owner.** Never create or
+  `launchctl bootstrap` the `io.mr-pinpin.displays` launchd agent, and never `open` the app: that
+  adds a 2nd/3rd owner fighting over :57710, which crash-loops and churns the virtual displays
+  (incident 2026-11-04 — three owners at once spiked the Air to load 246). Because it runs as a
+  Host child, its Accessibility/Screen-Recording grant is charged to the Host's permanent identity,
+  so **rebuilding it does NOT re-prompt** (the user's point: no further permissions, thanks to the
+  plugin system). To ship a new pinpin-displays binary: build it (`mac/install-pinpin-displays.sh`)
+  and let the Host restart the plugin — `POST http://127.0.0.1:57790/restart?name=<displays-plugin>`
+  (clean, host backoff), or replace-the-file-then-pkill-the-child. Same pattern for any Host plugin
+  (atlas, assistant): one owner, upgrade = replace binary + Host restart.
 - Commit as "Mr. PinPin" <miguelemosreverte@gmail.com>; `git pull --rebase --autostash` before pushing.
