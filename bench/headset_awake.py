@@ -10,6 +10,8 @@ A persistent, reversible headset setting (headset flags rule): `apply` records t
     python3 bench/headset_awake.py release                    # drop that wake lock again
     python3 bench/headset_awake.py autosleep [--seconds 14400] [--watch-min 40]  # the Quest auto-sleep delay
     python3 bench/headset_awake.py restore-autosleep          # put the recorded delay back
+    python3 bench/headset_awake.py nosleep [--watch-min 300]  # the fix that holds (2026-11-04): see docs/headset-never-sleep.md
+    python3 bench/headset_awake.py restore-nosleep            # undo nosleep, originals from bench/results/headset-nosleep-originals.json
 
 The working knob (2026-11-03): `oculuspreferences --getc/--setc autosleep_time` (seconds; was 15), read by the
 power manager as AutoSleepTime. unmounted_wake does not take from adb (lock count stays 0; system callers only).
@@ -114,6 +116,68 @@ def main():
             log(json.dumps(r)); time.sleep(60)
         log(f'watch over (autosleep {secs}): reachable {up} of {up + down} minutes')
         stress.activity(f'END headset autosleep watch: reachable {up} of {up + down} minutes (setting stays; restore-autosleep reverts)'); return
+    if mode in ('nosleep', 'restore-nosleep'):
+        # The Quest's power manager suspends the SoC off-head whatever autosleep_time says (2026-11-03 watch: "Asleep",
+        # adb dropping every few minutes). A kernel wake lock stops the suspend itself. An on-headset root loop holds it
+        # only while the headset is powered and drops it off the charger (never drain the battery); doze is disabled and
+        # Wi-Fi power save turned off so the link stays up. Everything is recorded first and undone by restore-nosleep.
+        SU = "/debug_ramdisk/su -c '{}'"
+        origf = RES / 'headset-nosleep-originals.json'
+        loop = ('#!/system/bin/sh\n'
+                '# pinpin nosleep guard: hold a kernel wake lock while powered. Stop: rm /data/local/tmp/pinpin-nosleep.run\n'
+                'L=/data/local/tmp/pinpin-nosleep.log; held=0\n'
+                'while [ -f /data/local/tmp/pinpin-nosleep.run ]; do\n'
+                '  p=0; for f in /sys/class/power_supply/*/online; do [ "$(cat $f 2>/dev/null)" = 1 ] && p=1; done\n'
+                '  if [ $p = 1 ] && [ $held = 0 ]; then echo pinpin > /sys/power/wake_lock; held=1; echo "$(date -u +%FT%TZ) powered: wake lock held" >> $L; fi\n'
+                '  if [ $p = 0 ] && [ $held = 1 ]; then echo pinpin > /sys/power/wake_unlock; held=0; echo "$(date -u +%FT%TZ) unpowered: wake lock released" >> $L; fi\n'
+                '  sleep 30\n'
+                'done\n'
+                '[ $held = 1 ] && echo pinpin > /sys/power/wake_unlock; echo "$(date -u +%FT%TZ) guard stopped" >> $L\n')
+        if mode == 'restore-nosleep':
+            orig = json.loads(origf.read_text()) if origf.exists() else {}
+            sh('rm -f /data/local/tmp/pinpin-nosleep.run'); time.sleep(1)
+            sh(SU.format('echo pinpin > /sys/power/wake_unlock'))
+            if orig.get('deviceidle', 'enabled') != 'disabled': sh('dumpsys deviceidle enable all')
+            if not orig.get('whitelisted'): sh(f'dumpsys deviceidle whitelist -{stress.PKG}')
+            if orig.get('power_save'): sh(SU.format(f"iw dev wlan0 set power_save {orig['power_save']}"))
+            sh('cmd wifi force-hi-perf-mode disabled')
+            log('restored nosleep: ' + json.dumps(orig) + ' | wake_lock now: ' + sh(SU.format('cat /sys/power/wake_lock')).strip())
+            stress.activity('END headset nosleep (restored)'); return
+        if not origf.exists():  # the first apply's values are the originals
+            idle = sh('dumpsys deviceidle enabled').strip()
+            orig = {'deviceidle': 'enabled' if '1' in idle.split() else 'disabled' if idle else '?', 'deviceidleRaw': idle,
+                    'whitelisted': stress.PKG in sh('dumpsys deviceidle whitelist'),
+                    'power_save': (re.search(r'Power save: (\w+)', sh(SU.format('iw dev wlan0 get power_save'))) or [None, ''])[1],
+                    'wake_lock': sh(SU.format('cat /sys/power/wake_lock')).strip(), 'autosleep': sh(SU.format('oculuspreferences --getc autosleep_time')).strip()}
+            RES.mkdir(exist_ok=True); origf.write_text(json.dumps(orig, indent=1))
+        log('originals: ' + origf.read_text().replace('\n', ' '))
+        import base64
+        b64 = base64.b64encode(loop.encode()).decode()
+        sh(f'echo {b64} | base64 -d > /data/local/tmp/pinpin-nosleep.sh && chmod 755 /data/local/tmp/pinpin-nosleep.sh && touch /data/local/tmp/pinpin-nosleep.run')
+        if 'pinpin-nosleep.sh' not in sh('ps -A -o ARGS | grep pinpin-nosleep | grep -v grep'):
+            sh(SU.format('nohup /data/local/tmp/pinpin-nosleep.sh >/dev/null 2>&1 &'))
+        sh('dumpsys deviceidle disable all'); sh(f'dumpsys deviceidle whitelist +{stress.PKG}')
+        sh(SU.format('iw dev wlan0 set power_save off')); r = sh('cmd wifi force-hi-perf-mode enabled').strip()
+        time.sleep(3)
+        log('applied: wake_lock=' + sh(SU.format('cat /sys/power/wake_lock')).strip() + ' | guard=' + sh('ps -A -o ARGS | grep pinpin-nosleep.sh | grep -v grep').strip()
+            + ' | deviceidle=' + sh('dumpsys deviceidle enabled').strip().replace('\n', ' ') + ' | power_save=' + sh(SU.format('iw dev wlan0 get power_save')).strip()
+            + ' | hi-perf: ' + (r or 'ok') + ' | ' + sh('tail -2 /data/local/tmp/pinpin-nosleep.log').strip().replace('\n', ' / '))
+        stress.activity('START headset nosleep (kernel wake lock while powered, doze off, wifi power save off); restore: headset_awake.py restore-nosleep')
+        out = RES / f'headset-awake-{datetime.date.today()}.jsonl'
+        t0, up, down = time.time(), 0, 0
+        while time.time() - t0 < watch * 60:
+            ok = reachable()
+            r = {'t': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), 'mode': 'nosleep', 'adb': ok, **(state() if ok else {})}
+            if ok:
+                r['lock'] = 'pinpin' in sh(SU.format('cat /sys/power/wake_lock'))
+                r['guard'] = 'pinpin-nosleep.sh' in sh('ps -A -o ARGS | grep pinpin-nosleep.sh | grep -v grep')
+                if not r['guard'] and r.get('powered'):  # e.g. after a reboot: start it again
+                    sh('touch /data/local/tmp/pinpin-nosleep.run'); sh(SU.format('nohup /data/local/tmp/pinpin-nosleep.sh >/dev/null 2>&1 &')); r['guardRestarted'] = True
+            up += ok; down += not ok
+            with out.open('a') as f: f.write(json.dumps(r) + '\n')
+            log(json.dumps(r)); time.sleep(60)
+        log(f'watch over (nosleep): reachable {up} of {up + down} minutes')
+        stress.activity(f'END headset nosleep watch: reachable {up} of {up + down} minutes (nosleep stays; restore-nosleep reverts)'); return
     if mode == 'release':
         sh('am broadcast -a com.oculus.vrpowermanager.release_unmounted_wake >/dev/null')
         log('released: ' + sh("dumpsys vrpowermanager | grep -E 'UnmountedWakeLock|^State:'").strip().replace('\n', ' | ')); return
