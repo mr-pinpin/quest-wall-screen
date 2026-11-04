@@ -10,3 +10,4 @@
 - 02:10 check: all four active. User woke briefly: screens misplaced = Meta relocalised in the dark (lights on fixed it); perf flags were back on in settings.json, now off. New user rule: deploy/restart any time unless the user says not to disturb
 - 02:30 check: all four active. v0.47 installed (P0 fix, ASSIST on); campaign block A running; apps runner test pass; Safari cleanup put on the morning list
 - 02:50 check: c4 (v0.49 chat UX installing), 34 (campaign A, benchlock races fixed, roommesh.h done), 42 (M8 app-building e2e) busy; ad idle -> app picker + 3 apps
+- 03:10 check: all four busy. v0.52 + GEOMETRY installed (03:10) for the user to compare scans; work-34 on a plane-regularized mesh + live raw depth; work-42 reproducing the screen-4 click bug (not TCC); watchdog flags the NOSLEEP 5 h watch as hung (expected duration, harmless)
