@@ -26,6 +26,9 @@
 #include "voice.h"
 #include "ui_grid.h"
 #include "shoulder.h"
+#include "house.h"
+#include <memory>
+#include <mutex>
 #include "spell.h"
 #include "gamestream.h"
 #include "panel_layer.h"
@@ -192,6 +195,8 @@ struct App {
     bool keyReqMenu = false, keyReqFile = false; bool keyReqOn() const { return keyReqMenu || keyReqFile; }
     // SHOULDER flag (docs/house-onboarding.md): the shoulder button and its cascading menus; files/shoulder-on forces it.
     bool shoulderMenuFlag = false, shoulderFile = false; bool shoulderOn() const { return shoulderMenuFlag || shoulderFile; }
+    // HOUSE flag (room_lab/house.h): the layout is also kept in house.json on the Mini; files/house-on forces it.
+    bool houseMenu = false, houseFile = false; bool houseOn() const { return houseMenu || houseFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -450,7 +455,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 30;
+    static constexpr int kMenuItems = 31;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -465,7 +470,7 @@ struct App {
         {"GPUTIME", "EXPERIMENTAL", "MEASURE GPU TIME"}, {"WIFILL", "EXPERIMENTAL", "LOW LATENCY WI-FI"},
         {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
-        {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}};
+        {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -489,6 +494,7 @@ struct App {
         if (l == "HERO") return heroOn();
         if (l == "KEYREQ") return keyReqOn();
         if (l == "SHOULDER") return shoulderOn();
+        if (l == "HOUSE") return houseOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -549,7 +555,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -578,7 +584,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -612,6 +618,7 @@ struct App {
         else if (l == "HERO") heroMenu = !heroMenu;                           // big in-gaze screens get their own stream
         else if (l == "KEYREQ") keyReqMenu = !keyReqMenu;                     // ask the sender for keyframes (noperiodic)
         else if (l == "SHOULDER") { shoulderMenuFlag = !shoulderMenuFlag; if (!shoulderOn()) sm.stack.clear(); }  // shoulder button menus
+        else if (l == "HOUSE") { houseMenu = !houseMenu; if (houseOn()) { houseStart(); houseQueueScreens(); } }  // layout to the house file
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1121,6 +1128,7 @@ void main(){
     void savePlacement() {
         std::ofstream f(gDir + "/placement.json");
         f << "{\"wall\":\"" << placed.wall << "\",\"x\":" << placed.x << ",\"y\":" << placed.y << ",\"w\":" << placed.w << ",\"h\":" << placed.h << "}";
+        if (houseOn() && !houseApplying) houseQueueScreens();
     }
 
     void pollEvents() {
@@ -1628,6 +1636,112 @@ void main(){
             f << (i ? "," : "") << "{\"id\":" << extras[i].id << ",\"wall\":\"" << p.wall << "\",\"x\":" << p.x << ",\"y\":" << p.y << ",\"w\":" << p.w << ",\"h\":" << p.h << "}";
         }
         f << "]}";
+        f.close();
+        if (houseOn() && !houseApplying) houseQueueScreens();
+    }
+    // ---- House file (flag HOUSE; room_lab/house.h, house/README.md). The layout also lives in house.json on the Mini
+    // (192.168.0.50:57800, or files/house-host). placement.json and screens.json are still written exactly as before,
+    // so turning HOUSE off loses nothing. A worker thread owns the store and does all the network; the render thread
+    // only queues edits (houseQueueScreens) and adopts the snapshot the worker publishes (houseUpdate): at start, and
+    // whenever the house changes elsewhere (a newer rev, nothing of ours still queued, no move in progress).
+    // For now screens point at Meta scene walls: a house wall id maps to its newest scene uuid, and a scene wall the
+    // house doesn't know yet is added as "w-<first 8 hex>".
+    std::mutex houseLock; std::vector<house::Edit> houseQueue; std::shared_ptr<const json::Value> houseDoc;
+    long houseGen = 0, houseSeenGen = 0, houseAppliedRev = -1, houseRev = -1, housePending = 0, houseGets = 0, housePuts = 0, houseConflicts = 0;
+    std::string houseErr; bool houseApplying = false; std::atomic<bool> houseStarted{false};
+    void houseStart() {
+        if (houseStarted.exchange(true)) return;
+        std::string host = "192.168.0.50";
+        { std::ifstream hf(gDir + "/house-host"); std::string h; if (hf >> h) host = h; }
+        event("house: syncing with " + host + ":57800");
+        std::thread([this, host] {
+            house::Store st(gDir); st.host = host;
+            st.loadCache();
+            for (;;) {
+                { std::lock_guard<std::mutex> g(houseLock); for (auto& e : houseQueue) st.edit(e); houseQueue.clear(); }
+                bool ok = st.sync();
+                {
+                    std::lock_guard<std::mutex> g(houseLock);
+                    if (st.doc.type == json::Value::Obj) houseDoc = std::make_shared<const json::Value>(st.doc);
+                    houseGen++; houseRev = st.rev; housePending = (long)st.pending.size();
+                    houseGets = st.gets; housePuts = st.puts; houseConflicts = st.conflicts; houseErr = ok ? "" : st.lastError;
+                }
+                for (int i = 0; i < (st.pending.empty() ? 75 : 10); i++) {  // 15 s idle, 2 s while edits wait; an edit wakes it
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    std::lock_guard<std::mutex> g(houseLock); if (!houseQueue.empty()) break;
+                }
+            }
+        }).detach();
+    }
+    static std::string houseSceneOf(const json::Value& d, const std::string& wid) {
+        for (auto& w : d["walls"].a) if (w["id"].str() == wid) return w["scene"][0].str();
+        return "";
+    }
+    void houseUpdate() {
+        std::shared_ptr<const json::Value> d; long rev;
+        {
+            std::lock_guard<std::mutex> g(houseLock);
+            if (houseGen == houseSeenGen || !houseDoc || !houseQueue.empty() || housePending) return;
+            houseSeenGen = houseGen; d = houseDoc; rev = houseRev;
+        }
+        if (rev <= houseAppliedRev || moving || extraMoving >= 0 || (*d)["screens"].size() == 0) return;
+        houseAppliedRev = rev;
+        Placement main; bool haveMain = false; std::vector<Screen> ex;
+        for (auto& sc : (*d)["screens"].a) {
+            Placement p; p.wall = houseSceneOf(*d, sc["wall"].str()); if (p.wall.empty()) continue;
+            p.x = (float)sc["x"].num(); p.y = (float)sc["y"].num(); p.w = (float)sc["w"].num(1.44); p.h = (float)sc["h"].num(0.9);
+            p.active = sc["on"].integer(1) != 0; p.valid = true;
+            int id = sc["id"].integer();
+            if (id == 1) { main = p; haveMain = true; } else if (id > 1 && p.active) ex.push_back({id, p});
+        }
+        std::set<int> before, after; for (auto& e : extras) before.insert(e.id); for (auto& e : ex) after.insert(e.id);
+        houseApplying = true;
+        if (haveMain) { placed = main; savePlacement(); }
+        extras = ex; nextScreenId = std::max(nextScreenId, (*d)["nextScreenId"].integer(nextScreenId));
+        for (auto& e : extras) nextScreenId = std::max(nextScreenId, e.id + 1);
+        saveScreens();
+        houseApplying = false;
+        if (macDisplays && houseAppliedOnce) {  // screens added or removed elsewhere: their Mac displays follow
+            for (int id : after) if (!before.count(id)) macDisplay(id, true);
+            for (int id : before) if (!after.count(id)) macDisplay(id, false);
+        }
+        houseAppliedOnce = true;
+        event("house: rev " + std::to_string(rev) + " applied, " + std::to_string(extras.size()) + " extra screens");
+    }
+    bool houseAppliedOnce = false;
+    void houseQueueScreens() {
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        json::Value none; const json::Value& doc = d ? *d : none;
+        std::vector<house::Edit> edits; std::set<std::string> newWalls;
+        auto wallId = [&](const std::string& uuid) {
+            for (auto& w : doc["walls"].a) for (auto& u : w["scene"].a) if (u.str() == uuid) return w["id"].str();
+            std::string id = "w-" + uuid.substr(0, 8);
+            if (newWalls.insert(id).second) {
+                json::Value w = house::obj(); w.o["id"] = house::str(id); w.o["room"] = house::str("r1"); w.o["kind"] = house::str("wall");
+                w.o["source"] = house::str("scene"); json::Value sc = house::arr(); sc.a.push_back(house::str(uuid)); w.o["scene"] = sc;
+                if (Entity* e = wallById(uuid)) if (e->has2d) { w.o["w"] = house::num(e->r2.extent.width); w.o["h"] = house::num(e->r2.extent.height); }
+                edits.push_back({"walls", id, w});
+            }
+            return id;
+        };
+        auto screenObj = [&](int id, const Placement& p, const char* role, const json::Value& source) {
+            json::Value o = house::obj();
+            for (auto& sc : doc["screens"].a) if (sc["id"].integer() == id) o = sc;  // keep fields we don't edit (source, world)
+            o.o["id"] = house::num(id); o.o["role"] = house::str(role); o.o["on"] = house::num(1); o.o["wall"] = house::str(wallId(p.wall));
+            o.o["x"] = house::num(p.x); o.o["y"] = house::num(p.y); o.o["w"] = house::num(p.w); o.o["h"] = house::num(p.h);
+            if (!o.has("source")) o.o["source"] = source;
+            edits.push_back({"screens", std::to_string(id), o});
+        };
+        if (placed.active && !placed.wall.empty()) { json::Value src = house::obj(); src.o["kind"] = house::str("atlas"); screenObj(1, placed, "main", src); }
+        std::set<int> have;
+        for (auto& e : extras) {
+            if (e.p.wall.empty()) continue;
+            json::Value src = house::obj(); src.o["kind"] = house::str("mac-display"); src.o["screen"] = house::num(e.id);
+            screenObj(e.id, e.p, "extra", src); have.insert(e.id);
+        }
+        for (auto& sc : doc["screens"].a) { int id = sc["id"].integer(); if (id > 1 && !have.count(id)) edits.push_back({"screens", std::to_string(id), json::Value{}}); }
+        std::lock_guard<std::mutex> g(houseLock);
+        for (auto& e : edits) houseQueue.push_back(e);
     }
     void loadScreens() {
         std::ifstream f(gDir + "/screens.json"); if (!f) return;
@@ -2315,6 +2429,8 @@ void main(){
             heroFile = access((gDir + "/hero-on").c_str(), F_OK) == 0;        // forces HERO for self-tests
             keyReqFile = access((gDir + "/keyreq-on").c_str(), F_OK) == 0;    // forces KEYREQ for self-tests
             shoulderFile = access((gDir + "/shoulder-on").c_str(), F_OK) == 0;  // forces SHOULDER for self-tests
+            houseFile = access((gDir + "/house-on").c_str(), F_OK) == 0;        // forces HOUSE for self-tests
+            if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {
                 std::ifstream mf(gDir + "/model.json");
                 if (mf) { std::stringstream ms; ms << mf.rdbuf(); model.start(ms.str()); modelStarted = true; event("model: loading " + model.url); }
@@ -2474,6 +2590,9 @@ void main(){
           << ",\"moves\":" << pointer.moves << ",\"clicks\":" << pointer.clicks << "}";
         j << ",\"video\":" << video.json() << ",\"sharp\":" << video.sharp.json() << ",\"quad\":" << panelLayer.json() << ",\"atlas\":{\"video\":" << atlasVideo.json() << ",\"cells\":" << atlasCells.size() << ",\"live\":" << extraLive.size() << ",\"vt\":" << (vt() ? 1 : 0) << ",\"vtHolds\":" << vtHolds << ",\"vtSkipped\":" << vtSkipped << ",\"hero\":" << (heroOn() ? 1 : 0) << ",\"heroScreens\":" << heroLayout.size() << ",\"heroPackets\":" << heroPackets << "}" << ",\"budget\":{\"on\":" << (budgetOn() ? 1 : 0) << ",\"mode\":\"" << budget::name(lastBudget.mode) << "\",\"atlasKbps\":" << lastBudget.atlasKbps << ",\"gameKbps\":" << lastBudget.gameKbps << ",\"assetKbps\":" << lastBudget.assetKbps << ",\"lvlBias\":" << lastBudget.lvlBias << ",\"workMs\":" << frameWorkMs << ",\"gpuTime\":" << (gpuTime() ? 1 : 0) << ",\"gpuSupported\":" << (gpuTimer.supported ? 1 : 0) << ",\"gpuMs\":" << gpuTimer.ms << ",\"gpuSamples\":" << gpuTimer.samples << ",\"gpuDisjoints\":" << gpuTimer.disjoints << ",\"frameMs\":" << frameMsForBudget() << "}" << ",\"laptop\":{\"ip\":\"" << laptop() << "\",\"via\":\"" << laptopViaNow() << "\",\"hostres\":" << (hostResMenu ? 1 : 0) << "}" << ",\"model\":" << (models() ? model.json() : std::string("null")) << ",\"wifiLock\":{\"on\":" << (wifiLl() ? 1 : 0) << ",\"held\":" << (wifiLockHeld ? 1 : 0) << ",\"error\":\"" << wifiLockErr << "\"}" << ",\"native\":" << (nativeRes ? 1 : 0) << ",\"hz120\":" << (hz120 ? 1 : 0) << ",\"boost\":" << (boost ? 1 : 0) << ",\"refreshHz\":" << currentHz() << ",\"moonlight\":" << moonlight.json() << ",\"launcher\":\"" << jsonEscape(launcher.get()) << "\",\"hoverButton\":" << hoverButton
           << ",\"shoulder\":{\"on\":" << (shoulderOn() ? 1 : 0) << ",\"depth\":" << sm.stack.size() << ",\"presses\":" << smPresses << ",\"top\":\"" << (sm.open() ? sm.stack.back().name : std::string()) << "\"}";
+        { std::lock_guard<std::mutex> g(houseLock);
+          j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
+            << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
         j << ",\"candidate\":"; pj(candidate); j << ",\"placed\":"; pj(placed);
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
