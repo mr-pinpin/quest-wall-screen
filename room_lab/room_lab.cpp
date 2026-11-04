@@ -26,6 +26,7 @@
 #include "voice.h"
 #include "steady.h"
 #include "select_house.h"
+#include "panel_texture.h"
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
@@ -4167,6 +4168,44 @@ void main(){
             }
         }
     }
+    // PANELTEX: the SETTINGS panel as one texture (room_lab/panel_texture.h). The content is compared every frame (cheap);
+    // a change is rasterised on a worker thread and uploaded on the render thread; until the first upload the quads draw.
+    paneltex::Panel menuTexP; std::mutex menuTexLock; std::shared_ptr<std::vector<uint32_t>> menuTexReady; int menuTexRW = 0, menuTexRH = 0;
+    std::atomic<bool> menuTexBusy{false}, menuTexFresh{false}; GLuint menuTexId = 0; bool menuTexValid = false, menuTexShow = false; V3 menuTexC[4]; long menuTexRenders = 0;
+    bool menuTexture() {
+        std::vector<std::string> labels; std::vector<bool> on;
+        for (int i : menuShown) { labels.push_back(menuItems[i].label); on.push_back(itemOn(menuItems[i].label) > 0); }
+        menuTexP.set(paneltex::fromGrid(menuGrid, labels, on, "SETTINGS"));
+        if (menuTexP.dirty() && !menuTexBusy) {
+            menuTexBusy = true; auto job = std::make_shared<paneltex::Panel>(menuTexP); menuTexP.dirty_ = false;
+            std::thread([this, job] {
+                job->render(glyph);
+                std::lock_guard<std::mutex> g(menuTexLock);
+                menuTexReady = std::make_shared<std::vector<uint32_t>>(std::move(job->img)); menuTexRW = job->w; menuTexRH = job->h;
+                menuTexFresh = true; menuTexBusy = false;
+            }).detach();
+        }
+        return menuTexValid || menuTexFresh;
+    }
+    void drawMenuTexture(const float* vpm) {  // render thread: upload a finished raster, then the panel quad
+        std::shared_ptr<std::vector<uint32_t>> up; int w = 0, h = 0;
+        if (menuTexFresh) { std::lock_guard<std::mutex> g(menuTexLock); up.swap(menuTexReady); w = menuTexRW; h = menuTexRH; menuTexFresh = false; }
+        if (up) {
+            if (!menuTexId) glGenTextures(1, &menuTexId);
+            glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, menuTexId);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, up->data()); glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glActiveTexture(GL_TEXTURE0); menuTexValid = true; menuTexRenders++;
+        }
+        if (!menuTexShow || !menuTexValid) return;
+        chatTex[kMenuTexQuad].id = kMenuTexQuad; chatTex[kMenuTexQuad].tex = menuTexId;
+        for (int k = 0; k < 4; k++) chatTex[kMenuTexQuad].c[k] = menuTexC[k];
+        std::vector<int> keep; keep.swap(chatQuads); chatQuads = {kMenuTexQuad};
+        drawChatPanels(vpm);
+        chatQuads.swap(keep);
+    }
+    static constexpr int kMenuTexQuad = -100;  // its slot in chatTex (screen ids are >= 0)
     void drawMenu(Batch& b) {
         V3 palm;
         if (palmHold > 0 && !(editLocked && menuSaved) && palmFacing(palm)) {  // the ring fills while summoning
@@ -4177,14 +4216,19 @@ void main(){
                 b.line(palm + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), palm + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.005f, col);
             }
         }
+        menuTexShow = false;
         if (!menuOpen || !menuSeen) return;
         auto P = [&](float x, float y, float z) { return xform(menu.pose, {x, y, z}); };
         float hw = menuHalfW(), hh = menuHalfH();
         const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f}, white[4] = {0.95f, 0.97f, 1.0f, 1.0f};
         const float dim[4] = {0.62f, 0.68f, 0.78f, 1.0f};
+        bool tex = panelTexMenu && menuTexture();  // PANELTEX: the static panel is one texture, drawn before the UI in render()
+        if (tex) { menuTexC[0] = P(-hw, -hh, 0); menuTexC[1] = P(hw, -hh, 0); menuTexC[2] = P(hw, hh, 0); menuTexC[3] = P(-hw, hh, 0); menuTexShow = true; }
+        else {
         b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
         text(b, menu, 0, menuGrid.titleY, 0.003f, UiGrid::fit("SETTINGS", menuGrid.titlePx, 2 * hw - 2 * menuGrid.pad, menuGrid.titleH * 0.6f), "SETTINGS", white);
         for (auto& h : menuGrid.headings) text(b, menu, h.x, h.y, 0.003f, h.px, h.text.c_str(), dim);
+        }
         if (!editLocked) {
             float y = menuBarY(), bw = 0.3f, bh = 0.025f;
             const float idle[4] = {0.75f, 0.78f, 0.82f, 0.45f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.8f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
@@ -4198,6 +4242,11 @@ void main(){
         std::string current = video.source;
         for (size_t k = 0; k < menuShown.size(); k++) {
             int i = menuShown[k]; const UiGrid::Cell& c = menuGrid.cells[k];
+            if (tex) {  // only the hover highlight is live
+                const float hl[4] = {1, 1, 1, 0.2f};
+                if (menuHover == i) b.quad(P(c.x - c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y - c.h / 2, 0.002f), P(c.x + c.w / 2, c.y + c.h / 2, 0.002f), P(c.x - c.w / 2, c.y + c.h / 2, 0.002f), hl);
+                continue;
+            }
             bool on = itemOn(menuItems[i].label) > 0;
             const float idle[4] = {0.16f, 0.18f, 0.24f, 0.95f}, act[4] = {0.10f, 0.45f, 0.22f, 0.95f};
             float f[4]; for (int q = 0; q < 4; q++) f[q] = on ? act[q] : idle[q];
@@ -4375,6 +4424,10 @@ void main(){
                 glUniform3f(uDepthParams, depthImage.nearZ, std::isinf(depthImage.farZ) ? 0.0f : depthImage.farZ, 0.05f);
                 glUniform1f(uLayer, (float)i);
             } else glUniformMatrix4fv(uDepthViewProj, 1, GL_FALSE, vp.m);
+            if (menuTexShow || menuTexFresh) {  // PANELTEX, under its live quads; unit 1 back to the video for the batches
+                drawMenuTexture(vp.m); glUseProgram(program); glBindVertexArray(vao);
+                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, video.mipTex); glActiveTexture(GL_TEXTURE0);
+            }
             glUniform1i(uOcclude, depthValid ? 1 : 0);
             if (!occ.v.empty()) glDrawArrays(GL_TRIANGLES, 0, (GLsizei)occ.v.size());
             glUniform1i(uOcclude, 0);
