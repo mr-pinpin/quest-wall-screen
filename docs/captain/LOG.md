@@ -1,0 +1,6 @@
+# Captain log (UTC)
+
+- 01:03, 01:26 work-09 session OOM-killed (wallshape test 3.2 GB); resumed as work-34; tests now under ulimit+timeout
+- 01:36 headset_owner=agents (user asleep); work-ad (mini-apps) started; work-42 assigned assistant backend
+- 01:43 v0.46 installed (SHOULDER+WRIST on); DEPTHGAP: screen 2 hangs over a recess (38 cm gap), main on the wall
+- 01:50 check: c4, 34, 42, ad all busy; closed ghost headset_hold[1858753]; NOSLEEP waits for a wake window (headset asleep)

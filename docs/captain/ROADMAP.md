@@ -20,12 +20,12 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 
 ## Now
 - [ ] P0 headset never sleeps on the charger, proven by an overnight watch (c4) — PRD: prd/headset-awake.md
-- [ ] v0.46 session: install, DEPTHGAP reading on screen 2, depth dump, screenshots (c4)
-- [ ] wallshape.h line/circle/extrude state machine (09), then WALLTOOL wiring (c4)
-- [ ] flag registry flags.json with reasons and evidence, plus the benchmark campaign deciding the defaults (09) — PRD: prd/flags.md
+- [x] v0.46 session: install, DEPTHGAP reading on screen 2, depth dump, screenshots (c4)
+- [x] wallshape.h line/circle/extrude state machine (09), then WALLTOOL wiring (c4)
+- [x] flag registry flags.json (b9a70e9; benchmark campaign pending) with reasons and evidence, plus the benchmark campaign deciding the defaults (09) — PRD: prd/flags.md
 - [ ] assistant backend, per-screen computer use (42) — PRD: prd/assistant.md
 - [ ] mini-apps platform, apps repo, kitchen recipes and weather (apps) — PRD: prd/mini-apps.md
-- [ ] SCROLL global wave gesture (c4) — PRD: prd/assistant.md §Scroll
+- [x] SCROLL global wave gesture (c4) — PRD: prd/assistant.md §Scroll
 - [ ] ASSIST button and chat bubble on every screen (c4)
 
 ## Next
