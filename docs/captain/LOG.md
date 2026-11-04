@@ -12,3 +12,4 @@
 - 02:50 check: c4 (v0.49 chat UX installing), 34 (campaign A, benchlock races fixed, roommesh.h done), 42 (M8 app-building e2e) busy; ad idle -> app picker + 3 apps
 - 03:10 check: all four busy. v0.52 + GEOMETRY installed (03:10) for the user to compare scans; work-34 on a plane-regularized mesh + live raw depth; work-42 reproducing the screen-4 click bug (not TCC); watchdog flags the NOSLEEP 5 h watch as hung (expected duration, harmless)
 - 03:30 check: all four busy. v0.53 measured on the charger: 72 fps with the mesh, never-disappear path live, STAGE rebase caught a 3.7 m jump. CDP web input live (ad), assistant clicks verified (42), latency p50 3.2 s first word (warm pool in progress). Campaign block A continues
+- 03:50 check: all four busy. 42: house tools + room assistant + Mini plugin staged, now an eval suite + safety + YouTube play; ad: status page /status, guide /help, cursor watcher, now cooking mode; c4: v0.55 charger session; 34: campaign block A
