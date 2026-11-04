@@ -350,6 +350,8 @@ def busy(force, sim=False):
     if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
+    over = air_overloaded()
+    if over: return f'the bench lock is held (the Air is overloaded: {over})'  # the user's Mac first; loops wait
     return ''
 
 
@@ -429,6 +431,20 @@ def air_load():
         return {'load1': load[0], 'load5': load[1], 'top': top[:3], 'topAll': top}
     except Exception as ex:
         return {'error': str(ex)[:100]}
+
+
+AIR_OVERLOAD = (8.0, 80.0)  # load1, WindowServer %: the user's Mac sluggish (work-df 2026-11-04: "not sluggish or stuck")
+
+
+def air_overloaded(smp=None):
+    """'' when the Air is fine, else why it is overloaded (load1 > 8 or WindowServer > 80%)."""
+    smp = smp or air_load()
+    if 'load1' not in smp: return ''
+    ws = max([c for c, n in smp.get('topAll', []) if n == 'WindowServer'] or [0])
+    why = []
+    if smp['load1'] > AIR_OVERLOAD[0]: why.append(f'load {smp["load1"]}')
+    if ws > AIR_OVERLOAD[1]: why.append(f'WindowServer {ws:.0f}%')
+    return ', '.join(why)
 
 
 def contamination(samples):
@@ -656,6 +672,7 @@ def main():
         if a.encprobe:  # starts 10 s into the measurement (the atlas settled), runs encprobe seconds
             enc_proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', f'sleep 10; ~/.local/share/pinpin-atlas/encprobe {a.encprobe}'],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        over_since = None; nchk = 0
         while proc.poll() is None:
             time.sleep(10)
             if proc.poll() is not None: break
@@ -669,6 +686,11 @@ def main():
             if headset_owner() == 'user': aborted = 'the user took the headset (bench/headset_owner)'  # sim too: the live sender is paused
             elif sim and headset_in_use(): aborted = 'the headset came into use (room_lab focused); requeued'; note_in_use_wait()
             elif sim and headset_owner() == '' and not hold_says_unworn() and headset_worn(): aborted = 'someone put the headset on'
+            nchk += 1
+            if not aborted and nchk % 3 == 0:  # every 30 s: a run that keeps the user's Mac overloaded for 60 s stops
+                why = air_overloaded()
+                over_since = (over_since or time.time()) if why else None
+                if why and time.time() - over_since >= 60: aborted = f'the Air is overloaded ({why}); stood down, retried later'
             idle_before = idle
             if aborted:
                 proc.kill(); mini('pkill -f "ping -b en1 -i 0.2" ; pkill -f "ping -i 0.2"'); break

@@ -38,6 +38,8 @@ def run(flags, extra, deadline_s=4 * 3600):  # long: a run waits out a whole hea
         out = p.stdout + p.stderr
         if 'not running' in out and 'lock' in out:
             time.sleep(12); continue
+        if 'the Air is overloaded' in out:  # stood down mid-run to keep the user's Mac responsive: wait, then rerun
+            time.sleep(120); continue
         for line in reversed(out.splitlines()):
             if line.startswith('stress: result '):
                 return line.split('stress: result ', 1)[1].strip(), out
