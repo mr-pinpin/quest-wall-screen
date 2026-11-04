@@ -279,7 +279,7 @@ inline FrameFit fitFrame(const DepthFrame& f, const Params& P = {}) {
         for (auto& p : o.pts) {
             V3 v = p - o.centroid;
             int64_t cx = (int64_t)std::floor(dot(v, r) / P.cell), cy = (int64_t)std::floor(dot(v, u) / P.cell);
-            cells[(cx << 32) ^ (cy & 0xffffffff)]++;
+            cells[(int64_t)(((uint64_t)(uint32_t)cx << 32) | (uint32_t)cy)]++;
         }
         int occ = 0; for (auto& kv : cells) occ += kv.second >= P.cellMinHits;
         if (occ * P.cell * P.cell < P.minArea) continue;
@@ -313,7 +313,10 @@ struct Fuser {
     int keepFrames = 3; long forgetAfter = 40;
     explicit Fuser(Params p = {}) : P(p) {}
 
-    static int64_t key(int64_t x, int64_t y) { return (x << 32) ^ (y & 0xffffffff); }
+    // two int32 cell indices in one key, packed unsigned (a left shift of a negative value is UB before C++20)
+    static int64_t key(int64_t x, int64_t y) { return (int64_t)(((uint64_t)(uint32_t)x << 32) | (uint32_t)y); }
+    static int64_t keyX(int64_t k) { return (int32_t)(uint32_t)((uint64_t)k >> 32); }
+    static int64_t keyY(int64_t k) { return (int32_t)(uint32_t)((uint64_t)k & 0xffffffffu); }
 
     // Fit one frame and fuse it; returns the frame's own planes. nowNs (XrTime now, 0 = don't check): a frame older
     // than maxAgeNs is dropped unfitted (counted in dropped).
@@ -363,7 +366,7 @@ struct Fuser {
 
     void absorb(Track& a, const Track& b) {
         for (auto& kv : b.cells) {
-            int64_t cx = kv.first >> 32, cy = (int32_t)(kv.first & 0xffffffff);
+            int64_t cx = keyX(kv.first), cy = keyY(kv.first);
             V3 c = b.origin + b.bx * ((cx + 0.5f) * P.cell) + b.by * ((cy + 0.5f) * P.cell) - a.origin;
             a.cells[key((int64_t)std::floor(dot(c, a.bx) / P.cell), (int64_t)std::floor(dot(c, a.by) / P.cell))] += kv.second;
         }
@@ -406,7 +409,7 @@ struct Fuser {
         bool any = false; x0 = y0 = 1e9f; x1 = y1 = -1e9f;
         for (auto& kv : t.cells) {
             if (kv.second < minHits) continue;
-            int64_t cx = kv.first >> 32, cy = (int32_t)(kv.first & 0xffffffff);  // undo key()
+            int64_t cx = keyX(kv.first), cy = keyY(kv.first);
             x0 = std::min(x0, cx * P.cell); x1 = std::max(x1, (cx + 1) * P.cell);
             y0 = std::min(y0, cy * P.cell); y1 = std::max(y1, (cy + 1) * P.cell); any = true;
         }

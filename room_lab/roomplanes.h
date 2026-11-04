@@ -69,7 +69,7 @@ inline Result regularize(const roommesh::Volume& vol, const std::vector<wallfit:
     for (size_t k = 0; k < planes.size(); k++) snap[k] = std::clamp(P.snapSigma * planes[k].rms_m, P.snapDist, std::max(P.snapDist, P.snapMax));
     struct Grid { std::unordered_map<long long, uint8_t> cells; };
     std::vector<Grid> grids(planes.size());
-    auto key = [](long long x, long long y) { return (x << 32) ^ (y & 0xffffffffLL); };
+    auto key = [](long long x, long long y) { return wallfit::Fuser::key(x, y); };  // unsigned packing, no UB
     auto dist = [&](size_t k, V3 p) { return wallfit::dot(planes[k].n, p) + planes[k].d; };
     auto to2 = [&](size_t k, V3 p) { V3 v = p - planes[k].centre; return std::pair<float, float>{wallfit::dot(v, planes[k].right), wallfit::dot(v, planes[k].up)}; };
     vol.forEachMesh([&](const roommesh::Key&, const roommesh::BlockMesh& m) {
@@ -121,11 +121,11 @@ inline Result regularize(const roommesh::Volume& vol, const std::vector<wallfit:
     for (size_t k = 0; k < planes.size(); k++) {
         auto& cells = grids[k].cells; if ((int)cells.size() < P.minCells) continue;
         long long X0 = LLONG_MAX, X1 = LLONG_MIN, Y0 = LLONG_MAX, Y1 = LLONG_MIN;
-        for (auto& [kk, v] : cells) { long long x = kk >> 32, y = (int32_t)(kk & 0xffffffff); X0 = std::min(X0, x); X1 = std::max(X1, x); Y0 = std::min(Y0, y); Y1 = std::max(Y1, y); }
+        for (auto& [kk, v] : cells) { long long x = wallfit::Fuser::keyX(kk), y = wallfit::Fuser::keyY(kk); X0 = std::min(X0, x); X1 = std::max(X1, x); Y0 = std::min(Y0, y); Y1 = std::max(Y1, y); }
         int pad = P.close, W = (int)(X1 - X0 + 1 + 2 * pad), H = (int)(Y1 - Y0 + 1 + 2 * pad);
         if ((long long)W * H > 4000000) continue;  // absurd extent: refuse rather than allocate
         std::vector<uint8_t> g(W * H, 0), t(W * H, 0);
-        for (auto& [kk, v] : cells) { long long x = kk >> 32, y = (int32_t)(kk & 0xffffffff); g[(y - Y0 + pad) * W + (x - X0 + pad)] = 1; }
+        for (auto& [kk, v] : cells) { long long x = wallfit::Fuser::keyX(kk), y = wallfit::Fuser::keyY(kk); g[(y - Y0 + pad) * W + (x - X0 + pad)] = 1; }
         for (int it = 0; it < P.close; it++) {  // dilate then erode (3x3)
             for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) { uint8_t v = 0; for (int b = -1; b <= 1 && !v; b++) for (int a = -1; a <= 1 && !v; a++) { int xx = x + a, yy = y + b; v = xx >= 0 && yy >= 0 && xx < W && yy < H && g[yy * W + xx]; } t[y * W + x] = v; }
             for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) { uint8_t v = 1; for (int b = -1; b <= 1 && v; b++) for (int a = -1; a <= 1 && v; a++) { int xx = x + a, yy = y + b; v = xx >= 0 && yy >= 0 && xx < W && yy < H && t[yy * W + xx]; } g[y * W + x] = v; }

@@ -9,7 +9,9 @@ been seen working in the headset yet. VT broke the 3 November demo, so it stays 
 
 1. The laptop's sender runs with `--flags vt,hero` (they only work together with the headset's switches), deployed
    with air_smoke and the previous spec kept for instant rollback. Logged in bench/activity.log.
-2. The headset runs the current build with VT and HERO **off**, as you left it. Four screens placed as usual.
+2. The headset runs **v0.59 or later** (VT/HERO switch mid-session, no relaunch; each VT switch resets its per-screen
+   state, logged as "vt: on/off, per-screen state reset" in events.log) with VT and HERO **off**, as you left it. Four
+   screens placed as usual.
 
 ## The check (about 3 minutes)
 
@@ -23,7 +25,12 @@ been seen working in the headset yet. VT broke the 3 November demo, so it stays 
 Say "VT pass" / "VT fail: what you saw" (and the same for HERO). On a fail, an agent puts the laptop's sender back to
 its previous spec and the switches stay off; nothing else changes on the headset.
 
+Expected, not a fail: after each switch the laptop's sender re-lays out within 1-3 s, so the side screens may change
+sharpness briefly (a resolution step, not a jump in position).
+
 ## Known failure signs from 3 November (catch them immediately)
 
 Screens visible only near the 3D model or drawn into the walls; the cursor ring missing; the move bar no longer
 snapping; AMBI (the glowing frame) gone; clicks on the Mini screen landing in the wrong place.
+Per work-c4 these came from MODELS' depth quads hiding the UI (fixed in v0.44, MODELS off), AMBI under VT (fixed in
+v0.44) and click positions (fixed in v0.55), not from VT or HERO; the check confirms that in the headset.
