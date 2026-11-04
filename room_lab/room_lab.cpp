@@ -34,6 +34,7 @@
 #include "depthpick.h"
 #include "meshsave.h"
 #include "roomframe.h"
+#include "housemerge.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -644,6 +645,7 @@ struct App {
           << menuRel.position.x << "," << menuRel.position.y << "," << menuRel.position.z << "," << menuRel.orientation.x << ","
           << menuRel.orientation.y << "," << menuRel.orientation.z << "," << menuRel.orientation.w << "]";
         f << ",\"overrides\":["; { bool fo = true; for (auto& o : userOverride) { f << (fo ? "" : ",") << "\"" << o << "\""; fo = false; } } f << "]";
+        f << ",\"house66\":1";
         f << ",\"saveset\":" << (saveSet ? 1 : 0) << ",\"resume\":" << (resumeOn ? 1 : 0) << ",\"source\":\"" << lastSource << "\"";
         if (saveSet) {
             f << ",\"toggles\":{";
@@ -706,6 +708,9 @@ struct App {
         { size_t o = j.find("\"overrides\":["), e = o == std::string::npos ? o : j.find(']', o);
           if (o != std::string::npos && e != std::string::npos) for (size_t q = j.find('"', o + 13); q != std::string::npos && q < e; ) {
               size_t q2 = j.find('"', q + 1); if (q2 == std::string::npos || q2 > e) break; userOverride.insert(j.substr(q + 1, q2 - q - 1)); q = j.find('"', q2 + 1); } }
+        // v0.66: HOUSE sync on once for everyone (work-df), whatever an older settings.json saved; the first sync
+        // pushes the headset's screens (housemerge.h). After that the user's own toggle is kept as usual.
+        houseOn66Pending = j.find("\"house66\":1") == std::string::npos;
         saveSet = j.find("\"saveset\":0") == std::string::npos;  // absent (a v0.43 or older file): on
         resumeOn = j.find("\"resume\":0") == std::string::npos;
         size_t sp = j.find("\"source\":\""); if (sp != std::string::npos) { sp += 10; lastSource = j.substr(sp, j.find('"', sp) - sp); }
@@ -721,6 +726,7 @@ struct App {
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
         }
+        if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
               (pendingResume.empty() ? "" : ", resume " + pendingResume));
@@ -3444,8 +3450,20 @@ void main(){
             if (houseGen == houseSeenGen || !houseDoc || !houseQueue.empty() || housePending) return;
             houseSeenGen = houseGen; d = houseDoc; rev = houseRev;
         }
-        if (rev <= houseAppliedRev || moving || extraMoving >= 0 || (*d)["screens"].size() == 0) return;
+        if (rev <= houseAppliedRev || moving || extraMoving >= 0) return;
         houseAppliedRev = rev;
+        // The first sync after HOUSE is turned on: the headset is the truth. Push every local screen before adopting
+        // anything (2026-11-04: the house knew 1-3, the headset had 1-7). Later revs merge (housemerge.h).
+        if (!houseKnownLoaded) {
+            houseKnownLoaded = true; housePushed = access((gDir + "/house-pushed").c_str(), F_OK) == 0;
+            std::ifstream kf(gDir + "/house-known"); int id; while (kf >> id) houseKnown.insert(id);
+        }
+        if (!housePushed) {
+            housePushed = true; house::writeAtomic(gDir + "/house-pushed", "1");
+            houseQueueScreens(); event("house: first sync, the headset's " + std::to_string(extras.size() + (placed.active ? 1 : 0)) + " screens pushed");
+            return;
+        }
+        if ((*d)["screens"].size() == 0) return;
         Placement main; bool haveMain = false; std::vector<Screen> ex;
         for (auto& sc : (*d)["screens"].a) {
             Placement p; p.wall = houseSceneOf(*d, sc["wall"].str()); if (p.wall.empty()) continue;
@@ -3454,10 +3472,18 @@ void main(){
             int id = sc["id"].integer();
             if (id == 1) { main = p; haveMain = true; } else if (id > 1 && p.active) ex.push_back({id, p});
         }
-        std::set<int> before, after; for (auto& e : extras) before.insert(e.id); for (auto& e : ex) after.insert(e.id);
+        // Merge, never drop a screen the house never knew (housemerge.h).
+        std::set<int> localIds, houseIds; for (auto& e : extras) localIds.insert(e.id); for (auto& e : ex) houseIds.insert(e.id);
+        housemerge::Decision md = housemerge::decide(localIds, houseIds, houseKnown);
+        std::vector<Screen> merged;
+        for (int id : md.fromHouse) for (auto& e : ex) if (e.id == id) merged.push_back(e);
+        for (int id : md.keepLocal) for (auto& e : extras) if (e.id == id) merged.push_back(e);
+        std::sort(merged.begin(), merged.end(), [](const Screen& a, const Screen& b) { return a.id < b.id; });
+        houseKnown = houseIds; { std::string k; for (int id : houseKnown) k += std::to_string(id) + "\n"; house::writeAtomic(gDir + "/house-known", k); }
+        std::set<int> before, after; for (auto& e : extras) before.insert(e.id); for (auto& e : merged) after.insert(e.id);
         houseApplying = true;
         if (haveMain) { placed = main; savePlacement(); }
-        extras = ex; nextScreenId = std::max(nextScreenId, (*d)["nextScreenId"].integer(nextScreenId));
+        extras = merged; nextScreenId = std::max(nextScreenId, (*d)["nextScreenId"].integer(nextScreenId));
         for (auto& e : extras) nextScreenId = std::max(nextScreenId, e.id + 1);
         saveScreens();
         houseApplying = false;
@@ -3466,9 +3492,13 @@ void main(){
             for (int id : before) if (!after.count(id)) macDisplay(id, false);
         }
         houseAppliedOnce = true;
-        event("house: rev " + std::to_string(rev) + " applied, " + std::to_string(extras.size()) + " extra screens");
+        event("house: rev " + std::to_string(rev) + " applied, " + std::to_string(extras.size()) + " extra screens" +
+              (md.keepLocal.empty() ? "" : ", " + std::to_string(md.keepLocal.size()) + " kept from the headset and pushed") +
+              (md.removed.empty() ? "" : ", " + std::to_string(md.removed.size()) + " removed elsewhere"));
+        if (md.push()) houseQueueScreens();
     }
-    bool houseAppliedOnce = false;
+    bool houseOn66Pending = false;
+    bool houseAppliedOnce = false, houseKnownLoaded = false, housePushed = false; std::set<int> houseKnown;  // housemerge.h
     void houseQueueScreens() {
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
         json::Value none; const json::Value& doc = d ? *d : none;

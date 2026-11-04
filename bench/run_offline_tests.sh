@@ -35,6 +35,7 @@ run "RELOCCHECK counts only frontal views with depth coverage (room_lab/reloc.h,
 run "DEPTHPLACE: the solid fitted wall a placement ray hits (room_lab/depthpick.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/depthpick_test.cpp -o $T/dp && $T/dp"
 run "commit frame from Meta's scene planes, floor check (room_lab/roomframe.h, the 02:15/03:03/09:32 drift)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/roomframe_test.cpp -o $T/rf && $T/rf"
 run "MESHSAVE: two sessions in different LOCAL frames build one room mesh (room_lab/meshsave.h)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/meshsave_test.cpp -o $T/ms && (ulimit -v 1500000; timeout 120 $T/ms)"
+run "HOUSE first sync pushes the headset, then merges (room_lab/housemerge.h: house 1-3, headset 1-5)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/housemerge_test.cpp -o $T/hm && $T/hm"
 run "SCAN never shrinks or moves a house wall (room_lab/wallmerge.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/wallmerge_test.cpp -o $T/wm && $T/wm"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
