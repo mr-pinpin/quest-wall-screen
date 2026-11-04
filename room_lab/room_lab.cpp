@@ -29,6 +29,7 @@
 #include "house.h"
 #include "wallfit.h"
 #include "anchors.h"
+#include "scroll.h"
 #include <random>
 #include <condition_variable>
 #include <memory>
@@ -209,6 +210,8 @@ struct App {
     // SCAN flag (room_lab/anchors.h, wallfit.h): "scan what is in front of me" from the menus; surfaces fill as they are
     // captured, and the result goes to house.json in the frame of our own saved anchors.
     bool scanMenu = false, scanFile = false; bool scanOn() const { return scanMenu || scanFile; }
+    // SCROLL flag (room_lab/scroll.h): an open hand, palm away, waved up/down/left/right scrolls the screen pointed at.
+    bool scrollMenu = false, scrollFile = false; bool scrollOn() const { return scrollMenu || scrollFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -468,7 +471,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 34;
+    static constexpr int kMenuItems = 35;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -485,7 +488,7 @@ struct App {
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
         {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
-        {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}};
+        {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -513,6 +516,7 @@ struct App {
         if (l == "DEPTHGAP") return depthGap();
         if (l == "WRIST") return wristOn();
         if (l == "SCAN") return scanOn();
+        if (l == "SCROLL") return scrollOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -573,7 +577,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -602,7 +606,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -640,6 +644,7 @@ struct App {
         else if (l == "DEPTHGAP") depthGapMenu = !depthGapMenu;               // screen vs real wall, in status.json
         else if (l == "WRIST") { wristMenu = !wristMenu; if (!wristOn() && !shoulderOn()) sm.stack.clear(); }  // wrist ring menu
         else if (l == "SCAN") scanMenu = !scanMenu;                           // the scan button in SHOULDER / WRIST
+        else if (l == "SCROLL") scrollMenu = !scrollMenu;                       // wave to scroll
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1274,6 +1279,46 @@ struct App {
             b.line(W(hw, hh), W(-hw, hh), n, 0.006f, edge); b.line(W(-hw, hh), W(-hw, -hh), n, 0.006f, edge);
             if (!solid) { float x = -hw + std::fmod(t * 0.8f + w.id * 0.37f, 1.0f) * w.w; b.line(W(x, -hh), W(x, hh), n, 0.01f, sweep); }
         }
+    }
+    // ---- SCROLL (flag; room_lab/scroll.h). The right hand's open-palm wave scrolls whatever that hand last pointed at
+    // (within 1.5 s): the main panel through Moonlight (high-resolution wheel, horizontal as Sunshine's extension), an
+    // extra screen through the Air's mouse port (:57711, "w <id> <u> <v> <dy> <dx>": dy > 0 = content moves up, i.e.
+    // wheel down; 120 = one notch). Pointing at something with the ray keeps the target fresh.
+    scrollg::Wave wave; int scrollTarget = 0; float scrollU = 0.5f, scrollV = 0.5f; std::chrono::steady_clock::time_point scrollSeen{};
+    long scrollSent = 0, scrollUnits = 0;
+    bool openHand(int h) {
+        auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT];
+        if (!(pj.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return false;
+        auto far = [&](int j, float d) { return (joints[h][j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && len(v3(joints[h][j].pose.position) - v3(pj.pose.position)) > d; };
+        return far(XR_HAND_JOINT_INDEX_TIP_EXT, 0.085f) && far(XR_HAND_JOINT_MIDDLE_TIP_EXT, 0.09f) && far(XR_HAND_JOINT_RING_TIP_EXT, 0.08f) && far(XR_HAND_JOINT_LITTLE_TIP_EXT, 0.065f);
+    }
+    void updateScroll() {
+        if (!scrollOn()) { wave.reset(); return; }
+        auto nowT = std::chrono::steady_clock::now();
+        if (pointer.on) { scrollTarget = 1; scrollU = pointer.u; scrollV = pointer.v; scrollSeen = nowT; }
+        else if (extraPtr >= 0 && extraPtr < (int)extras.size()) { scrollTarget = extras[extraPtr].id; scrollU = eu; scrollV = ev; scrollSeen = nowT; }
+        const int h = 1; scrollg::Input in;
+        in.t = now(); in.tracked = handActive[h]; in.open = handActive[h] && openHand(h); in.pinch = handActive[h] && ray[h].pinch;
+        if (in.tracked) {
+            auto& pj = joints[h][XR_HAND_JOINT_PALM_EXT];
+            V3 p = v3(pj.pose.position), n = rot(pj.pose.orientation, {0, -1, 0}), hp = v3(head.position);  // OpenXR: +Y is the back of the hand
+            V3 r = rot(head.orientation, {1, 0, 0}), u = rot(head.orientation, {0, 1, 0});
+            in.palm = {p.x, p.y, p.z}; in.palmNormal = {n.x, n.y, n.z}; in.head = {hp.x, hp.y, hp.z}; in.right = {r.x, r.y, r.z}; in.up = {u.x, u.y, u.z};
+        }
+        scrollg::Out o = wave.update(in);
+        if (!o.dx && !o.dy) return;
+        if (scrollTarget == 0 || nowT - scrollSeen > std::chrono::milliseconds(1500)) return;
+        if (scrollTarget == 1) {
+            if (!streamInput()) return;
+            if (o.dy) LiSendHighResScrollEvent((short)-o.dy);   // hand up: content up = wheel down (negative)
+            if (o.dx) LiSendHighResHScrollEvent((short)o.dx);
+        } else {
+            if (mouseSock < 0) mouseSock = socket(AF_INET, SOCK_DGRAM, 0);
+            sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(57711); inet_pton(AF_INET, laptop().c_str(), &a.sin_addr);
+            char msg[80]; int n = snprintf(msg, sizeof msg, "w %d %d %d %d %d", scrollTarget, (int)(scrollU * 10000), (int)(scrollV * 10000), o.dy, o.dx);
+            sendto(mouseSock, msg, n, 0, (sockaddr*)&a, sizeof a);
+        }
+        scrollSent++; scrollUnits += std::abs(o.dx) + std::abs(o.dy);
     }
     int cornerHover = -1, cornerDrag = -1; float anchorX = 0, anchorY = 0;
     void resizeTo(float w, const Entity& wall) {
@@ -2387,6 +2432,7 @@ void main(){
         updateVoice();
         updateSpell();
         updateScan();
+        updateScroll();
         if (updateShoulder() || updateMenu() || updateExtras()) {
             releasePointer(); barHover = false; cornerHover = -1;
             for (int k = 0; k < 2; k++) pinchPrev[k] = handActive[k] && ray[k].pinch;
@@ -2909,6 +2955,7 @@ void main(){
             depthGapFile = access((gDir + "/depthgap-on").c_str(), F_OK) == 0;  // forces DEPTHGAP for self-tests
             wristFile = access((gDir + "/wrist-on").c_str(), F_OK) == 0;        // forces WRIST for self-tests
             scanFile = access((gDir + "/scan-on").c_str(), F_OK) == 0;          // forces SCAN for self-tests
+            scrollFile = access((gDir + "/scroll-on").c_str(), F_OK) == 0;      // forces SCROLL for self-tests
             if (houseOn() || scanOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
@@ -3089,6 +3136,7 @@ void main(){
         { std::lock_guard<std::mutex> g(houseLock);
           j << ",\"house\":{\"on\":" << (houseOn() ? 1 : 0) << ",\"rev\":" << houseRev << ",\"applied\":" << houseAppliedRev << ",\"pending\":" << housePending + (long)houseQueue.size()
             << ",\"gets\":" << houseGets << ",\"puts\":" << housePuts << ",\"conflicts\":" << houseConflicts << ",\"error\":\"" << jsonEscape(houseErr) << "\"}"; }
+        j << ",\"scroll\":{\"on\":" << (scrollOn() ? 1 : 0) << ",\"target\":" << scrollTarget << ",\"engaged\":" << (wave.engaged ? 1 : 0) << ",\"sent\":" << scrollSent << ",\"units\":" << scrollUnits << "}";
         j << ",\"scan\":{\"on\":" << (scanOn() ? 1 : 0) << ",\"state\":\"" << scanStateName() << "\",\"surfaces\":" << scanSurfaces << ",\"committed\":" << scanCommitted << ",\"error\":\"" << jsonEscape(scanErr) << "\"}"
           << ",\"anchors\":{\"stored\":" << storedAnchors.size() << ",\"found\":" << ours.size() << ",\"located\":" << anchorsLocated << ",\"used\":" << roomFrame.used
           << ",\"drifted\":" << roomFrame.drifted.size() << ",\"spreadM\":" << roomFrame.spreadM << ",\"spreadDeg\":" << roomFrame.spreadDeg << ",\"roomOk\":" << (roomFrame.ok ? 1 : 0)

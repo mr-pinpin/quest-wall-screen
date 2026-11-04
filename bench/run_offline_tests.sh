@@ -24,6 +24,7 @@ run "settings explanations + AMBI under VT (bench/ui_v044_test.cpp)" bash -c "g+
 run "shoulder menu (room_lab/shoulder.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/shoulder_test.cpp -o $T/shoulder && $T/shoulder"
 run "house client vs house/server.py (room_lab/house.h)" bash bench/house_client_test.sh
 run "room frame from our anchors (room_lab/anchors.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/anchors_test.cpp -o $T/anch && $T/anch"
+run "wave to scroll (room_lab/scroll.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/scroll_test.cpp -o $T/scr && $T/scr"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "wall tools (room_lab/wallshape.h) + shapes valid in house/schema.py" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/wallshape_test.cpp -o $T/wallshape && (ulimit -v 1500000; timeout 60 $T/wallshape $T/shapes.json) && python3 house/check_fragment.py $T/shapes.json"
