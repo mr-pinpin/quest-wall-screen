@@ -1,5 +1,5 @@
 {
- "rev": 95,
+ "rev": 96,
  "next": 30,
  "cards": [
   {
@@ -1183,13 +1183,13 @@
   {
    "title": "WALLTOOL on clean walls (line→confirm→expand, circle), SETCAT menu",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "geometry",
    "links": [],
    "id": "K29",
    "created": "2026-11-04T12:49:04Z",
-   "updated": "2026-11-04T12:49:04Z",
+   "updated": "2026-11-04T13:04:39Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -1198,9 +1198,17 @@
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T13:04:39Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "k5-walltool ddd9475 v0.75: lines around corners, clean walls, w-w-d id fix, SETCAT entry, never stuck (4000-step fuzz)"
     }
    ]
   }
  ],
- "updated": "2026-11-04T12:49:04Z"
+ "updated": "2026-11-04T13:04:39Z"
 }
