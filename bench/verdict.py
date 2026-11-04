@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical keep/drop verdict for one flag A/B pair (docs/bench-scoreboard.md, "Pass/drop rules").
 
-    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | longgop | noperiodic | vt-cinema | vt-wall | damage | prifps | gamecap | gameyield | vt_realtime | codec-h264
+    python3 bench/verdict.py RULE OFF.json ON.json     # RULE: bpcut | longgop | noperiodic | vt-cinema | vt-wall | damage | prifps | gamecap | gameyield | vt_realtime | codec-h264 | nodelay | pend1 | pace | hero | capfast
     python3 bench/verdict.py --self-test
 
 OFF and ON are bench/results/stress-*.json from the same scenario, run back to back (ON = flag set; for codec-h264,
@@ -83,6 +83,22 @@ def rule(name, off, on):
         return ('KEEP' if le(B['mbps'], A['mbps'], 0.85) else 'RERUN'), why
     if name in ('gameyield', 'gamecap', 'encshare', 'vt_realtime', 'codec-h264'):
         return latency_rule(off, on)
+    if name in ('nodelay', 'pend1', 'pace'):  # network delivery: steadier fresh frames, no fps lost
+        why = f"gap p99 {A['gapP99']} -> {B['gapP99']} ms, fresh fps {A['fps']} -> {B['fps']}, mbps {A['mbps']} -> {B['mbps']}"
+        if ge(B['gapP99'], A['gapP99']) or (B['fps'] or 0) < (A['fps'] or 0) - 2: return 'DROP', why
+        return ('KEEP' if le(B['gapP99'], A['gapP99'], 0.85) else 'RERUN'), why
+    if name == 'capfast':  # capture every frame that arrives a hair early: more fresh frames, no worse gaps
+        why = f"fresh fps {A['fps']} -> {B['fps']}, gap p99 {A['gapP99']} -> {B['gapP99']} ms"
+        if (B['fps'] or 0) <= (A['fps'] or 0) + 1 or not le(B['gapP99'], A['gapP99'], 1.2): return 'DROP', why
+        return ('KEEP' if (B['fps'] or 0) >= (A['fps'] or 0) + 3 and le(B['gapP99'], A['gapP99'], 1.1) else 'RERUN'), why
+    if name == 'hero':  # the focused screen on its own stream: at least the atlas's rate, not many more bits
+        h = [x for x in (on.get('hero') or {}).values() if x.get('fps')]
+        hf = max((x['fps'] for x in h), default=0); hm = sum(x.get('mbps') or 0 for x in h)
+        tot = (B['mbps'] or 0) + hm
+        why = f"hero stream fps {hf} vs atlas fps {A['fps']}, total mbps {A['mbps']} -> {round(tot, 1)}, atlas gap p99 {A['gapP99']} -> {B['gapP99']} ms"
+        if not h: return 'DROP', why + ' (no hero stream)'
+        if hf < (A['fps'] or 0) - 5 or not le(tot, A['mbps'], 1.3) or not le(B['gapP99'], A['gapP99'], 1.3): return 'DROP', why
+        return ('KEEP' if hf >= (A['fps'] or 0) and le(tot, A['mbps'], 1.1) else 'RERUN'), why
     raise SystemExit(f'unknown rule {name}')
 
 
@@ -112,8 +128,9 @@ def self_test():
     if verdict('bpcut', a, b)[0] != 'RERUN': print('FAIL: cross-host pair must not be compared'); return False
     c, d = {'network': {'laptopChannel': '36 (5GHz, 80MHz)'}}, {'network': {'laptopChannel': '13 (2GHz, 20MHz)'}}
     if verdict('bpcut', c, d)[0] != 'RERUN': print('FAIL: cross-network pair must not be compared'); return False
-    def res(mbps=20, gap=40, keys=10, fps=50, lat=None, host=8, stalls=0, below=None, valid=None, gfps=60, cpu=None):
+    def res(mbps=20, gap=40, keys=10, fps=50, lat=None, host=8, stalls=0, below=None, valid=None, gfps=60, cpu=None, hero=None):
         r = {'checks': {}, 'senderCpuPct': cpu, 'atlas': {'mbps': mbps, 'freshGapMs': {'p99': gap}, 'keyframes': keys, 'freshFps': {'p50': fps}}}
+        if hero is not None: r['hero'] = {'2': {'fps': hero[0], 'mbps': hero[1]}}
         if valid is not None: r['checks']['vt layouts valid (vt_check.py)'] = valid
         if below is not None: r['vt'] = {'belowWantedPct': below}
         if lat is not None:  # 100 s of game frames, all in the bucket holding `lat`
@@ -141,6 +158,15 @@ def self_test():
         ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=57), 'KEEP'),
         ('prifps', res(mbps=30, fps=58), res(mbps=18, fps=40), 'DROP'),
         ('encshare', res(lat=40, host=9), res(lat=25, host=9), 'KEEP'),
+        ('pace', res(gap=60, fps=48), res(gap=40, fps=48), 'KEEP'),
+        ('pace', res(gap=60, fps=48), res(gap=40, fps=44), 'DROP'),
+        ('nodelay', res(gap=60, fps=48), res(gap=58, fps=48), 'RERUN'),
+        ('pend1', res(gap=60, fps=48), res(gap=61, fps=48), 'DROP'),
+        ('capfast', res(fps=40, gap=50), res(fps=46, gap=50), 'KEEP'),
+        ('capfast', res(fps=40, gap=50), res(fps=41, gap=50), 'DROP'),
+        ('hero', res(mbps=30, fps=48), res(mbps=10, fps=48, hero=(58, 20)), 'KEEP'),
+        ('hero', res(mbps=30, fps=48), res(mbps=30, fps=48), 'DROP'),
+        ('hero', res(mbps=30, fps=48), res(mbps=25, fps=48, hero=(58, 25)), 'DROP'),
     ]
     bad = 0
     for name, off, on, want in cases:

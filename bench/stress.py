@@ -352,6 +352,7 @@ def main():
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
     ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'], help='stand-in demand pattern (see headset_sim.py)')
+    ap.add_argument('--sim-extra', default='', help='extra stand-in options (headset_sim.py), e.g. "--v2 --hero --keyreq 15"')
     ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
     ap.add_argument('--force', action='store_true', help='skip the laptop-idle check (never the headset check)')
@@ -510,6 +511,7 @@ def main():
             sim_cmd = (f"python3 - {'127.0.0.1' if a.sim_on == 'air' else lap_ip} --port 57730 --demand-port 57731 --n {a.n} "
                        f"--secs {a.secs} --sweep {a.sweep} --scenario {a.scenario}")
             if 'vt' in a.flags.split(','): sim_cmd += ' --v2'  # the vt flag only acts on v2 demand
+            if a.sim_extra: sim_cmd += ' ' + a.sim_extra  # e.g. "--v2 --hero --keyreq 15": the same demand for every config of an A/B
             stdin = (HERE / 'headset_sim.py').read_text()
             if a.sim_on == 'air':  # the stand-in on the laptop itself; the Mini keeps only its pings
                 air_proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', sim_cmd], stdin=subprocess.PIPE,
@@ -623,6 +625,9 @@ def main():
     if sim:
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
         r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes', 'worstGaps')}
+        if 'hero' in s: r['hero'] = s['hero']  # per hero screen: fps, mbps, keyframes, gap p99 (stand-in --hero)
+        if 'keyReqs' in s: r['keyReqs'] = s['keyReqs']
+        if a.sim_extra: r['simExtra'] = a.sim_extra
         r['series'] = s.get('perSecondMbps', [])
         if 'v2Layouts' in s:
             # vt: every v2 layout the stand-in saw, checked offline (bench/vt_check.py)

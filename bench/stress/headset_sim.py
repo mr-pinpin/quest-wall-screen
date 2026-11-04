@@ -15,6 +15,12 @@ silence, keyframes and layout changes. It prints one JSON object at the end. Pyt
 rule (coarsest level still >= px wide, up at once, down after 3 s, hidden = mip tail) and "have" (the level of
 the screen's cells in the last layout). It then also reports the v2 layouts it saw, with the demand in force,
 for bench/vt_check.py, and how often a visible screen showed less detail than it asked for.
+
+--hero (implies --v2) sends v3 demand: "v":3, "heroOk":1, and "hero":1 on every visible screen at least 1000 px wide,
+as room_lab's HERO does; hero packets (0x81, u16 screen, flags: bit 0 key, bit 2 HEVC) are counted per screen apart
+from the atlas. --keyreq S bumps the demand's "keyReq" counter every S seconds (from 5 s), like a headset asking for
+a keyframe after a decode error; a sender without noperiodic still sends its periodic ones. Same demand for every
+config of an A/B, so the flags are the only difference (a sender without vt/hero ignores the v2/v3 fields).
 """
 import argparse, json, math, socket, struct, threading, time
 
@@ -84,7 +90,11 @@ def main():
     ap.add_argument('--budget', type=int, default=60000)
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'])
     ap.add_argument('--v2', action='store_true', help='virtual-texturing demand (lvl/have) and layout report')
+    ap.add_argument('--hero', action='store_true', help='v3 demand: heroOk, hero on big visible screens (implies --v2)')
+    ap.add_argument('--keyreq', type=float, default=0, help='bump keyReq every this many seconds (0: never)')
     a = ap.parse_args()
+    if a.hero: a.v2 = True
+    keyreqs = [0]
     t0 = time.time(); stop = threading.Event()
     v2 = V2() if a.v2 else None; last_msg = {}; v2_layouts = []; below = [0, 0]  # visible screen-ticks below wanted, total
 
@@ -95,8 +105,14 @@ def main():
             msg = {'t': int(t * 1000), 'budgetKbps': a.budget, 'screens': demand(a.n, a.sweep, t, a.scenario)}
             if v2:
                 msg['v'] = 2; v2.apply(msg['screens'], t)
+                if a.hero:
+                    msg['v'] = 3; msg['heroOk'] = 1
+                    for d in msg['screens']: d['hero'] = int(bool(d['vis']) and d['px'] >= 1000)
                 for d in msg['screens']:
                     if d['vis'] and t > 5: below[1] += 1; below[0] += d['have'] > d['lvl'] or d['have'] < 0
+            if a.keyreq > 0 and t > 5:
+                keyreqs[0] = int((t - 5) // a.keyreq) + 1
+            if a.keyreq > 0: msg['keyReq'] = keyreqs[0]
             last_msg['m'] = msg
             u.sendto(json.dumps(msg, separators=(',', ':')).encode(), (a.host, a.demand_port))
             stop.wait(0.2)
@@ -108,6 +124,7 @@ def main():
     # keyframe burst (VT runs over Wi-Fi each had one ~400 ms gap, 2026-11-03; localhost max 82 ms).
     worst = []; layout_t = key_t = None
     keyframes = layouts = connects = 0; last_layout = None; sizes = set()
+    heroes = {}  # screen -> {bytes, frames, keys, hevc, last, gaps}
     last_rx = time.time(); longest_silence = 0.0; first_rx = None
     while time.time() - t0 < a.secs:
         try:
@@ -136,6 +153,13 @@ def main():
                     sec = int(now - t0); row = per_sec.setdefault(sec, [0, 0, 0]); row[0] += n + 4
                     if not pkt: continue
                     f = pkt[0]
+                    if f == 0x81 and len(pkt) >= 4:  # hero stream packet: its own stats, not the atlas's
+                        sid, hf = pkt[1] << 8 | pkt[2], pkt[3]
+                        h = heroes.setdefault(sid, {'bytes': 0, 'frames': 0, 'keys': 0, 'hevc': False, 'last': None, 'gaps': [], 'first': now})
+                        h['bytes'] += n + 4; h['frames'] += 1; h['keys'] += hf & 1; h['hevc'] = bool(hf & 4)
+                        if h['last'] is not None: h['gaps'].append(now - h['last'])
+                        h['last'] = now
+                        continue
                     if f & 0x80:
                         txt = bytes(buf[pos - n + 1:pos]).decode('utf-8', 'replace')
                         if txt != last_layout:
@@ -180,6 +204,11 @@ def main():
                       for g, at, k, sl, sk in sorted(worst, reverse=True)[:5]],
         'sizes': sorted(sizes)[-4:], 'perSecondMbps': [round(x, 1) for x in mbps],
         **({'v2Layouts': v2_layouts, 'belowWantedPct': round(100 * below[0] / below[1], 1) if below[1] else None} if v2 else {}),
+        **({'keyReqs': keyreqs[0]} if a.keyreq > 0 else {}),
+        **({'hero': {str(sid): {'fps': round(h['frames'] / max(1e-3, (h['last'] or now) - h['first']), 1), 'mbps': round(h['bytes'] * 8 / 1e6 / max(1e-3, (h['last'] or now) - h['first']), 1),
+                                'keyframes': h['keys'], 'hevc': h['hevc'],
+                                'gapP99Ms': round(sorted(h['gaps'])[int(len(h['gaps']) * 0.99)] * 1000, 1) if h['gaps'] else None}
+                    for sid, h in heroes.items()}} if a.hero else {}),
     }))
 
 
