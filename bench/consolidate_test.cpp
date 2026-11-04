@@ -15,7 +15,7 @@ static json::Value load(const std::string& p) { std::ifstream f(p); std::strings
 int main(int argc, char** argv) {
     std::string dir = argc > 1 ? argv[1] : "/tmp/cx";
     std::ifstream cf(dir + "/cases.txt"); std::string name; int cases = 0; double worstMm = 0, worstDeg = 0;
-    double bestUs = 1e18, planUs = 0; std::string slowCase; size_t planWalls = 0, planRooms = 0; int verdicts = 0, okRooms = 0;
+    double bestUs = 1e18, planUs = 0; std::string slowCase; size_t planWalls = 0, planRooms = 0; int verdicts = 0, okRooms = 0, suspects = 0;
     auto r3c = [](double v) { return std::round(v * 1000.0) / 1000.0; };
     while (cf >> name) {
         json::Value doc = load(dir + "/" + name + ".doc.json"), want = load(dir + "/" + name + ".want.json");
@@ -82,13 +82,14 @@ int main(int argc, char** argv) {
             if (!rs) { for (auto& r : R.score.reasons) printf("    c++: %s\n", r.c_str()); for (auto& r : sc["reasons"].a) printf("    py:  %s\n", r.str().c_str()); }
             bool nums = R.score.dupRaw == sc["duplicates"]["raw"].integer() && R.score.dupPlan == sc["duplicates"]["plan"].integer() &&
                         (sc["explained"].type == json::Value::Null ? !R.score.haveExplained : std::fabs(r3c(R.score.explained) - sc["explained"].n) < 1e-9) &&
-                        R.score.pairs == sc["sceneFit"]["pairs"].integer();
+                        R.score.pairs == sc["sceneFit"]["pairs"].integer() && R.score.frameSuspect == sc["frameSuspect"].integer();
+            suspects += R.score.frameSuspect;
             check(ok && rs && nums, name + ": score (verdict, reasons word for word, duplicates, explained, Meta pairs)");
             verdicts += ok && rs; okRooms += R.score.ok; }
         // budget: best of 20 runs (a worker thread, but not slower than 2 ms)
         double best = 1e18;
         for (int r = 0; r < 20; r++) { auto t0 = std::chrono::steady_clock::now(); consolidate::Result Q; consolidate::run(doc, Q); best = std::min(best, std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count()); }
-        if (name == "house-rev25") { bestUs = best; slowCase = name;
+        if (name == "house-rev25-framed") { bestUs = best; slowCase = name;
             double bp = 1e18; for (int r = 0; r < 10; r++) { auto t0 = std::chrono::steady_clock::now(); consolidate::Result Q; consolidate::run(doc, Q, {}, true); bp = std::min(bp, std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count()); }
             planUs = bp; }
     }
@@ -100,10 +101,11 @@ int main(int argc, char** argv) {
         auto h = consolidate::hint(R, 0, 0, 0, -1);
         printf("  flat-open hint: \"%s\"\n", h.text.c_str());
         check(h.text == "NOT YET: WALL TO YOUR RIGHT UNSEEN", "the flat without its east wall, looking down -z: the wall to the right is unseen");
-        json::Value d2 = load(dir + "/house-rev25.doc.json"); consolidate::Result R2; consolidate::run(d2, R2, {}, true);
+        json::Value d2 = load(dir + "/house-rev25-framed.doc.json"); consolidate::Result R2; consolidate::run(d2, R2, {}, true);
         auto h2 = consolidate::hint(R2, 0, 0, 0, -1); printf("  house-rev25 hint: \"%s\" (%s)\n", h2.text.c_str(), R2.score.ok ? "satisfactory" : "not yet");
         check(h2.good == R2.score.ok, "the hint says GOOD exactly when the verdict is satisfactory"); }
-    printf("  scores: %d of %d verdicts with every reason word for word (%d satisfactory)\n", verdicts, cases, okRooms);
+    printf("  scores: %d of %d verdicts with every reason word for word (%d satisfactory); %d frame-suspect walls (consolidate/2)\n", verdicts, cases, okRooms, suspects);
+    check(suspects > 0, "consolidate/2: the stored rev 25 has frame-suspect depth walls");
     check(cases >= 10, "fixtures present");
     check(bestUs < 2000, "under 2 ms on house-rev25");
     check(planUs < 20000, "the floor plan under 20 ms on house-rev25 (it runs at ~1 Hz on a worker)");

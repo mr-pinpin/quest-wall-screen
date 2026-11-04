@@ -1,4 +1,4 @@
-// House consolidation on the headset (kanban K27, work-0e): a port of work-34's house/consolidate.py ("consolidate/1",
+// House consolidation on the headset (kanban K27, work-0e): a port of work-34's house/consolidate.py ("consolidate/2",
 // the same PARAMS), steps 0-3 and Meta's room chains, so SCAN can show clean walls live and use them as placement
 // targets instead of raw fits. Stage for stage the same rules and the same arithmetic (doubles, Python's floor modulo
 // and round-half-even), so the output matches the Python on the same input: bench/consolidate_xcheck.py runs the Python
@@ -28,7 +28,7 @@ struct Params {
            stackOverlap = 0.5, stackKeep = 0.25, cornerReach = 0.7, overshoot = 0.3, doorMin = 0.7, doorMax = 1.2,
            yShiftMax = 0.3, batchDeg = 3.0, cellMerge = 0.05, minRoomArea = 1.0;
 };
-constexpr const char* kAlgo = "consolidate/1";
+constexpr const char* kAlgo = "consolidate/2";
 constexpr double kPi = 3.14159265358979323846;
 
 inline double deg(double r) { return r * 180.0 / kPi; }
@@ -65,7 +65,7 @@ struct B2B { std::string depth, meta; double thickness; };
 struct Score {
     bool ok = false; std::vector<std::string> reasons;
     int dupRaw = 0, dupPlan = 0; bool haveExplained = false; double explained = 0;
-    int pairs = 0; bool haveMedian = false; double median = 0; std::vector<B2B> b2b; std::vector<std::string> lone; int badFrames = 0;
+    int pairs = 0; bool haveMedian = false; double median = 0; std::vector<B2B> b2b; std::vector<std::string> lone; int badFrames = 0, frameSuspect = 0;
 };
 struct PlanWall { std::string id, room, src; double x = 0, y = 0, z = 0, yaw = 0, w = 0, h = 0; bool offAxis = false; std::vector<std::string> from; };
 struct Result {
@@ -111,6 +111,11 @@ inline void surfaces(const json::Value& doc, Result& R, std::vector<Surf*>& out)
         const json::Value& pose = w["pose"];
         bool hasW = isNum(w["w"]) && w["w"].n != 0, hasH = isNum(w["h"]) && w["h"].n != 0;
         if (pose.type != json::Value::Obj || !hasW || !hasH) { R.dropped.push_back({wid, "no pose or size yet"}); continue; }
+        // consolidate/2: a depth wall without a frame record was committed before v0.65, in a STAGE frame that has moved
+        // since; it stays in the raw layer and is left out of the plan.
+        if ((w.has("source") ? w["source"].str() : std::string("depth")) == "depth" && w["frame"].type != json::Value::Obj) {
+            R.dropped.push_back({wid, "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"}); continue;
+        }
         double p[3], q[4];
         for (int i = 0; i < 3; i++) p[i] = pose["p"][i].n;
         for (int i = 0; i < 4; i++) q[i] = pose["q"][i].n;
@@ -750,6 +755,7 @@ inline void score(Result& R, const Params& P) {
     for (auto& [bt, st] : R.batches) if (st.rfind("dropped", 0) == 0) { bad += (nb ? "; " : "") + bt + ": " + st; nb++; }
     S.badFrames = nb;
     if (nb) { ok = false; rs.push_back(std::to_string(nb) + " scan commit(s) in another frame: " + bad); }
+    for (auto& d : R.dropped) if (d.why.rfind("frame-suspect", 0) == 0) S.frameSuspect++;
     S.ok = ok;
 }
 

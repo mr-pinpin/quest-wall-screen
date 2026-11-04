@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(ROOT, 'house'))
 import consolidate as C  # noqa: E402
 import test_consolidate as T  # noqa: E402
 
-assert C.ALGO == 'consolidate/1', 'consolidate.py moved to %s: port room_lab/consolidate.h first' % C.ALGO
+assert C.ALGO == 'consolidate/2', 'consolidate.py moved to %s: port room_lab/consolidate.h first' % C.ALGO
 
 
 def stage(doc):
@@ -31,7 +31,7 @@ def stage(doc):
     return {'walls': [{k: w.get(k) for k in ('id', 'pose', 'w', 'h', 'room', 'src', 'from', 'offAxis')} for w in plan['walls']],
             'rooms': [{k: r.get(k) for k in ('id', 'floor', 'area', 'floorY', 'ceilingY', 'closed', 'closure', 'perimeter', 'openM', 'doors')} for r in plan['rooms']],
             'score': {'verdict': plan['score']['verdict'], 'reasons': plan['score']['reasons'], 'duplicates': plan['score']['duplicates'],
-                      'explained': plan['score']['explained'], 'sceneFit': plan['score']['sceneFit']},
+                      'explained': plan['score']['explained'], 'sceneFit': plan['score']['sceneFit'], 'frameSuspect': plan['score']['frameSuspect']},
             'th': th, 'share': share, 'needsRooms': needs,
             'segs': [{'k': s['k'], 'off': s['off'], 't0': s['t0'], 't1': s['t1'], 'y0': s['y0'], 'y1': s['y1'],
                       'ids': [m['id'] for m in s['members']]} for s in segs],
@@ -40,7 +40,8 @@ def stage(doc):
 
 def main():
     out = sys.argv[1]; os.makedirs(out, exist_ok=True)
-    cases = {'house-rev25': json.load(open(os.path.join(ROOT, 'house/fixtures/house-rev25.json'))),
+    cases = {'house-rev25': json.load(open(os.path.join(ROOT, 'house/fixtures/house-rev25.json'))),   # as stored: depth walls frame-suspect
+             'house-rev25-framed': T.with_frames(json.load(open(os.path.join(ROOT, 'house/fixtures/house-rev25.json')))),
              'depth-72504684': json.load(open(os.path.join(ROOT, 'house/fixtures/depth-72504684/house.json')))}
     for seed in range(1, 9):
         cases['flat-%d' % seed] = T.flat(seed)
