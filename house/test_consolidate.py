@@ -35,6 +35,7 @@ def wall(wid, src, a, b, n, y=-0.15, h=2.5, dy=0.0, dang=0.0, doff=0.0, batch='t
          'pose': {'p': [x, y + dy, z], 'q': C.yaw_q(yaw)}}
     if src == 'depth':
         w['fit'] = {'rms_m': rms, 'samples': samples, 'updated': batch}
+        w['frame'] = {'source': 'scene', 'id': batch}
     return w
 
 
@@ -45,6 +46,7 @@ def plane(wid, src, u, v, w, h, y, up=True, batch='t1', samples=80000):
     d = {'id': wid, 'room': 'r1', 'kind': 'floor' if up else 'ceiling', 'source': src, 'w': w, 'h': h, 'pose': {'p': [x, y, z], 'q': q}}
     if src == 'depth':
         d['fit'] = {'rms_m': 0.012, 'samples': samples, 'updated': batch}
+        d['frame'] = {'source': 'scene', 'id': batch}
     return d
 
 
@@ -90,6 +92,14 @@ def flat(seed=1, rotated_batch=False, drop_east=False):
             W.append(ww)
     d = schema.empty(); d['by'] = 'test'; d['rev'] = 7; d['rooms'] = [{'id': 'r1', 'name': 'flat'}]; d['walls'] = W
     return d
+
+
+def with_frames(doc):
+    """The doc with a frame record on every depth wall: the fixtures predate v0.65 and test the geometry."""
+    for w in doc['walls']:
+        if w.get('source', 'depth') == 'depth':
+            w.setdefault('frame', {'source': 'test'})
+    return doc
 
 
 def area(poly):
@@ -152,7 +162,7 @@ class Synthetic(unittest.TestCase):
         d = schema.empty()
         self.assertEqual(C.consolidate(d)['score']['verdict'], 'not yet')
         d['walls'] = [{'id': 'w-x', 'kind': 'wall', 'source': 'depth'}, {'id': 'w-o', 'kind': 'wall', 'source': 'depth', 'w': 1, 'h': 1,
-                                                                         'pose': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}}]
+                                                                         'pose': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}, 'frame': {'source': 'anchors'}}]
         why = {x['id']: x['why'] for x in C.consolidate(d)['dropped']}
         self.assertIn('no pose', why['w-x']); self.assertIn('unlocated', why['w-o'])
 
@@ -160,7 +170,7 @@ class Synthetic(unittest.TestCase):
 class Real(unittest.TestCase):
     def test_house_rev25(self):
         """The house after the 02:15 and 03:03 UTC scans: 20 noisy depth walls next to Meta's 11."""
-        d = json.load(open(os.path.join(HERE, 'fixtures', 'house-rev25.json')))
+        d = with_frames(json.load(open(os.path.join(HERE, 'fixtures', 'house-rev25.json'))))
         t = time.time(); pl = C.consolidate(d); dt = time.time() - t
         print(f'timing consolidate rev 25: {dt * 1000:.0f} ms (info; the bound only catches a runaway)')
         self.assertLess(dt, 15.0)
@@ -176,6 +186,22 @@ class Real(unittest.TestCase):
         self.assertEqual(schema.validate(dict(d, plan=pl)), [])
         svg = floorplan.plan(d, layer='both', clean=pl)
         self.assertIn('plan-wall', svg); self.assertIn('class="wall"', svg)
+
+    def test_frame_suspect(self):
+        """consolidate/2: rev 25 as stored (pre-v0.65 depth walls, no frame record): every depth wall is kept in the
+        raw layer but left out of the plan, which is Meta's walls alone."""
+        d = json.load(open(os.path.join(HERE, 'fixtures', 'house-rev25.json')))
+        raw = json.dumps(d, sort_keys=True)
+        pl = C.consolidate(d)
+        depth = [w['id'] for w in d['walls'] if w.get('source', 'depth') == 'depth']
+        self.assertGreaterEqual(len(depth), 20)
+        self.assertEqual(pl['score']['frameSuspect'], len(depth))
+        self.assertEqual(json.dumps(d, sort_keys=True), raw, 'raw layer untouched')
+        why = {x['id']: x['why'] for x in pl['dropped']}
+        self.assertTrue(all(why.get(i, '').startswith('frame-suspect') for i in depth))
+        self.assertTrue(pl['walls'] and all(w['src'] != 'depth' for w in pl['walls']))
+        self.assertIsNone(pl['score']['explained'])
+        self.assertEqual(C.consolidate(with_frames(d))['score']['frameSuspect'], 0)
 
     def test_depth_dump_meets_meta(self):
         """A wall-facing depth dump (both eyes fused by room_lab/wallfit.h, bench/wallfit_replay.cpp --house) next to

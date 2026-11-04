@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         for (auto& wl : both.walls()) {
             Pose ps = wl.pose();
             fprintf(o, "%s\n{\"id\":\"w-d%06d\",\"room\":\"r1\",\"kind\":\"%s\",\"source\":\"depth\",\"w\":%.4f,\"h\":%.4f,\"pose\":{\"p\":[%.5f,%.5f,%.5f],\"q\":[%.7f,%.7f,%.7f,%.7f]},"
-                       "\"fit\":{\"rms_m\":%.5f,\"samples\":%ld,\"updated\":\"dump\",\"conf\":%.3f}}",
+                       "\"fit\":{\"rms_m\":%.5f,\"samples\":%ld,\"updated\":\"dump\",\"conf\":%.3f},\"frame\":{\"source\":\"dump\"}}",
                     first ? "" : ",", wl.id, kindName(wl.kind), wl.w, wl.h, ps.p.x, ps.p.y, ps.p.z, ps.q.x, ps.q.y, ps.q.z, ps.q.w, wl.rms_m, wl.samples, wl.confidence);
             first = false;
         }

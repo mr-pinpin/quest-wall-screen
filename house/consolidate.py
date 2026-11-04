@@ -3,6 +3,9 @@ floor plan, plus a score that says whether it is good enough. A pure function (d
 never changed. house/server.py runs it on every write that changes walls or rooms and stores the result as the
 house's "plan" layer; GET /house/plan.svg?layer=clean draws it.
 
+  0. Frame record (consolidate/2). A depth wall committed without a "frame" field predates v0.65, whose SCAN
+     records the frame it solved (Meta's planes, else anchors): such a wall may sit in a frame that jumped between
+     sessions (STAGE moved ~3.6 m on 2026-11-04), so it is frame-suspect: kept in the raw layer, left out of the plan.
   1. Frame hygiene. Each SCAN commits its surfaces in the room frame as solved at that moment. A commit (one batch:
      fit.updated) whose floor sits off the house floor (Meta's, else the biggest batch's) is moved onto it when the
      offset is small (<= yShiftMax: anchor drift) and dropped as another frame when it is large; a batch rotated
@@ -29,7 +32,7 @@ import hashlib
 import json
 import math
 
-ALGO = 'consolidate/1'
+ALGO = 'consolidate/2'
 PARAMS = {
     'snapDeg': 7.0, 'mergeOff': 0.05, 'mergeDeg': 3.0, 'mergeGap': 0.10, 'minLen': 0.4, 'minConf': 0.4,
     'stackOff': 0.35, 'stackOverlap': 0.5, 'stackKeep': 0.25, 'cornerReach': 0.7, 'overshoot': 0.3,
@@ -98,6 +101,8 @@ def surfaces(doc, dropped):
         if not isinstance(pose, dict) or not w.get('w') or not w.get('h'):
             dropped.append({'id': wid, 'why': 'no pose or size yet'}); continue
         p, q = [float(v) for v in pose['p']], [float(v) for v in pose['q']]
+        if w.get('source', 'depth') == 'depth' and not isinstance(w.get('frame'), dict):
+            dropped.append({'id': wid, 'why': 'frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan'}); continue
         if (w.get('frame') or {}).get('located') is False or (p == [0, 0, 0] and q == [0, 0, 0, 1]):
             dropped.append({'id': wid, 'why': 'frame: unlocated pose'}); continue
         r, u, n = qrot(q, (1, 0, 0)), qrot(q, (0, 1, 0)), qrot(q, (0, 0, 1))
@@ -857,7 +862,8 @@ def consolidate(doc, params=None):
              'duplicates': {'raw': dup_before, 'plan': dup_after}, 'rooms': len(plan_rooms),
              'closure': r3(min((r['closure'] for r in plan_rooms), default=0.0)),
              'sceneFit': scene_fit, 'explained': r3(explained) if explained is not None else None,
-             'walls': {'raw': len(raw_vert), 'plan': len(plan_walls)}, 'axesShare': r3(share)}
+             'walls': {'raw': len(raw_vert), 'plan': len(plan_walls)}, 'axesShare': r3(share),
+             'frameSuspect': sum(1 for d in dropped if d['why'].startswith('frame-suspect'))}
     return {'algo': ALGO, 'src': src_hash(doc), 'rev': doc.get('rev'), 'axesDeg': round(math.degrees(th), 2),
             'floorY': r3(ref_floor) if ref_floor is not None else None, 'frames': batches,
             'walls': plan_walls, 'rooms': plan_rooms, 'dropped': dropped, 'score': score}
