@@ -194,6 +194,29 @@ class LiveScreenController(ScreenController):
         raise ScreenError(f"no display for screen {screen} (not a PinPin virtual display)")
 
     def screenshot(self, screen):
+        # Prefer the CDP screenshot via the apps server (/shot): it's the only way to capture a REMOTE
+        # CDP screen like the MINI (the Air can't capture the Mini's display locally), and it unifies
+        # once the runner has /shot everywhere. Fall back to local capture only when the endpoint is
+        # not implemented yet (400 "unknown input shot"); NOT on 404 "not enabled", so a MINI screen
+        # never silently captures the wrong Air display when the feature is off.
+        try:
+            req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/shot?max=900",
+                                         headers=apps_headers())
+            with urllib.request.urlopen(req, timeout=10) as r:
+                png = r.read()
+                w = h = 0
+                vp = r.headers.get("X-Viewport", "")
+                if "x" in vp:
+                    try:
+                        w, h = (int(x) for x in vp.split("x")[:2])
+                    except ValueError:
+                        pass
+                return png, w, h
+        except urllib.error.HTTPError as e:
+            if e.code != 400:
+                raise ScreenError(f"shot {e.code} for screen {screen}")
+        except Exception:
+            pass   # apps server unreachable -> try local capture
         d = self.resolve(screen)
         out = subprocess.run(self.cap_cmd + [str(d["display"])], capture_output=True, timeout=15)
         if out.returncode != 0:
