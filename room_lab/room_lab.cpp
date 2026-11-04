@@ -30,6 +30,7 @@
 #include "wallfit.h"
 #include "anchors.h"
 #include "rooms_house.h"
+#include "reloc.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -1171,7 +1172,11 @@ struct App {
                     }
                     auto& r = recent[s.id]; if (g.n && g.valid >= 0.5f) { r.push_back(g.median); if (r.size() > 20) r.erase(r.begin()); }
                     std::vector<float> sr = r; std::sort(sr.begin(), sr.end());
-                    if (s.id == 1) { relocGap = sr.size() >= 5 ? sr[sr.size() / 2] : NAN; relocSamples = (int)sr.size(); }
+                    if (s.id == 1) {  // RELOCCHECK: only from in front of the main screen, with depth over most of it (reloc.h)
+                        bool front = reloc::frontal(s.pose, s.x, s.y, {sh->head.position.x, sh->head.position.y, sh->head.position.z});
+                        relocWin.add(sh->now * 1e-9, g.n ? g.median : NAN, g.valid, front);
+                        relocGap = relocWin.median(); relocSamples = (int)relocWin.s.size();
+                    }
                     j << (first ? "" : ",") << "{\"id\":" << s.id << ",\"wall\":\"" << s.wall.substr(0, 8) << "\",\"median\":" << num(g.median) << ",\"p10\":" << num(g.p10) << ",\"p90\":" << num(g.p90)
                       << ",\"valid\":" << g.valid << ",\"tl\":" << num(g.tl) << ",\"tr\":" << num(g.tr) << ",\"bl\":" << num(g.bl) << ",\"br\":" << num(g.br)
                       << ",\"median20\":" << (sr.empty() ? -99.0f : sr[sr.size() / 2]) << ",\"plane\":" << plane << "}";
@@ -1907,7 +1912,7 @@ struct App {
     // ---- RELOCCHECK: relocGap is the running median (last 20 good frames) of the main screen's signed gap to the real
     // surface over its rect, from the depth worker. Over 20 cm for 20 s in a row: the room is misaligned -> a hint every
     // 60 s until it recovers. Our anchors cannot catch this: they live in the same Meta tracking map as the scene walls.
-    std::atomic<float> relocGap{NAN}; std::atomic<int> relocSamples{0};
+    std::atomic<float> relocGap{NAN}; std::atomic<int> relocSamples{0}; reloc::Window relocWin;  // relocWin: depth worker only
     bool relocWarn = false; long relocWarnings = 0; int relocBadSecs = 0; std::chrono::steady_clock::time_point relocToastAt{}, relocTick{};
     void updateReloc() {
         auto t = std::chrono::steady_clock::now();
