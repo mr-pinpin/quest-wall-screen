@@ -1,6 +1,6 @@
 {
- "rev": 41,
- "next": 17,
+ "rev": 42,
+ "next": 18,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -575,7 +575,28 @@
      "column": "doing"
     }
    ]
+  },
+  {
+   "title": "BUG: screens on depth walls (6,7 TV room) displaced ~6 m after STAGE jump",
+   "details": "depthwalls.json stored in a non-persistent frame; move to the room frame + one-time repair",
+   "column": "doing",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [],
+   "id": "K17",
+   "created": "2026-11-04T10:38:56Z",
+   "updated": "2026-11-04T10:38:56Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:38:56Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T10:30:51Z"
+ "updated": "2026-11-04T10:38:56Z"
 }
