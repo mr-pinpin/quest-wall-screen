@@ -71,6 +71,10 @@ int main(int argc, char** argv) {
         auto ex = t3.switches("EXPERIMENTAL"); check(std::find(ex.begin(), ex.end(), "NEWFLAG") != ex.end(), "a switch no category names lands in EXPERIMENTAL");
     }
 
+    // Tools in a category: Scan and room has WALLS (the wall tool) first on its first page.
+    {   shoulder::Level L = t.level("SET SCAN AND ROOM 1");
+        check(!L.items.empty() && L.items[0].label == "WALLS" && L.items[0].action == "walltool", "Scan and room -> WALLS opens the wall tool");
+        check(t.categoryOf("WALLTOOL") == "SCAN AND ROOM", "the WALLTOOL switch sits with it"); }
     // 3. Paging: a small maxH forces pages; NEXT PAGE cycles 1 -> 2 -> ... -> 1, titles say "N OF M", all switches kept.
     {   Tree s = t; s.maxH = 0.55f; auto ps = s.pages("SCREENS"); int n = (int)ps.size();
         check(n >= 2, "SCREENS pages at maxH 0.55");

@@ -1064,6 +1064,10 @@ struct App {
         const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}, red[4] = {1.0f, 0.3f, 0.25f, 1};
         event("shoulder: " + level + " " + a);
         if (a.rfind("wt:", 0) == 0) { wallToolAction(a.substr(3)); return; }
+        if (a == "walltool") {  // SETCAT: Scan and room -> WALLS; turns the wall tool on if it was off (never a dead end)
+            if (!wallToolMenu) { wallToolMenu = true; saveSettings(); const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}; toast("wallhint", "WALL TOOL ON", cyan, 2); }
+            wallToolWalls(); sm.push("WALLS"); return;
+        }
         if (a == "ask") {  // the room assistant (work-42): a chat panel in front of you, the same conversation loop as a screen's
             sm.stack.clear();
             if (chatOpen.count(0)) { assistClose(0); return; }
@@ -2003,7 +2007,7 @@ struct App {
         for (auto& e : entities) if (e.located && isWall(e)) {
             V3 c = xform(e.pose, {e.r2.offset.x + e.r2.extent.width / 2, e.r2.offset.y + e.r2.extent.height / 2, 0});
             XrPosef cp = e.pose; cp.position = {c.x, c.y, c.z};
-            w.push_back({houseWallId(doc, e.uuid), wp(cp), e.r2.extent.width, e.r2.extent.height});
+            w.push_back({wallshape::wallIdOf(doc, e.uuid), wp(cp), e.r2.extent.width, e.r2.extent.height});  // depth walls keep their own id
         }
         wt.setWalls(std::move(w));
     }
@@ -2014,7 +2018,7 @@ struct App {
         else if (a == "confirm") wt.confirm();
         else if (a == "expand") wt.expand();
         else if (a == "finish") wt.finish();
-        else if (a == "undo") wt.undo();
+        else if (a == "undo") { if (!wt.undo()) { const float grey[4] = {0.8f, 0.85f, 0.9f, 1}; toast("wallhint", "NOTHING TO UNDO", grey, 2); } }
         else if (a == "cancel") wt.cancel();
         else if (a == "fill") { wtFill = !wtFill; wt.setFill(wtFill); }
         wallToolFlush();
@@ -2038,6 +2042,10 @@ struct App {
     }
     void drawWallTool(Batch& b) {
         if (!wallToolOn()) return;
+        // The tool explains itself (wallshape.h hint()) while a gesture runs or the WALLS menu is open.
+        if (wt.state() != wallshape::State::Idle || (sm.open() && sm.stack.back().name == "WALLS")) {
+            const float cyan[4] = {0.35f, 0.85f, 1.0f, 1}; toast("wallhint", wt.hint(), cyan, 0.6f);
+        }
         V3 hp = v3(head.position);
         auto draw = [&](const wallshape::Mesh& m) {
             for (auto& sg : m.segs) {
