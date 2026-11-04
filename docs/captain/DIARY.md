@@ -23,3 +23,18 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - the receptionist, so the user's headset voice reaches me (by 10:50);
   - a proper kanban;
   - the user's kanban: dictation always on, pointer smoothing, controls always visible, the select outline.
+
+## 2026-11-04 10:00 UTC
+- **Decided:**
+  - The user wants to talk only to me. I dropped the household account (overcomplication) and had work-42 bridge ASK… to work-df through the VPS receptionist (tmux delivery, transcript tail, verbatim, token, audit).
+  - Re-split work for parallelism: c4 takes only the CLAUDE entry; 34 takes the frame-drift fix; a new agent, k5 (work-0e), writes self-contained headers so c4 isn't the bottleneck.
+- **Shipped:**
+  - k5: steady.h, select_outline.h, dictation.h, panel_texture.h, select_house.h (4626f40, e6b6b82, 351a4b2, f960dbc).
+  - 34: the frame fix through Meta-plane consensus (8db4341, 960d7ff), load-tolerant timing tests (96b07d1).
+  - ad: a kanban board and CLI (0ec2f9b).
+  - 42: room.sh, the reply cleaner, the queued server, and the Air cost profile.
+- **Broke, and lessons:**
+  - Twice an install rolled back on a stale check bar (fps ≥70, then scene count = 14). Pass/fail bars must come from a fresh baseline measurement, not constants.
+  - The user's room chat went to the room assistant, not to me, and that confused them. An entry point needs to say who you are talking to.
+- **Learned:** the Air's slowdown per extra screen is the aerial wallpaper plus colorsync, not our capture (~5%). Only the user can switch it.
+- **Next:** v0.65 confirmed on the headset; k5 integrates v0.66; c4 does HOUSE sync (K9) and the headset fps profile; the user returns about 10:50.
