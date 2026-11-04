@@ -1,6 +1,6 @@
 {
- "rev": 6,
- "next": 7,
+ "rev": 26,
+ "next": 13,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -13,15 +13,26 @@
    ],
    "id": "K1",
    "created": "2026-11-04T09:55:17Z",
-   "updated": "2026-11-04T09:55:17Z",
+   "updated": "2026-11-04T09:59:11Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T09:59:11Z",
+     "by": "work-df",
+     "text": "select_outline.h done by work-0e (4626f40); render integration by c4; room.sh select writes house.selected (42)"
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T09:55:17Z",
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:59:11Z",
+     "by": "work-df",
+     "what": "commented"
     }
    ]
   },
@@ -36,22 +47,33 @@
    ],
    "id": "K2",
    "created": "2026-11-04T09:55:22Z",
-   "updated": "2026-11-04T09:55:22Z",
+   "updated": "2026-11-04T09:59:15Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T09:59:15Z",
+     "by": "work-df",
+     "text": "design note docs/controls-never-occluded.md (CTLTOP) by work-0e; c4 integrates"
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T09:55:22Z",
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:59:15Z",
+     "by": "work-df",
+     "what": "commented"
     }
    ]
   },
   {
    "title": "Dictation always on and queued (headset)",
    "details": "Keep listening while the assistant replies, queue it, never lock up; don't cut a sentence at a breath. Server side: the dictation-server card (work-42).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "next",
+   "column": "review",
    "owner": "work-c4",
    "area": "headset",
    "links": [
@@ -59,22 +81,50 @@
    ],
    "id": "K3",
    "created": "2026-11-04T09:55:27Z",
-   "updated": "2026-11-04T09:55:27Z",
+   "updated": "2026-11-04T10:03:06Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T09:59:18Z",
+     "by": "work-df",
+     "text": "work-0e building room_lab/dictation.h (queue, adaptive silence, watchdog)"
+    },
+    {
+     "at": "2026-11-04T10:03:03Z",
+     "by": "work-df",
+     "text": "dictation.h ready e6b6b82 (work-0e): one mic owner, breath<=1.5s never cuts, queue during reply, watchdog; c4 integrates"
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T09:55:27Z",
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:59:18Z",
+     "by": "work-df",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T10:03:03Z",
+     "by": "work-df",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T10:03:06Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "review"
     }
    ]
   },
   {
    "title": "Dictation server: queue, never lock up",
    "details": "The server half of always-on dictation: accept phrases while a reply is running, queue them in order, never drop or lock up; join a sentence split at a breath. Headset side: the dictation card (work-c4).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "next",
+   "column": "review",
    "owner": "work-42",
    "area": "assistant",
    "links": [
@@ -82,7 +132,7 @@
    ],
    "id": "K4",
    "created": "2026-11-04T09:55:31Z",
-   "updated": "2026-11-04T09:55:31Z",
+   "updated": "2026-11-04T10:02:08Z",
    "by": "work-ad",
    "comments": [],
    "history": [
@@ -91,21 +141,35 @@
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:59:24Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "doing"
+    },
+    {
+     "at": "2026-11-04T10:02:08Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "doing",
+     "to": "review"
     }
    ]
   },
   {
    "title": "Pointer stabilization flag (STEADY)",
-   "details": "Dead zone + smoothing, adjustable, off by default, for the screen cursor and the wrist UI.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "next",
-   "owner": "work-c4",
+   "details": "steady.h done (4626f40); integrate after v0.65 (c4)",
+   "column": "review",
+   "owner": "work-0e",
    "area": "headset",
    "links": [
     "qws:d5a9376"
    ],
    "id": "K5",
    "created": "2026-11-04T09:55:35Z",
-   "updated": "2026-11-04T09:55:35Z",
+   "updated": "2026-11-04T09:58:58Z",
    "by": "work-ad",
    "comments": [],
    "history": [
@@ -114,13 +178,31 @@
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:58:55Z",
+     "by": "work-df",
+     "what": "updated",
+     "fields": [
+      "details",
+      "owner"
+     ],
+     "old_owner": "work-c4"
+    },
+    {
+     "at": "2026-11-04T09:58:58Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "review",
+     "note": "header+tests done by work-0e; needs c4 integration"
     }
    ]
   },
   {
    "title": "Room assistant fixes",
    "details": "Room screenshot crash; a \"nudge\" that moves far; house_info missing y; an add_card tool (now: POST /api/kanban, see pinpin-apps docs/KANBAN.md).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "next",
+   "column": "review",
    "owner": "work-42",
    "area": "assistant",
    "links": [
@@ -128,18 +210,188 @@
    ],
    "id": "K6",
    "created": "2026-11-04T09:55:41Z",
-   "updated": "2026-11-04T09:55:41Z",
+   "updated": "2026-11-04T10:02:14Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T10:02:11Z",
+     "by": "work-42",
+     "text": "screenshot crash fixed (clear msg + optional screen id); nudge/house_info-y/add_card done in room.sh; add_card now via kanban API. Remaining: SELECT gold-outline RENDER is work-c4 (house.selected contract sent)."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T09:55:41Z",
      "by": "work-ad",
      "what": "created",
      "column": "next"
+    },
+    {
+     "at": "2026-11-04T09:59:21Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "next",
+     "to": "doing",
+     "note": "work-42: screenshot crash, then queued dictation server"
+    },
+    {
+     "at": "2026-11-04T10:02:11Z",
+     "by": "work-42",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T10:02:14Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "doing",
+     "to": "review"
+    }
+   ]
+  },
+  {
+   "title": "CLAUDE entry + ASK… → work-df on the headset (v0.65)",
+   "details": "",
+   "column": "doing",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [],
+   "id": "K7",
+   "created": "2026-11-04T09:58:44Z",
+   "updated": "2026-11-04T09:58:44Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:58:44Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
+  },
+  {
+   "title": "SCAN commit-frame drift fix + MESHSAVE scratch test",
+   "details": "",
+   "column": "doing",
+   "owner": "work-34",
+   "area": "geometry",
+   "links": [],
+   "id": "K8",
+   "created": "2026-11-04T09:58:48Z",
+   "updated": "2026-11-04T09:58:48Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:58:48Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
+  },
+  {
+   "title": "HOUSE sync on, headset-is-truth first sync (screens 4,5)",
+   "details": "",
+   "column": "next",
+   "owner": "work-c4",
+   "area": "headset",
+   "links": [],
+   "id": "K9",
+   "created": "2026-11-04T09:58:51Z",
+   "updated": "2026-11-04T09:58:51Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:58:51Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "next"
+    }
+   ]
+  },
+  {
+   "title": "SETTINGS panel as a texture (fps 43-53 when open)",
+   "details": "panel_texture.h header; c4 integrates",
+   "column": "doing",
+   "owner": "work-0e",
+   "area": "headset",
+   "links": [],
+   "id": "K10",
+   "created": "2026-11-04T09:59:28Z",
+   "updated": "2026-11-04T09:59:28Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T09:59:28Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "doing"
+    }
+   ]
+  },
+  {
+   "title": "Weather screen by the window",
+   "details": "user asked in the kitchen",
+   "column": "done",
+   "owner": "",
+   "area": "",
+   "links": [],
+   "id": "K11",
+   "created": "2026-11-04T10:00:26Z",
+   "updated": "2026-11-04T10:02:41Z",
+   "by": "user (headset)",
+   "comments": [
+    {
+     "at": "2026-11-04T10:02:38Z",
+     "by": "work-42",
+     "text": "self-test card from room_tools add_card verification — safe to delete/archive"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-11-04T10:00:26Z",
+     "by": "user (headset)",
+     "what": "created",
+     "column": "backlog"
+    },
+    {
+     "at": "2026-11-04T10:02:38Z",
+     "by": "work-42",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T10:02:41Z",
+     "by": "work-42",
+     "what": "moved",
+     "from": "backlog",
+     "to": "done"
+    }
+   ]
+  },
+  {
+   "title": "Air cost per extra screen",
+   "details": "",
+   "column": "doing",
+   "owner": "work-42",
+   "area": "perf",
+   "links": [],
+   "id": "K12",
+   "created": "2026-11-04T10:03:19Z",
+   "updated": "2026-11-04T10:03:19Z",
+   "by": "work-42",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T10:03:19Z",
+     "by": "work-42",
+     "what": "created",
+     "column": "doing"
     }
    ]
   }
  ],
- "updated": "2026-11-04T09:55:41Z"
+ "updated": "2026-11-04T10:03:19Z"
 }
