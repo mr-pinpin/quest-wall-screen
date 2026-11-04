@@ -449,6 +449,32 @@
    ]
   },
   {
+   "name": "ALLBARS",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "The user asked (2026-11-04): every screen shows the same move bar as the main one, locked or not; bars hit on the wall plane so a bar below the scanned rect still works.",
+   "evidence": [
+    {
+     "commit": "502e39b"
+    }
+   ]
+  },
+  {
+   "name": "CLOSEX",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "The user asked (2026-11-04): an X in each extra screen's corner while unlocked; pinch twice within 3 s to close it.",
+   "evidence": [
+    {
+     "commit": "502e39b"
+    }
+   ]
+  },
+  {
    "name": "SCROLL",
    "where": "headset",
    "default": false,

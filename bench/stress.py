@@ -77,6 +77,18 @@ INSTALL_LOCK = '/root/work/.quest-install.lock'
 class OwnerRefused(RuntimeError): pass
 
 
+def require_green_gate(commit=None, max_age_s=6 * 3600):
+    # Installs need a green offline gate (AGENTS.md). bench/run_offline_tests.sh leaves "PASS|FAIL <commit> <unix time>"
+    # in /tmp/pinpin-offline-gate.txt; refuse anything else, an old verdict, or a different commit when one is given.
+    # (2026-11-04: an install went out while the gate's last line said FAILED.)
+    try: verdict, sha, t = open('/tmp/pinpin-offline-gate.txt').read().split()[:3]
+    except (OSError, ValueError): raise OwnerRefused('no offline gate verdict: run bench/run_offline_tests.sh first')
+    if verdict != 'PASS': raise OwnerRefused(f'offline gate FAILED at {sha[:7]}: fix it before installing')
+    if time.time() - int(t) > max_age_s: raise OwnerRefused('offline gate verdict older than 6 h: run it again')
+    if commit and not sha.startswith(commit): raise OwnerRefused(f'offline gate ran on {sha[:7]}, not {commit}')
+    return sha
+
+
 def headset(cmd, allow_user=False, **k):
     if MUTATING.search(cmd) and not allow_user and headset_owner() not in ('agents', ''):
         raise OwnerRefused(f'headset_owner={headset_owner()}: refusing {cmd[:80]!r}')
@@ -159,14 +171,13 @@ def prox_lock():
 def prox(action, who=''):
     # action: 'prox_close' (simulate wear) or 'automation_disable' (real sensor); call with prox_lock held.
     # prox_close wakes the headset's tracking. 2026-11-04 night: wake-ups in the dark (01:39, 02:06 UTC) left Meta's
-    # Space Setup room mis-relocalised ("everything in a room far away" until the light went on). So prox_close is
-    # refused off the charger, and at night (20:00-05:00 UTC = 23:00-08:00 Moscow) unless PINPIN_PROX_NIGHT=1.
+    # Space Setup room mis-relocalised ("everything in a room far away" until the light went on); that self-corrects with
+    # the light, and RELOCCHECK + the placement guard cover it, so night windows are allowed again (work-df, same night).
+    # prox_close is refused off the charger; keep windows short and always release (automation_disable).
     if action == 'prox_close':
         bat = headset('dumpsys battery', timeout=30)
         if not any(l.strip().endswith('true') for l in bat.splitlines() if 'powered' in l):
             raise OwnerRefused('prox_close refused: the headset is not on the charger')
-        if time.gmtime().tm_hour in (20, 21, 22, 23, 0, 1, 2, 3, 4) and os.environ.get('PINPIN_PROX_NIGHT') != '1':
-            raise OwnerRefused('prox_close refused at night (dark room mis-relocalises tracking); PINPIN_PROX_NIGHT=1 overrides')
     with open(PROX_LOG, 'a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {action} {who or sys.argv[0]} pid {os.getpid()}\n")
     return headset(f'am broadcast -a com.oculus.vrpowermanager.{action} >/dev/null', allow_user=(action == 'automation_disable'), timeout=30)
 

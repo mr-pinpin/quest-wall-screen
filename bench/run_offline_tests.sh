@@ -41,4 +41,6 @@ run "video LOD ladder along pose paths (bench/ladder_sim.cpp)" bash -c "g++ -std
 run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py bench/headset_hold.py bench/vt_check.py bench/verdict.py bench/stress/headset_sim.py bench/watchdog.py bench/campaign.py bench/benchlock.py bench/placement_regress.py bench/headset_awake.py house/server.py house/migrate.py assistant/pinpin_assistant.py assistant/screen_mcp.py
 mv "$T" "$T.done" 2>/dev/null   # scratch binaries stay in /tmp
 [ $fail = 0 ] && echo "all offline tests passed" || echo "OFFLINE TESTS FAILED"
+# The verdict for install scripts (stress.require_green_gate): result, the commit tested, when.
+echo "$([ $fail = 0 ] && echo PASS || echo FAIL) $(git rev-parse HEAD 2>/dev/null) $(date -u +%s)" > /tmp/pinpin-offline-gate.txt 2>/dev/null; chmod a+rw /tmp/pinpin-offline-gate.txt 2>/dev/null
 exit $fail

@@ -53,6 +53,7 @@ def main():
     # Anything that installs, stops or launches respects bench/headset_owner and takes the shared install lock
     # (bench/stress.py install_lock), like every other install path.
     import sys;sys.path.insert(0,os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','bench'));import stress
+    if a.action=='install':stress.require_green_gate()  # no install without a green offline gate (bench/run_offline_tests.sh)
     if a.action in ('install','stop') or (a.action=='shell' and stress.MUTATING.search(a.apk or '')):
         with stress.install_lock('deploy.py '+a.action):r=run()
     else:r=run()

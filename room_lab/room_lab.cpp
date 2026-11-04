@@ -224,6 +224,11 @@ struct App {
     // RELOCCHECK flag (default ON, read-only): the main screen's gap to the real wall behind it, from depth every 2 s;
     // a sustained gap over 20 cm means Meta placed the room wrong (2026-11-04: relocalised in the dark) -> a hint.
     bool relocMenu = true, relocFile = false; bool relocOn() const { return relocMenu || relocFile; }
+    // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
+    // locked or not (locked, the bar is dimmer and the move needs the same hold); bars hit on the wall plane, so a bar
+    // hanging below a wall's scanned rect still works. CLOSEX (default ON): an X in each extra screen's corner while
+    // unlocked; the first pinch arms it, a second within 3 s removes the screen.
+    bool allBarsMenu = true, closeXMenu = true; bool allBars() const { return allBarsMenu; } bool closeX() const { return closeXMenu; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -463,6 +468,13 @@ struct App {
             panelSeen = seenFrom(eye, xform(w->pose, {placed.x, placed.y, 0.02f}), rot(w->pose.orientation, {0, 0, 1}), placed.wall);
         menuSeen = !menuOpen || menuMoving || seenFrom(eye, v3(menu.pose.position), rot(menu.pose.orientation, {0, 0, 1}), menuStickWall);
     }
+    // A ray against one wall's plane, ignoring its scanned rect (bars and corner buttons may hang just outside it).
+    bool planeHit(const Entity& e, V3 o, V3 d, float& hx, float& hy) {
+        V3 lo = untransform(e.pose, o), ld = rot(qinv(e.pose.orientation), d);
+        if (std::fabs(ld.z) < 1e-4f) return false;
+        float t = -lo.z / ld.z; if (t <= 0) return false;
+        hx = lo.x + ld.x * t; hy = lo.y + ld.y * t; return true;
+    }
     Entity* rayWall(V3 o, V3 d, float& hx, float& hy) {
         float best = 1e9f; Entity* hit = nullptr;
         for (auto& e : entities) {
@@ -483,7 +495,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 38;
+    static constexpr int kMenuItems = 40;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -502,7 +514,8 @@ struct App {
         {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"},
         {"SCAN", "EXPERIMENTAL", "SCAN BUTTON IN THE MENUS"}, {"SCROLL", "EXPERIMENTAL", "WAVE AN OPEN HAND TO SCROLL"},
         {"WALLTOOL", "EXPERIMENTAL", "DRAW LINES AND SHAPES ON WALLS"}, {"ASSIST", "EXPERIMENTAL", "CLAUDE BUTTON ON EVERY SCREEN"},
-        {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"}};
+        {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
+        {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -534,6 +547,8 @@ struct App {
         if (l == "WALLTOOL") return wallToolOn();
         if (l == "ASSIST") return assistOn();
         if (l == "RELOCCHECK") return relocOn();
+        if (l == "ALLBARS") return allBars();
+        if (l == "CLOSEX") return closeX();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -594,7 +609,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -623,7 +638,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -665,6 +680,8 @@ struct App {
         else if (l == "WALLTOOL") wallToolMenu = !wallToolMenu;                // wall drawing tool
         else if (l == "ASSIST") assistMenu = !assistMenu;                       // Claude button on every screen
         else if (l == "RELOCCHECK") relocMenu = !relocMenu;                     // room-misaligned hint
+        else if (l == "ALLBARS") allBarsMenu = !allBarsMenu;                    // move bar on every screen
+        else if (l == "CLOSEX") closeXMenu = !closeXMenu;                       // X to close a screen
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -2321,6 +2338,7 @@ void main(){
     struct Burst { V3 c, ax, ay; float r; float col[4]; std::chrono::steady_clock::time_point t0; };
     std::vector<Burst> bursts;
     long spellsCw = 0, spellsCcw = 0;
+    int closeXHover = -1, closeArmed = -1; std::chrono::steady_clock::time_point closeArmedAt{};
     int extraBarHover = -1, extraMoving = -1; float extraHold = 0; std::chrono::steady_clock::time_point extraStart{};
     // Pointer on an extra screen: its display is not the one Sunshine streams (and Sunshine refuses clicks off its
     // own display), so the laptop helper "PinPin Displays" (UDP :57711) moves the pointer and posts the click
@@ -2417,12 +2435,27 @@ void main(){
         }
         extraMoving = -1;
         if (!(handActive[1] && ray[1].valid)) { extraPtr = -1; return false; }
-        float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy); if (!w) { extraPtr = -1; return false; }
-        for (size_t i = 0; i < extras.size() && !editLocked; i++) {  // grab bars only while unlocked; pointing always
-            const Placement& p = extras[i].p;
-            if (p.wall != w->uuid) continue;
-            if (std::fabs(hx - p.x) < kBarW / 2 + 0.03f && std::fabs(hy - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
+        closeXHover = -1;
+        for (size_t i = 0; i < extras.size(); i++) {  // bars (unlocked, or always with ALLBARS) and close X, on each wall's plane
+            const Placement& p = extras[i].p; Entity* pw = wallById(p.wall); float bx, by;
+            if (!pw || !pw->located || !planeHit(*pw, ray[1].o, ray[1].d, bx, by)) continue;
+            if (!editLocked && closeX() && std::hypot(bx - (p.x + p.w / 2 - 0.045f), by - (p.y + p.h / 2 - 0.045f)) < 0.035f) { closeXHover = (int)i; break; }
+            if ((!editLocked || allBars()) && std::fabs(bx - p.x) < kBarW / 2 + 0.03f && std::fabs(by - (p.y - p.h / 2 - kBarGap)) < kBarH / 2 + 0.03f) { extraBarHover = (int)i; break; }
         }
+        if (closeXHover >= 0) {
+            extraPtr = -1;
+            if (p1 && !pinchPrev[1]) {
+                int id = extras[closeXHover].id; auto t = std::chrono::steady_clock::now();
+                if (closeArmed == id && t - closeArmedAt < std::chrono::seconds(3)) {
+                    extras.erase(extras.begin() + closeXHover); saveScreens(); if (macDisplays) macDisplay(id, false);
+                    closeArmed = -1; event("closed screen " + std::to_string(id) + " (X)");
+                    const float violet[4] = {0.75f, 0.45f, 1.0f, 1}; toast("close", "SCREEN " + std::to_string(id) + " CLOSED", violet, 3);
+                } else { closeArmed = id; closeArmedAt = t; const float red[4] = {1, 0.35f, 0.3f, 1}; toast("close", "PINCH THE X AGAIN TO CLOSE", red, 3); }
+            }
+            return true;
+        }
+        float hx, hy; Entity* w = rayWall(ray[1].o, ray[1].d, hx, hy);
+        if (!w && extraBarHover < 0) { extraPtr = -1; return false; }
         if (extraBarHover < 0) {
             extraHold = 0;
             // Pointing at an extra screen: drive the Mac pointer on its display.
@@ -2747,9 +2780,19 @@ void main(){
                     b.quad(cz - ax * dd - ay * dd, cz + ax * dd - ay * dd, cz + ax * dd + ay * dd, cz - ax * dd + ay * dd, gc);
                 }
             }
-            if (!editLocked) {  // grab bar
+            if (!editLocked && closeX()) {  // close X: red once armed
+                V3 c = P(p.x + p.w / 2 - 0.045f, p.y + p.h / 2 - 0.045f, 0.03f), ax = rot(w->pose.orientation, {1, 0, 0}), ay = rot(w->pose.orientation, {0, 1, 0}), n = rot(w->pose.orientation, {0, 0, 1});
+                bool armed = closeArmed == extras[i].id && std::chrono::steady_clock::now() - closeArmedAt < std::chrono::seconds(3);
+                const float bgx[4] = {0.08f, 0.08f, 0.1f, 0.85f}, xc[4] = {armed ? 1.0f : 0.92f, armed ? 0.3f : 0.94f, armed ? 0.25f : 0.98f, 1};
+                float r = closeXHover == (int)i ? 0.03f : 0.025f;
+                for (int q = 0; q < 16; q++) { float a0 = q * 0.3927f, a1 = (q + 1) * 0.3927f;
+                    b.quad(c, c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), c, armed ? xc : bgx); }
+                float k = r * 0.5f; const float* lc = armed ? bgx : xc;
+                b.line(c - ax * k - ay * k + n * 0.001f, c + ax * k + ay * k + n * 0.001f, n, 0.004f, lc); b.line(c - ax * k + ay * k + n * 0.001f, c + ax * k - ay * k + n * 0.001f, n, 0.004f, lc);
+            }
+            if (!editLocked || allBars()) {  // grab bar (dimmer while locked)
                 float y = p.y - p.h / 2 - kBarGap, hw = kBarW / 2, hh = kBarH / 2;
-                const float idle[4] = {0.75f, 0.78f, 0.82f, 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
+                const float idle[4] = {0.75f, 0.78f, 0.82f, editLocked ? 0.2f : 0.35f}, hover[4] = {0.9f, 0.93f, 1.0f, 0.75f}, fill[4] = {0.3f, 0.75f, 1.0f, 0.95f};
                 const float* col = extraMoving == (int)i ? fill : extraBarHover == (int)i ? hover : idle;
                 b.quad(P(p.x - hw, y - hh, 0.02f), P(p.x + hw, y - hh, 0.02f), P(p.x + hw, y + hh, 0.02f), P(p.x - hw, y + hh, 0.02f), col);
                 if (extraBarHover == (int)i && extraHold > 0) { float xe = p.x - hw + kBarW * std::fmin(extraHold, 1.0f); b.quad(P(p.x - hw, y - hh, 0.022f), P(xe, y - hh, 0.022f), P(xe, y + hh, 0.022f), P(p.x - hw, y + hh, 0.022f), fill); }
@@ -2935,9 +2978,9 @@ void main(){
                     event("corner resize");
                 }
             }
-            if (!editLocked && cornerHover < 0 && hit && placed.active && hit->uuid == placed.wall) {
-                float bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
-                if (std::fabs(hx - bx) < kBarW / 2 + 0.03f && std::fabs(hy - by) < kBarH / 2 + 0.03f) barHover = true;
+            if ((!editLocked || allBars()) && cornerHover < 0 && pw) {  // on the wall's plane: the bar may hang below the scanned rect
+                float px, py, bx = placed.x, by = placed.y - placed.h / 2 - kBarGap;
+                if (planeHit(*pw, o, d, px, py) && std::fabs(px - bx) < kBarW / 2 + 0.03f && std::fabs(py - by) < kBarH / 2 + 0.03f) barHover = true;
             }
             if (barHover) {
                 onPanel = true;
@@ -3165,7 +3208,7 @@ void main(){
             }
         }
         if (bezel && quadShown && !panelLayer.curve && placed.active && panelSeen) if (auto* w = wallById(placed.wall)) bezelFrame(occ, *w, placed);
-        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked) { grabBar(occ, *w); corners(occ, *w); } }
+        if (placed.active && panelSeen) if (auto* w = wallById(placed.wall)) { const float c[4] = {1, 1, 1, 1}; panelQuad(occ, placed, *w, 0.02f, c, true); buttons(occ); if (!editLocked || allBars()) grabBar(occ, *w); if (!editLocked) corners(occ, *w); }
         drawMenu(over);
         drawShoulder(over);
         drawScan(occ);

