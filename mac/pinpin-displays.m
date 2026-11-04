@@ -15,6 +15,10 @@
 // Mouse on UDP :57711 (one datagram per event, so pointing stays low latency):
 //   "m <screen> <u> <v>"  move the pointer there   u, v in 0..10000 across that display (0,0 = top left)
 //   "c <screen> <u> <v>"  click there              (down, up 40 ms later)
+//   "w <screen> <u> <v> <dy> <dx>"  scroll at u,v  dy/dx in wheel units (~120 = one notch), posted as pixel
+//                                                   scroll; dy>0 reveals content below, dx>0 scrolls right.
+//                                                   Used by the headset's wave-to-scroll and the assistant's
+//                                                   computer-use scroll (both share this one path).
 // Sunshine refuses clicks outside the display it streams, so clicks on extra screens are posted here, which
 // needs Accessibility. It ships as "PinPin Displays.app" because macOS keeps that grant reliably for an app
 // bundle (it would not for a bare ad-hoc binary). Keys need nothing here: they reach the focused window.
@@ -218,8 +222,21 @@ static void post(CGEventType t, CGPoint p) {
     CGEventRef e = CGEventCreateMouseEvent(NULL, t, p, kCGMouseButtonLeft);
     if (e) { CGEventPost(kCGHIDEventTap, e); CFRelease(e); }
 }
+static void scrollAt(int sid, int u, int v, int dy, int dx) {
+    BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
+    // Pixel-unit scroll so the headset's small, fast (~72 Hz) waves are not lost to notch rounding. wheel1 is
+    // vertical, wheel2 horizontal. dy>0 means the hand went up and content should reveal below, which is a
+    // negative wheel1 delta; dx>0 scrolls right. Route it at p so the window under the point scrolls.
+    CGEventRef e = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel, 2, -dy, dx);
+    if (e) { CGEventSetLocation(e, p); CGEventPost(kCGHIDEventTap, e); CFRelease(e); }
+}
 static void mouse(const char *msg) {
     char op = 0; int sid = 0, u = 0, v = 0;
+    if (msg[0] == 'w') {
+        int dy = 0, dx = 0;
+        if (sscanf(msg, "w %d %d %d %d %d", &sid, &u, &v, &dy, &dx) >= 4) scrollAt(sid, u, v, dy, dx);
+        return;
+    }
     if (sscanf(msg, "%c %d %d %d", &op, &sid, &u, &v) != 4) return;
     BOOL ok; CGPoint p = pointOn(sid, u, v, &ok); if (!ok) return;
     if (op == 'm') CGWarpMouseCursorPosition(p);

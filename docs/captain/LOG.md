@@ -4,3 +4,4 @@
 - 01:36 headset_owner=agents (user asleep); work-ad (mini-apps) started; work-42 assigned assistant backend
 - 01:43 v0.46 installed (SHOULDER+WRIST on); DEPTHGAP: screen 2 hangs over a recess (38 cm gap), main on the wall
 - 01:50 check: c4, 34, 42, ad all busy; closed ghost headset_hold[1858753]; NOSLEEP waits for a wake window (headset asleep)
+- 02:00 work-34 campaign GO (sender flags only auto-flip after smoke); work-42 e2e tonight approved on display 90 (≤3 turns, public pages); displays rebuild deferred to morning (TCC)
