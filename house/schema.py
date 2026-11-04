@@ -23,7 +23,7 @@ ROLES = {'main', 'extra'}
 SOURCE_KINDS = {'mac-display', 'game', 'atlas', 'surface', 'video'}
 GAME_HOSTS = {'MINI', 'LAPTOP'}
 MAIN_ID = 1
-BY = {'headset', 'vps', 'migrate', 'rollback', 'test'}
+BY = {'headset', 'vps', 'migrate', 'rollback', 'test', 'apps'}
 MAX_ITEMS = 2000  # per list; a house has tens of walls and screens, not thousands
 
 
@@ -184,6 +184,22 @@ def validate(doc, blobs=None):
     ints = [s for s in screens if isinstance(s, int)]
     if ints and doc['nextScreenId'] <= max(ints):
         e.append('nextScreenId: not above every screen id')
+
+    # apps (optional, written only by the pinpin-apps server): which HTML mini-app each screen shows. A top-level
+    # section, not a screen field, so a headset re-applying a queued screen edit after a 409 never undoes it.
+    if 'apps' in doc:
+        if not isinstance(doc['apps'], list) or len(doc['apps']) > MAX_ITEMS:
+            e.append('apps: not a list of at most %d items' % MAX_ITEMS)
+        else:
+            seen_app = set()
+            for i, a in enumerate(doc['apps']):
+                p = f'apps[{i}]'
+                if not isinstance(a, dict): e.append(f'{p}: not an object'); continue
+                sc = a.get('screen')
+                if not isinstance(sc, int) or isinstance(sc, bool) or sc < 0: e.append(f'{p}.screen: not a non-negative integer')
+                elif sc in seen_app: e.append(f'{p}.screen: duplicate {sc}')
+                seen_app.add(sc)
+                if not (isinstance(a.get('app'), str) and ID.match(a['app'])): e.append(f'{p}.app: {a.get("app")!r} is not a valid app id')
 
     m = doc['menu']
     pn = m.get('panel')

@@ -60,6 +60,10 @@ class Schema(unittest.TestCase):
             'toggle not bool': lambda d: d['settings'].__setitem__('toggles', {'VT': 1}),
             'schema 99': lambda d: d.__setitem__('schema', 99),
             'rooms not list': lambda d: d.__setitem__('rooms', {}),
+            'apps not list': lambda d: d.__setitem__('apps', {}),
+            'app screen str': lambda d: d.__setitem__('apps', [{'screen': '2', 'app': 'recipes'}]),
+            'app id bad': lambda d: d.__setitem__('apps', [{'screen': 2, 'app': '../x'}]),
+            'app screen dup': lambda d: d.__setitem__('apps', [{'screen': 2, 'app': 'a'}, {'screen': 2, 'app': 'b'}]),
         }
         for name, f in cases.items():
             d = fixture(); f(d)
@@ -82,6 +86,8 @@ class Schema(unittest.TestCase):
         d['screens'][1]['world'] = {'p': [1, 1.5, -2], 'q': [0, 0, 0, 1]}
         d['menu']['shoulder'] = {'side': 'left', 'reach_m': 1.0, 'step_m': 1.0}
         d['settings']['toggles'] = {'VT': True, 'SHOULDER': False}
+        d['apps'] = [{'screen': 2, 'app': 'recipes'}, {'screen': 9, 'app': 'weather'}]  # a screen not placed yet is fine
+        d['by'] = 'apps'
         self.assertEqual(schema.validate(d), [])
 
 
