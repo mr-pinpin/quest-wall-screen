@@ -56,3 +56,4 @@ The coordinator's living checklist. Times are UTC. Owners: **c4** = work-c4 (hea
 - [ ] Permanent root on the headset? (the never-sleep wake lock needs root; Magisk is lost on reboot)
 - [ ] Move screen 2 to a solid wall (DEPTHGAP: hangs over a 38 cm recess)
 - [ ] Hand checks: ring scaling, snap drop, MINI click
+- [ ] Close 2 stray Safari windows on the Air main display (example.com, YouTube search) from the first assistant test
