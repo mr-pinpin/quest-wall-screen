@@ -26,6 +26,7 @@ Steps:
   4. Tear down everything it created and write bench/results/stress-<time>-n<N>.json plus a row in
      bench/results/stress.md.
 """
+import socket
 import argparse, atexit, base64, calendar, contextlib, re, fcntl, json, math, os, pathlib, shlex, statistics, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -63,7 +64,50 @@ def mini(cmd, **k): return ssh('pinpin-mini', cmd, **k)
 ADB_SERVER = f"{ADB.split(' -s ')[0]} start-server </dev/null >/dev/null 2>&1; "
 
 
-def headset(cmd, **k): return mini(f"{ADB_SERVER}{ADB} shell {json.dumps(cmd)}", **k)
+# Commands that change what the person in the headset sees: installs, launches, stops, simulated wear, wake keys.
+# 2026-11-04 00:48 UTC: two install paths with different locks both restarted the app the user was about to wear.
+# headset() refuses these unless bench/headset_owner says "agents" (the release, automation_disable, is always allowed),
+# and every install/launch takes INSTALL_LOCK, the one lock shared with work-df's installer.
+MUTATING = re.compile(r'\b(am\s+(start|force-stop|kill|stack)|pm\s+(install|uninstall|clear|grant|revoke)|cmd\s+package\s+install|input\s+keyevent|'
+                      r'vrpowermanager\.(prox_close|unmounted_wake)|reboot)\b')
+INSTALL_LOCK = '/root/work/.quest-install.lock'
+
+
+class OwnerRefused(RuntimeError): pass
+
+
+def headset(cmd, allow_user=False, **k):
+    if MUTATING.search(cmd) and not allow_user and headset_owner() not in ('agents', ''):
+        raise OwnerRefused(f'headset_owner={headset_owner()}: refusing {cmd[:80]!r}')
+    return mini(f"{ADB_SERVER}{ADB} shell {json.dumps(cmd)}", **k)
+
+
+@contextlib.contextmanager
+def install_lock(who='', wait_s=0):
+    # The shared install lock: an O_EXCL file holding "pid host who time" (work-df's installer uses the same file),
+    # plus a flock on it while held. A lock whose pid is gone on this host is stale and taken over.
+    me = f"{os.getpid()} {socket.gethostname()} {who or sys.argv[0]} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
+    t0 = time.time()
+    while True:
+        try:
+            fd = os.open(INSTALL_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644); os.write(fd, me.encode()); break
+        except FileExistsError:
+            try: held = open(INSTALL_LOCK).read().split()
+            except OSError: held = []
+            alive = bool(held) and held[0].isdigit() and len(held) > 1 and held[1] == socket.gethostname() and os.path.exists(f'/proc/{held[0]}')
+            if held and not alive and len(held) > 1 and held[1] == socket.gethostname():
+                os.replace(INSTALL_LOCK, INSTALL_LOCK + '.stale'); continue
+            if time.time() - t0 >= wait_s: raise OwnerRefused(f'install lock held: {" ".join(held)[:120]}')
+            time.sleep(5)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        if headset_owner() not in ('agents', ''): raise OwnerRefused(f'headset_owner={headset_owner()}')
+        yield
+    finally:
+        os.close(fd)
+        try:
+            if open(INSTALL_LOCK).read() == me: os.remove(INSTALL_LOCK)
+        except OSError: pass
 
 
 def displays():
@@ -104,7 +148,7 @@ def prox_lock():
 def prox(action, who=''):
     # action: 'prox_close' (simulate wear) or 'automation_disable' (real sensor); call with prox_lock held.
     with open(PROX_LOG, 'a') as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {action} {who or sys.argv[0]} pid {os.getpid()}\n")
-    return headset(f'am broadcast -a com.oculus.vrpowermanager.{action} >/dev/null', timeout=30)
+    return headset(f'am broadcast -a com.oculus.vrpowermanager.{action} >/dev/null', allow_user=(action == 'automation_disable'), timeout=30)
 
 
 def headset_worn():

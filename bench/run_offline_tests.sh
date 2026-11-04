@@ -14,12 +14,14 @@ run "vt_check synthetic packer model" python3 bench/vt_check.py synthetic --runs
 run "VT replay: recorded sessions through vt::Resident" bash -c "g++ -std=c++17 -Wall -I room_lab bench/vt_replay.cpp -o $T/replay && $T/replay $LAYOUTS"
 run "gate.py self-test" python3 bench/gate_test.py
 run "watchdog (fake logs)" python3 bench/watchdog_test.py
+run "headset owner guard + install lock" python3 bench/guard_test.py
 run "3D models: json, glb, progressive ktx2, asset budget" bash -c "g++ -std=c++17 -Wall -I room_lab bench/model_test.cpp -o $T/model && $T/model $ASSETS"
 run "LOD by viewer pose (vt.h projectedPx, pose paths)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/lod_test.cpp -o $T/lod && $T/lod"
 run "hero selection (vt.h Heroes)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hero_test.cpp -o $T/hero && $T/hero"
 run "keyframe requests (vt.h KeyReq)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/keyreq_test.cpp -o $T/keyreq && $T/keyreq"
 run "settings explanations + AMBI under VT (bench/ui_v044_test.cpp)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/ui_v044_test.cpp -o $T/ui44 && $T/ui44"
 run "shoulder menu (room_lab/shoulder.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/shoulder_test.cpp -o $T/shoulder && $T/shoulder"
+run "house client vs house/server.py (room_lab/house.h)" bash bench/house_client_test.sh
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py
