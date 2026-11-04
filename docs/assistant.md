@@ -55,6 +55,8 @@ registry so it survives the per-turn MCP process. Reversible: close = `on:0`; ap
 
 - **Apps token** (work-ad): `Authorization: Bearer` on every powerful apps call; read from a local 600 file
   (`~/.local/share/pinpin-apps/token` on the Air, `/root/.config/pinpin-apps/token` on the VPS). Never committed.
-- **Air** (`192.168.0.102`): the live instance, a PinPin Host plugin (`assistant/deploy.sh`) — full computer use.
+- **Air** (`pinpin-air` over Tailscale; its LAN IP rotates on MAC change — was .102, .104, now .105 — so
+  reach it by Tailscale/mDNS, never a pinned LAN IP): the live instance, a PinPin Host plugin
+  (`assistant/deploy.sh`) — full computer use.
 - **Mini** (`192.168.0.50`): a LaunchAgent for the MINI screen; staged **disabled** until the user re-auths
   `claude` (`GET /health/auth` goes green). `docs/mini-assistant-reauth.md`.
