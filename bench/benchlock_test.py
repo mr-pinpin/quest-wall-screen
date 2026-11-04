@@ -92,8 +92,10 @@ check('shared: \n' in bl.status() or bl.status().rstrip().endswith('shared:'), '
 
 # heartbeat (review fix): a CLI command that runs longer than its --max keeps its hold
 here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'benchlock.py')
-pr = subprocess.Popen([sys.executable, here, 'shared', '--who', 'long', '--max', '2', '--', 'sleep', '6'])
-time.sleep(4.5)
+# (--max 4, checked at 7 s: past the first expiry with slack for a slow, loaded VPS; --max 2 flaked once in the gate,
+# its whole-second expiry leaving ~1 s between heartbeats)
+pr = subprocess.Popen([sys.executable, here, 'shared', '--who', 'long', '--max', '4', '--', 'sleep', '10'])
+time.sleep(7)
 check(bl.try_exclusive('e-hb', 'bench', 60).startswith('busy shared'), 'a shared hold expired while its command still ran')
 pr.wait(timeout=30); bl.withdraw('e-hb')
 check(bl.try_exclusive('e-hb2', 'bench', 60) == 'taken', 'exclusive after the long shared command ended'); bl.release('exclusive:e-hb2')
