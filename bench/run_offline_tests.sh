@@ -45,6 +45,7 @@ run "wall tools (room_lab/wallshape.h) + shapes valid in house/schema.py" bash -
 run "STEADY pointer: tremor -70%, lag < 60 ms, no drift, clicks where the cursor was (room_lab/steady.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/steady_test.cpp -o $T/steady && (ulimit -v 1500000; timeout 60 $T/steady)"
 run "select outline: gold frame + number badge geometry, select/clear pulse (room_lab/select_outline.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/select_outline_test.cpp -o $T/selout && (ulimit -v 1500000; timeout 60 $T/selout)"
 run "always-on dictation: breath vs end, queue behind replies, one mic owner, watchdogs (room_lab/dictation.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/dictation_test.cpp -o $T/dict && (ulimit -v 1500000; timeout 60 $T/dict)"
+run "SETTINGS panel as one texture: dirty flag, pixels on the layout, hit-test = UiGrid (room_lab/panel_texture.h)" bash -c "g++ -std=c++17 -O1 -Wall -I room_lab bench/panel_texture_test.cpp -o $T/ptex && (ulimit -v 1500000; timeout 60 $T/ptex room_lab/room_lab.cpp)"
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py
