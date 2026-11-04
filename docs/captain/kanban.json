@@ -1,6 +1,6 @@
 {
- "rev": 65,
- "next": 25,
+ "rev": 66,
+ "next": 26,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -882,7 +882,28 @@
      "column": "doing"
     }
    ]
+  },
+  {
+   "title": "Placement review fixes (4 bugs) + MULTIROOM review + repair/setup-change hints",
+   "details": "k5-review 0274257, k5-review2 e623251; c4 to install with k5-marks as one v0.70",
+   "column": "review",
+   "owner": "work-0e",
+   "area": "headset",
+   "links": [],
+   "id": "K25",
+   "created": "2026-11-04T11:52:10Z",
+   "updated": "2026-11-04T11:52:10Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-04T11:52:10Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "review"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T11:34:09Z"
+ "updated": "2026-11-04T11:52:10Z"
 }
