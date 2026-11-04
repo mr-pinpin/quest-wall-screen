@@ -83,6 +83,12 @@ def rule(name, off, on):
         return ('KEEP' if le(B['mbps'], A['mbps'], 0.85) else 'RERUN'), why
     if name in ('gameyield', 'gamecap', 'encshare', 'vt_realtime', 'codec-h264'):
         return latency_rule(off, on)
+    if name in ('enc-gameyield', 'enc-gamecap'):  # the game encode next to the atlas (encprobe): back toward its no-atlas level
+        e0, e1 = off.get('encprobe') or {}, on.get('encprobe') or {}
+        if 'p99' not in e0 or 'p99' not in e1: return 'RERUN', 'no encprobe result in one half'
+        why = f"game encode fps {e0.get('fps')} -> {e1.get('fps')}, p50 {e0.get('p50')} -> {e1.get('p50')} ms, p99 {e0['p99']} -> {e1['p99']} ms; atlas fresh fps {A['fps']} -> {B['fps']}"
+        if (e1.get('fps') or 0) < (e0.get('fps') or 0) - 1 or ge(e1['p99'], e0['p99']): return 'DROP', why
+        return ('KEEP' if le(e1['p99'], e0['p99'], 0.8) or (e1.get('fps') or 0) >= (e0.get('fps') or 0) + 5 else 'RERUN'), why
     if name in ('nodelay', 'pend1', 'pace'):  # network delivery: steadier fresh frames, no fps lost
         why = f"gap p99 {A['gapP99']} -> {B['gapP99']} ms, fresh fps {A['fps']} -> {B['fps']}, mbps {A['mbps']} -> {B['mbps']}"
         if ge(B['gapP99'], A['gapP99']) or (B['fps'] or 0) < (A['fps'] or 0) - 2: return 'DROP', why
@@ -164,6 +170,8 @@ def self_test():
         ('pend1', res(gap=60, fps=48), res(gap=61, fps=48), 'DROP'),
         ('capfast', res(fps=40, gap=50), res(fps=46, gap=50), 'KEEP'),
         ('capfast', res(fps=40, gap=50), res(fps=41, gap=50), 'DROP'),
+        ('enc-gameyield', dict(res(), encprobe={'fps': 40, 'p50': 270, 'p99': 280}), dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 30}), 'KEEP'),
+        ('enc-gameyield', dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 30}), dict(res(), encprobe={'fps': 60, 'p50': 15, 'p99': 31}), 'DROP'),
         ('hero', res(mbps=30, fps=48), res(mbps=10, fps=48, hero=(58, 20)), 'KEEP'),
         ('hero', res(mbps=30, fps=48), res(mbps=30, fps=48), 'DROP'),
         ('hero', res(mbps=30, fps=48), res(mbps=25, fps=48, hero=(58, 25)), 'DROP'),

@@ -352,6 +352,7 @@ def main():
     ap.add_argument('--wan', type=int, default=0, help='parallel internet downloads from the laptop')
     ap.add_argument('--keep', action='store_true', help='leave the created displays in place')
     ap.add_argument('--scenario', default='ring', choices=['ring', 'cinema', 'vr', 'wall'], help='stand-in demand pattern (see headset_sim.py)')
+    ap.add_argument('--encprobe', type=int, default=0, help='run bench/encprobe.swift (a game encode) on the Air for this many seconds during the measurement')
     ap.add_argument('--sim-extra', default='', help='extra stand-in options (headset_sim.py), e.g. "--v2 --hero --keyreq 15"')
     ap.add_argument('--game', choices=['LAPTOP', 'MINI'], help='--headset only: also run that main game stream and measure it')
     ap.add_argument('--headset', action='store_true', help='use the real Quest, unworn with simulated wear, instead of the stand-in')
@@ -499,6 +500,12 @@ def main():
             air(f"for i in $(seq {a.wan}); do nohup curl -s -o /dev/null -m {a.secs + 5} "
                 f"'https://speed.cloudflare.com/__down?bytes=2000000000' > /dev/null 2>&1 & done")
 
+        if a.encprobe:  # the game-encode stand-in (bench/encprobe.swift) on the Air: built once, inside this run's lock
+            src = (HERE / 'encprobe.swift').read_text()
+            built = subprocess.run(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', 'B=~/.local/share/pinpin-atlas/encprobe; [ -x $B ] && echo have || '
+                                    '{ cat > /tmp/encprobe.swift && swiftc -O -o $B /tmp/encprobe.swift && echo built; }'],
+                                   input=src, capture_output=True, text=True, timeout=300)
+            if 'have' not in built.stdout and 'built' not in built.stdout: raise SystemExit(f'encprobe build failed: {built.stderr[-300:]}')
         phase('measure')
         # 3. measure (in the background, while watching that nobody starts using the gear)
         rx0, tx0 = link_bytes(air, 'en0'); w0 = link_bytes(mini, 'en1'); st0 = time.time()
@@ -539,6 +546,10 @@ def main():
         idle_before = laptop_idle_s()  # logged only: no gate (see busy)
         sender = 'pinpin-atlas-test' if sim else 'pinpin-atlas'
         probe_deadline = time.time() + a.secs + 90  # a probe that overruns never ends on its own (2026-11-03: 23 min)
+        enc_proc = None
+        if a.encprobe:  # starts 10 s into the measurement (the atlas settled), runs encprobe seconds
+            enc_proc = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', f'sleep 10; ~/.local/share/pinpin-atlas/encprobe {a.encprobe}'],
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while proc.poll() is None:
             time.sleep(10)
             if proc.poll() is not None: break
@@ -625,6 +636,11 @@ def main():
     if sim:
         s = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
         r['atlas'] = {k: s.get(k) for k in ('mbps', 'mbpsMax', 'freshFps', 'freshGapMs', 'receiverCpuPct', 'longestSilenceS', 'emptySeconds', 'keyframes', 'layouts', 'connects', 'sizes', 'worstGaps')}
+        if enc_proc is not None:  # the game encode next to the atlas: fps and latency p50/p99 (ms)
+            try:
+                eo, _ = enc_proc.communicate(timeout=a.encprobe + 60); r['encprobe'] = json.loads(eo.strip().splitlines()[-1])
+            except (subprocess.TimeoutExpired, ValueError, IndexError) as ex:
+                enc_proc.kill(); r['encprobe'] = {'error': str(ex)[:120]}
         if 'hero' in s: r['hero'] = s['hero']  # per hero screen: fps, mbps, keyframes, gap p99 (stand-in --hero)
         if 'keyReqs' in s: r['keyReqs'] = s['keyReqs']
         if a.sim_extra: r['simExtra'] = a.sim_extra

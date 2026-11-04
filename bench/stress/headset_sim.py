@@ -92,6 +92,7 @@ def main():
     ap.add_argument('--v2', action='store_true', help='virtual-texturing demand (lvl/have) and layout report')
     ap.add_argument('--hero', action='store_true', help='v3 demand: heroOk, hero on big visible screens (implies --v2)')
     ap.add_argument('--keyreq', type=float, default=0, help='bump keyReq every this many seconds (0: never)')
+    ap.add_argument('--game', action='store_true', help='demand says a game stream is playing ("game":1), like room_lab while streaming')
     a = ap.parse_args()
     if a.hero: a.v2 = True
     keyreqs = [0]
@@ -113,6 +114,7 @@ def main():
             if a.keyreq > 0 and t > 5:
                 keyreqs[0] = int((t - 5) // a.keyreq) + 1
             if a.keyreq > 0: msg['keyReq'] = keyreqs[0]
+            if a.game: msg['game'] = 1
             last_msg['m'] = msg
             u.sendto(json.dumps(msg, separators=(',', ':')).encode(), (a.host, a.demand_port))
             stop.wait(0.2)
