@@ -2045,7 +2045,7 @@ struct App {
     void recRestoreHistory() {
         std::string host = assistHost, conv = receptionId(), cache = gDir + "/reception-history.json";
         std::thread([this, host, conv, cache] {
-            house::Response r = house::http(host, 57840, "GET", "/api/reception/history?conversation_id=" + conv + "&limit=" + std::to_string(kRecExchanges * 4));
+            house::Response r = house::http(host, 57840, "GET", "/api/reception/history?conv=" + conv + "&limit=" + std::to_string(kRecExchanges * 4));
             bool ok = false; json::Value v = json::parse(r.body, &ok);
             std::vector<recpersist::Msg> server = r.status == 200 && ok ? recpersist::fromJson(v) : std::vector<recpersist::Msg>{}, local;
             { std::ifstream f(cache); std::stringstream ss; ss << f.rdbuf(); bool lok = false; json::Value lv = json::parse(ss.str(), &lok); if (lok) local = recpersist::fromJson(lv); }
