@@ -81,7 +81,12 @@ def require_green_gate(commit=None, max_age_s=6 * 3600):
     # Installs need a green offline gate (AGENTS.md). bench/run_offline_tests.sh leaves "PASS|FAIL <commit> <unix time>"
     # in /tmp/pinpin-offline-gate.txt; refuse anything else, an old verdict, or a different commit when one is given.
     # (2026-11-04: an install went out while the gate's last line said FAILED.)
-    try: verdict, sha, t = open('/tmp/pinpin-offline-gate.txt').read().split()[:3]
+    path = '/tmp/pinpin-offline-gate.txt'  # the latest run; with a commit, that commit's own verdict (other agents run the gate too)
+    if commit:
+        import glob
+        hits = glob.glob(f'/tmp/pinpin-offline-gate/{commit}*')
+        if hits: path = hits[0]
+    try: verdict, sha, t = open(path).read().split()[:3]
     except (OSError, ValueError): raise OwnerRefused('no offline gate verdict: run bench/run_offline_tests.sh first')
     if verdict != 'PASS': raise OwnerRefused(f'offline gate FAILED at {sha[:7]}: fix it before installing')
     if time.time() - int(t) > max_age_s: raise OwnerRefused('offline gate verdict older than 6 h: run it again')

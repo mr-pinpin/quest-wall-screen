@@ -45,5 +45,8 @@ run "bench scripts compile" python3 -m py_compile bench/stress.py bench/gate.py 
 mv "$T" "$T.done" 2>/dev/null   # scratch binaries stay in /tmp
 [ $fail = 0 ] && echo "all offline tests passed" || echo "OFFLINE TESTS FAILED"
 # The verdict for install scripts (stress.require_green_gate): result, the commit tested, when.
-echo "$([ $fail = 0 ] && echo PASS || echo FAIL) $(git rev-parse HEAD 2>/dev/null) $(date -u +%s)" > /tmp/pinpin-offline-gate.txt 2>/dev/null; chmod a+rw /tmp/pinpin-offline-gate.txt 2>/dev/null
+V="$([ $fail = 0 ] && echo PASS || echo FAIL) $(git rev-parse HEAD 2>/dev/null) $(date -u +%s)"
+echo "$V" > /tmp/pinpin-offline-gate.txt 2>/dev/null; chmod a+rw /tmp/pinpin-offline-gate.txt 2>/dev/null   # the latest run, any agent
+mkdir -p /tmp/pinpin-offline-gate 2>/dev/null; chmod a+rwx /tmp/pinpin-offline-gate 2>/dev/null
+echo "$V" > "/tmp/pinpin-offline-gate/$(git rev-parse HEAD 2>/dev/null)" 2>/dev/null   # per commit: agents never overwrite each other's verdict
 exit $fail
