@@ -73,6 +73,17 @@ int main(int argc, char** argv) {
         for (auto& k : changed) CHECK(vol.mesh(k) != nullptr, "changed block without a mesh");
     }
     printf("12 frames: %zu blocks, %zu triangles, integrate+update %.1f ms avg / %.1f ms worst (VPS)\n", vol.blocks(), vol.triangles(), totalMs / 12, worstMs);
+    // bounds: every vertex inside its block's AABB, and the AABB within the block's cube plus one voxel
+    {
+        size_t bad = 0;
+        vol.forEachMesh([&](const Key& k, const BlockMesh& m) {
+            float bs = B * vol.P.voxel, lo[3] = {k.x * bs, k.y * bs, k.z * bs};
+            for (int j = 0; j < 3; j++) bad += m.lo[j] < lo[j] - vol.P.voxel * 1.01f || m.hi[j] > lo[j] + bs + vol.P.voxel * 1.01f || m.lo[j] > m.hi[j];
+            for (size_t v = 0; v < m.pos.size(); v += 3) for (int j = 0; j < 3; j++) bad += m.pos[v + j] < m.lo[j] || m.pos[v + j] > m.hi[j];
+            bad += wallfit::len(m.centre() - V3{lo[0] + bs / 2, lo[1] + bs / 2, lo[2] + bs / 2}) > bs || m.radius() > bs;
+        });
+        CHECK(bad == 0, "%zu block bounds problems", bad);
+    }
     // grows and refines: more surface after more views
     CHECK(tris[0] > 0 && tris[11] > tris[0] * 2, "mesh did not grow: %zu -> %zu triangles", tris[0], tris[11]);
     CHECK(firstChanged > 0, "first frame changed no blocks");

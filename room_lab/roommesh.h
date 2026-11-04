@@ -39,7 +39,10 @@ struct BlockMesh {
     std::vector<float> pos, nrm;  // xyz per vertex
     std::vector<uint32_t> idx;    // triangles
     uint32_t version = 0;         // bumped at every re-mesh
+    float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};  // bounds of the vertices (for culling and near-first ordering)
     size_t triangles() const { return idx.size() / 3; }
+    V3 centre() const { return {(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2}; }
+    float radius() const { return 0.5f * std::sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) + (hi[1] - lo[1]) * (hi[1] - lo[1]) + (hi[2] - lo[2]) * (hi[2] - lo[2])); }
 };
 
 struct Block {
@@ -263,6 +266,10 @@ private:
             i = (uint32_t)remap[i];
         }
         m.pos.swap(P2); m.nrm.swap(N2);
+        for (int j = 0; j < 3; j++) { m.lo[j] = 1e30f; m.hi[j] = -1e30f; }
+        for (size_t v = 0; v < m.pos.size(); v += 3)
+            for (int j = 0; j < 3; j++) { m.lo[j] = std::min(m.lo[j], m.pos[v + j]); m.hi[j] = std::max(m.hi[j], m.pos[v + j]); }
+        if (m.pos.empty()) for (int j = 0; j < 3; j++) m.lo[j] = m.hi[j] = 0;
     }
 
     static void put16(std::string& o, uint16_t v) { o += (char)(v & 255); o += (char)(v >> 8); }
