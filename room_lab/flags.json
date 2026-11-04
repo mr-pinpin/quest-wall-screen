@@ -514,6 +514,19 @@
    ]
   },
   {
+   "name": "MESHSAVE",
+   "where": "headset",
+   "default": true,
+   "state": "on",
+   "category": "experimental",
+   "reason": "The user lost a walk-through of the flat (2026-11-04): the GEOMETRY mesh was in memory, in LOCAL. Now fused in r1's anchor frame, saved to files/mesh-room.pprm every minute and to the house (blob + rooms[r1].mesh) every 5 min and on leaving focus, loaded at start (room_lab/meshsave.h). On because the user asked (via work-df: seeing it means it is saved).",
+   "evidence": [
+    {
+     "commit": "433a70a"
+    }
+   ]
+  },
+  {
    "name": "SCROLL",
    "where": "headset",
    "default": false,

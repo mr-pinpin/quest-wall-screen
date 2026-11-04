@@ -32,6 +32,7 @@
 #include "rooms_house.h"
 #include "reloc.h"
 #include "depthpick.h"
+#include "meshsave.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -237,6 +238,10 @@ struct App {
     // it (or to a new room when the head is in none). Links (b in a, doorway) go to house.json links[]. Status "multiroom".
     // DEPTHPLACE (default ON, the user asked: placing a screen in the room near the TV said no): when a summon or move
     // ray hits no scene wall, the solid depth-fitted wall it hits becomes a placement target (depthpick.h, w-d... walls).
+    // MESHSAVE (default ON, the user asked: "seeing it means it's saved"): the room mesh is fused in r1's frame and saved
+    // to files/mesh-room.pprm every minute and to the house (blob + rooms[].mesh) every 5 min and on leaving focus;
+    // loaded at start (meshsave.h). Off: the mesh is fused in LOCAL and kept in memory only, as before.
+    bool meshSaveMenu = true; bool meshSaveOn() const { return meshSaveMenu; }
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -514,7 +519,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 43;
+    static constexpr int kMenuItems = 44;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -536,7 +541,7 @@ struct App {
         {"RELOCCHECK", "MEMORY", "WARN WHEN THE ROOM LOOKS SHIFTED"},
         {"ALLBARS", "SCREENS", "MOVE BAR ON EVERY SCREEN"}, {"CLOSEX", "SCREENS", "X TO CLOSE A SCREEN WHEN UNLOCKED"},
         {"GEOMETRY", "EXPERIMENTAL", "SHOW THE ROOM AS A WIRE MESH"}, {"MULTIROOM", "EXPERIMENTAL", "SEVERAL ROOMS LINKED THROUGH DOORS"},
-        {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}};
+        {"DEPTHPLACE", "SCREENS", "PLACE SCREENS ON WALLS SEEN BY DEPTH"}, {"MESHSAVE", "MEMORY", "SAVE THE ROOM MESH TO THE HOUSE"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -573,6 +578,7 @@ struct App {
         if (l == "GEOMETRY") return geometryOn();
         if (l == "MULTIROOM") return multiRoomOn();
         if (l == "DEPTHPLACE") return depthPlaceOn();
+        if (l == "MESHSAVE") return meshSaveOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -637,7 +643,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -705,7 +711,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -757,6 +763,7 @@ struct App {
         else if (l == "GEOMETRY") geometryMenu = !geometryMenu;                 // room wire mesh
         else if (l == "MULTIROOM") multiRoomMenu = !multiRoomMenu;              // several linked rooms
         else if (l == "DEPTHPLACE") depthPlaceMenu = !depthPlaceMenu;            // screens on depth-fitted walls
+        else if (l == "MESHSAVE") meshSaveMenu = !meshSaveMenu;                 // room mesh saved to the house
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -1054,7 +1061,8 @@ struct App {
     bool rbBusy[2] = {false, false}; long rbLast = -1000, rbReads = 0; std::string rbErr;
     struct GapScreen { int id; std::string wall; wallfit::Pose pose; float x, y, w, h; };
     struct SceneWall { std::string uuid, label; wallfit::Pose pose, centre; float w, h; };
-    struct DepthShot { XrEnvironmentDepthImageMETA img{}; XrTime now = 0; std::vector<uint16_t> d[2]; std::vector<GapScreen> screens; std::vector<SceneWall> walls; XrPosef head{}; bool dump = false; };
+    struct DepthShot { XrEnvironmentDepthImageMETA img{}; XrTime now = 0; std::vector<uint16_t> d[2]; std::vector<GapScreen> screens; std::vector<SceneWall> walls; XrPosef head{}; bool dump = false;
+                      bool roomOk = false, roomExpected = false; wallfit::Pose room; };
     DepthShot rbShot[2];
     std::mutex gapLock; std::condition_variable gapCv; std::unique_ptr<DepthShot> gapNext; bool gapThread = false; std::string gapJson;
     std::vector<wallfit::Wall> gapWalls; bool scanReset = false;
@@ -1065,6 +1073,75 @@ struct App {
                        std::chrono::steady_clock::time_point changedAt{}; };
     std::mutex meshLock; std::map<int64_t, MeshBlock> meshBlocks;
     std::atomic<float> meshFuseMs{0}; std::atomic<long> meshFrames{0}; std::atomic<int> meshChanged{0}; int meshDrawnTris = 0;
+    // MESHSAVE state. Worker: meshLoadApplied, meshVolRoom (-1 nothing fused yet, 0 LOCAL, 1 room), the policies.
+    std::atomic<bool> meshLeaving{false}, meshInRoom{false}, meshRetry{false}; std::atomic<int> meshLoadState{0};  // 0 pending, 1 blob ready, 2 nothing to load
+    bool meshLoadApplied = false, meshFromSave = false, meshLoadStarted = false; int meshVolRoom = -1; std::string meshLoadBlob;
+    meshsave::Policy meshLocalPolicy{60, 1}, meshHousePolicy{300, 20};
+    std::mutex meshSaveLock; std::string meshSaveNote, meshSaveErr, meshSavedSha, meshLoadedFrom = "pending"; long meshSaves = 0, meshUploads = 0, meshSaveBytes = 0;
+    wallfit::Pose meshRoomLast; bool meshRoomKnown = false;  // render thread: the last good room frame
+    std::chrono::steady_clock::time_point meshLoadT0{};
+    void houseAddr(std::string& host, int& port) {
+        host = "192.168.0.50"; port = 57800;
+        std::ifstream hf(gDir + "/house-host"); std::string h; if (hf >> h) { size_t c = h.find(':'); host = h.substr(0, c); if (c != std::string::npos) port = atoi(h.c_str() + c + 1); }
+    }
+    // At start: the house's rooms[r1].mesh, or the local copy (meshsave::pick), fetched off the render thread.
+    void meshLoadStart() {
+        if (meshLoadStarted) return;
+        std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+        bool waited = meshLoadT0 != std::chrono::steady_clock::time_point{} && std::chrono::steady_clock::now() - meshLoadT0 > std::chrono::seconds(15);
+        if (meshLoadT0 == std::chrono::steady_clock::time_point{}) meshLoadT0 = std::chrono::steady_clock::now();
+        if (!d && !waited) return;   // the house doc first (cached or fetched); after 15 s go on without it
+        meshLoadStarted = true;
+        std::string houseSha; if (d) for (auto& r : (*d)["rooms"].a) if (r["id"].str() == "r1") houseSha = r["mesh"].str();
+        std::string host; int port; houseAddr(host, port);
+        std::thread([this, houseSha, host, port] {
+            std::string local, localSha; if (house::readFile(gDir + "/mesh-room.pprm", local) && !local.empty()) localSha = house::sha256(local);
+            meshsave::Source src = meshsave::pick(houseSha, localSha); std::string blob, from = "none";
+            if (src == meshsave::Source::house) {
+                house::Response r = house::http(host, port, "GET", "/blob/" + houseSha);
+                if (r.status == 200 && house::sha256(r.body) == houseSha) { blob.swap(r.body); from = "house"; }
+                else if (!local.empty()) { blob.swap(local); from = "local (house blob unavailable)"; }
+            } else if (src == meshsave::Source::local) { blob.swap(local); from = "local"; }
+            { std::lock_guard<std::mutex> g(meshSaveLock); meshLoadedFrom = from; }
+            { std::lock_guard<std::mutex> g(gapLock); meshLoadBlob.swap(blob); meshLoadState = meshLoadBlob.empty() ? 2 : 1; }
+            event("meshsave: start mesh from " + from);
+        }).detach();
+    }
+    // Worker thread (owns meshVol): save when due; the file and the upload happen on a thread of their own.
+    void meshMaybeSave(bool leaving) {
+        if (!meshSaveOn() || !meshLoadApplied || meshVolRoom != 1) return;
+        if (meshRetry.exchange(false)) meshHousePolicy.changed(meshHousePolicy.minChanged);   // the last upload failed: try again
+        double t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        bool local = meshLocalPolicy.due(t, leaving), up = meshHousePolicy.due(t, leaving);
+        if (!local && !up) return;
+        std::string blob = meshVol.save(); meshLocalPolicy.saved(t); if (up) meshHousePolicy.saved(t);
+        std::string host; int port; houseAddr(host, port);
+        std::thread([this, blob, up, host, port] {
+            std::string sha = house::sha256(blob);
+            bool okf = house::writeAtomic(gDir + "/mesh-room.pprm", blob);
+            { std::lock_guard<std::mutex> g(meshSaveLock); meshSaves++; meshSaveBytes = (long)blob.size(); if (!okf) meshSaveErr = "local write failed"; }
+            if (!up) return;
+            house::Response r = house::http(host, port, "PUT", "/blob/" + sha, blob, {"Content-Type: application/octet-stream"});
+            if (r.status != 200) { std::lock_guard<std::mutex> g(meshSaveLock); meshSaveErr = "blob PUT " + std::to_string(r.status) + " " + r.error; meshRetry = true; return; }
+            std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
+            json::Value r1; bool have = false;
+            if (d) for (auto& rr : (*d)["rooms"].a) if (rr["id"].str() == "r1") { r1 = rr; have = true; }
+            if (!have) { std::lock_guard<std::mutex> g(meshSaveLock); meshSaveErr = "no room r1 in the house"; return; }
+            if (r1["mesh"].str() != sha) {
+                r1.o["mesh"] = house::str(sha);
+                std::lock_guard<std::mutex> g(houseLock); houseQueue.push_back({"rooms", "r1", r1});
+            }
+            { std::lock_guard<std::mutex> g(meshSaveLock); meshUploads++; meshSavedSha = sha; meshSaveErr.clear(); }
+            event("meshsave: " + std::to_string(blob.size()) + " bytes to the house, blob " + sha.substr(0, 12));
+        }).detach();
+    }
+    std::string meshSaveJson() {
+        std::lock_guard<std::mutex> g(meshSaveLock); std::ostringstream j;
+        j << "{\"on\":" << (meshSaveOn() ? 1 : 0) << ",\"frame\":\"" << (meshVolRoom < 0 ? "none" : meshVolRoom ? "room" : "local") << "\",\"start\":\"" << jsonEscape(meshLoadedFrom)
+          << "\",\"saves\":" << meshSaves << ",\"uploads\":" << meshUploads << ",\"bytes\":" << meshSaveBytes << ",\"sha\":\"" << meshSavedSha.substr(0, 12)
+          << "\",\"note\":\"" << jsonEscape(meshSaveNote) << "\",\"error\":\"" << jsonEscape(meshSaveErr) << "\"}";
+        return j.str();
+    }
     // work-34's rawsurface.h (live depth while scanning) and roomplanes.h (walls/floor as big flat quads, triangles only on
     // furniture), both built on the worker; the render thread uploads each when its version moves.
     std::vector<float> rawCpu, flatCpu; long rawVersion = 0, flatVersion = 0, rawUp = -1, flatUp = -1; GLuint rawVbo = 0, flatVbo = 0; int rawVerts = 0, flatVerts = 0;
@@ -1151,6 +1228,7 @@ struct App {
         // A dump waits until the scene walls are located (a dump taken at launch had none: walls:[], screens:[]).
         bool wallsKnown = false; for (auto& e : entities) wallsKnown = wallsKnown || (e.located && isWall(e) && !e.standIn && e.space != XR_NULL_HANDLE);  // real scene walls, not stand-ins
         DepthShot& sh = rbShot[k]; sh = DepthShot{}; sh.img = depthImage; sh.now = frameTime; sh.head = head; sh.dump = depthDumpWanted && wallsKnown;
+        sh.roomOk = roomFrame.ok; sh.room = roomFrame.roomInLocal; sh.roomExpected = !storedAnchors.empty() || !anchorsLoadTried;
         if (sh.dump) depthDumpWanted = false;
         auto addScreen = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr; if (!w || !w->located) return;
@@ -1172,8 +1250,9 @@ struct App {
             wallfit::Fuser fuser; std::map<int, std::vector<float>> recent;  // per screen: the last medians
             for (;;) {
                 std::unique_ptr<DepthShot> sh;
-                { std::unique_lock<std::mutex> g(gapLock); gapCv.wait(g, [&] { return gapNext != nullptr; }); sh = std::move(gapNext);
+                { std::unique_lock<std::mutex> g(gapLock); gapCv.wait(g, [&] { return gapNext != nullptr || meshLeaving.load(); }); sh = std::move(gapNext);
                   if (scanReset) { fuser = wallfit::Fuser(); scanReset = false; } }
+                if (!sh) { meshMaybeSave(meshLeaving.exchange(false)); continue; }
                 auto t0 = std::chrono::steady_clock::now();
                 wallfit::DepthFrame f[2];
                 for (int e = 0; e < 2; e++) {
@@ -1183,15 +1262,36 @@ struct App {
                     f[e].nearZ = sh->img.nearZ; f[e].farZ = sh->img.farZ; f[e].timeNs = (int64_t)sh->now;
                     fuser.add(f[e], (int64_t)sh->now);
                 }
-                if (meshWanted.load()) {  // the room mesh (SCAN / GEOMETRY): fuse both eyes, re-mesh within 6 ms, publish changes
+                // MESHSAVE: the saved mesh goes in before any new depth; then fuse in the room frame only (no frame yet:
+                // wait). Off: LOCAL, as before. Switching between the two starts a fresh volume.
+                // A house without our anchors has no room frame to save in: LOCAL, in memory (status meshsave.frame "local").
+                bool persist = meshSaveOn() && sh->roomExpected, fuseNow = meshWanted.load();
+                wallfit::DepthFrame fr[2] = {f[0], f[1]};  // the frames the mesh takes (room frame with MESHSAVE)
+                if (fuseNow && persist) {
+                    if (!meshLoadApplied) {
+                        int ls = meshLoadState.load();
+                        if (ls == 1) { std::string b; { std::lock_guard<std::mutex> gl(gapLock); b.swap(meshLoadBlob); }
+                                       bool okl = meshVol.load(b); meshLoadApplied = true; meshFromSave = okl; meshSaveNote = okl ? "loaded " + std::to_string(b.size()) + " bytes" : "saved mesh unreadable"; }
+                        else if (ls == 2) meshLoadApplied = true;
+                        else fuseNow = false;
+                    }
+                    if (!sh->roomOk) fuseNow = false;
+                    else for (int e = 0; e < 2; e++) fr[e] = meshsave::toRoom(f[e], sh->room);
+                }
+                if (fuseNow && meshVolRoom != (int)persist) {
+                    if (meshVolRoom >= 0) { meshVol = roommesh::Volume(meshVol.P); std::lock_guard<std::mutex> gm(meshLock); for (auto& [k, b] : meshBlocks) { b.cpu.clear(); b.version++; b.empty = true; } }
+                    meshVolRoom = (int)persist; meshInRoom = persist;
+                }
+                if (fuseNow) {  // the room mesh (SCAN / GEOMETRY): fuse both eyes, re-mesh within 6 ms, publish changes
                     auto m0 = std::chrono::steady_clock::now();
-                    for (int e = 0; e < 2; e++) meshVol.integrate(f[e]);
+                    for (int e = 0; e < 2; e++) meshVol.integrate(fr[e]);
                     auto changed = meshVol.update(6.0);
                     meshFuseMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - m0).count(); meshFrames++; meshChanged = (int)changed.size();
+                    if (persist) { meshLocalPolicy.changed(changed.size()); meshHousePolicy.changed(changed.size()); }
                     if (!changed.empty()) meshDirty = true;
                     if (scanning()) {  // the live raw surface: what the sensor sees this instant, redrawn whole each shot
                         auto r0 = std::chrono::steady_clock::now();
-                        rawsurface::Mesh rm = rawsurface::build(f[0]);
+                        rawsurface::Mesh rm = rawsurface::build(fr[0]);
                         std::vector<float> cpu = deindex(rm.pos, rm.nrm, rm.idx, nullptr);
                         rawMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - r0).count();
                         std::lock_guard<std::mutex> g(meshLock); rawCpu.swap(cpu); rawVersion++;
@@ -1207,9 +1307,10 @@ struct App {
                     }
                 }
                 std::vector<wallfit::Wall> fused = fuser.walls();
-                if (meshWanted.load() && meshDirty && std::chrono::steady_clock::now() - flatAt > std::chrono::seconds(1)) {  // the flat room, ~1 Hz
+                if (fuseNow) meshMaybeSave(meshLeaving.exchange(false));
+                if (fuseNow && meshDirty && std::chrono::steady_clock::now() - flatAt > std::chrono::seconds(1)) {  // the flat room, ~1 Hz
                     auto p0 = std::chrono::steady_clock::now(); flatAt = p0; meshDirty = false;
-                    std::vector<wallfit::Wall> planes; for (auto& w : fused) if (w.confidence > 0.3f) planes.push_back(w);
+                    std::vector<wallfit::Wall> planes; for (auto& w : fused) if (w.confidence > 0.3f) planes.push_back(meshInRoom.load() ? meshsave::wallToRoom(w, sh->room) : w);
                     roomplanes::Result R = roomplanes::regularize(meshVol, planes);
                     std::vector<float> P, N; std::vector<uint32_t> I; std::vector<uint8_t> planar; R.toMesh(P, N, I, planar);
                     std::vector<float> cpu = deindex(P, N, I, &planar);
@@ -2147,6 +2248,7 @@ struct App {
         meshDraw.clear();
         if (!meshWanted) return;
         V3 eye = v3(head.position);
+        if (meshInRoom.load() && meshRoomKnown) eye = untransform(xp(meshRoomLast), eye);
         std::vector<std::pair<float, int64_t>> order;
         { std::lock_guard<std::mutex> g(meshLock); for (auto& [k, b] : meshBlocks) if (!b.empty) order.push_back({len(b.centre - eye), k}); }
         std::sort(order.begin(), order.end());
@@ -2159,7 +2261,18 @@ struct App {
         }
         meshDrawnTris = tris;
     }
-    void drawRoomMesh(const float* vpm, const std::vector<float>& screens) {
+    void drawRoomMesh(const float* vpmLocal, const std::vector<float>& screens) {
+        // MESHSAVE: the volume is in the room frame; draw it through the last good room frame (none yet: not at all).
+        if (roomFrame.ok) { meshRoomLast = roomFrame.roomInLocal; meshRoomKnown = true; }
+        M4 vpRoom; const float* vpm = vpmLocal; V3 eyeM = v3(head.position);
+        if (meshInRoom.load()) {
+            if (!meshRoomKnown) return;
+            XrPosef rp = xp(meshRoomLast); XrQuaternionf q = rp.orientation;
+            V3 c0 = rot(q, {1, 0, 0}), c1 = rot(q, {0, 1, 0}), c2 = rot(q, {0, 0, 1});
+            M4 model{{c0.x, c0.y, c0.z, 0, c1.x, c1.y, c1.z, 0, c2.x, c2.y, c2.z, 0, rp.position.x, rp.position.y, rp.position.z, 1}};
+            M4 vl; memcpy(vl.m, vpmLocal, sizeof vl.m); vpRoom = mul(vl, model); vpm = vpRoom.m;
+            eyeM = untransform(rp, v3(head.position));
+        }
         if (!meshProg) {
             const char* vs = "#version 300 es\nlayout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aB; layout(location=3) in float aF;"
                              " uniform mat4 uVP; uniform vec3 uEye; out vec3 vB; out float vFace; out float vF;"
@@ -2177,7 +2290,7 @@ struct App {
             glGenVertexArrays(1, &meshVao);
         }
         glUseProgram(meshProg); glBindVertexArray(meshVao);
-        glUniformMatrix4fv(meshLocVP, 1, GL_FALSE, vpm); glUniform3f(meshLocEye, head.position.x, head.position.y, head.position.z);
+        glUniformMatrix4fv(meshLocVP, 1, GL_FALSE, vpmLocal); glUniform3f(meshLocEye, eyeM.x, eyeM.y, eyeM.z);
         // The screens are compositor layers under the eye buffer: the wall mesh would draw over their picture (seen in
         // prox055's screenshots). Their rectangles go into depth first (colour off), so mesh behind a screen is culled.
         if (!screens.empty()) {
@@ -2193,6 +2306,7 @@ struct App {
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); glDepthMask(GL_TRUE); glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(tri.size() / 10));
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         }
+        glUniformMatrix4fv(meshLocVP, 1, GL_FALSE, vpm);   // the screens' rectangles above were LOCAL; the mesh is in its own frame
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);  // premultiplied glow
         auto tn = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> g(meshLock);
@@ -2654,6 +2768,7 @@ void main(){
         while (xrPollEvent(instance, &ev) == XR_SUCCESS) {
             if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
                 auto* sc = reinterpret_cast<XrEventDataSessionStateChanged*>(&ev);
+                if (state == XR_SESSION_STATE_FOCUSED && sc->state != XR_SESSION_STATE_FOCUSED && meshSaveOn()) { std::lock_guard<std::mutex> g(gapLock); meshLeaving = true; gapCv.notify_one(); }
                 state = sc->state; event("session state " + std::to_string((int)state));
                 if (state == XR_SESSION_STATE_FOCUSED) pg.forced = true;  // resumed / worn again: make sure the walls are current
                 if (state == XR_SESSION_STATE_READY) {
@@ -4014,7 +4129,8 @@ void main(){
             if (!extras.empty() && std::chrono::steady_clock::now() - appsRefreshAt > std::chrono::seconds(10)) { appsRefreshAt = std::chrono::steady_clock::now(); appsFetch(); }
             { std::ifstream uf(gDir + "/ui-demo"); std::string scene; if (uf >> scene) { unlink((gDir + "/ui-demo").c_str()); uiDemo(scene); } }
             if (wallToolOn()) houseStart();                                      // shapes live in the house file
-            if (houseOn() || scanOn() || multiRoomOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
+            if (houseOn() || scanOn() || multiRoomOn() || meshSaveOn()) { houseStart(); anchorsLoad(); }  // the anchors live in the house file
+            if (meshSaveOn()) meshLoadStart();
             if (multiRoomOn()) multiRoomCommitLinks();
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
@@ -4207,6 +4323,7 @@ void main(){
           j << ",\"mesh\":{\"on\":" << (meshWanted.load() ? 1 : 0) << ",\"blocks\":" << nb << ",\"drawn\":" << meshDraw.size() << ",\"drawnTris\":" << meshDrawnTris
             << ",\"fuseMs\":" << meshFuseMs.load() << ",\"frames\":" << meshFrames.load() << ",\"changed\":" << meshChanged.load() << ",\"refused\":" << meshVol.refusedBlocks << ",\"rawMs\":" << rawMs.load() << ",\"flatMs\":" << flatMs.load() << ",\"flatTris\":" << flatTris.load() << "}"; }
         if (multiRoomOn()) j << ",\"multiroom\":" << multiRoomJson();
+        j << ",\"meshsave\":" << meshSaveJson();
         j << ",\"depthplace\":{\"on\":" << (depthPlaceOn() ? 1 : 0) << ",\"kept\":" << depthPlaced << ",\"walls\":" << depthWalls.size() << "}";
         j << ",\"reloc\":{\"on\":" << (relocOn() ? 1 : 0) << ",\"gap\":" << (std::isfinite(relocGap.load()) ? relocGap.load() : -99.0f) << ",\"samples\":" << relocSamples << ",\"warn\":" << (relocWarn ? 1 : 0) << ",\"warnings\":" << relocWarnings << "}";
         j << ",\"walltool\":{\"on\":" << (wallToolOn() ? 1 : 0) << ",\"state\":\"" << wallshape::stateName(wt.state()) << "\",\"shapes\":" << wt.shapes().size() << ",\"edits\":" << wtEdits << ",\"walls\":" << wt.walls().size() << "}";

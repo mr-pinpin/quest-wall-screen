@@ -33,6 +33,7 @@ run "MULTIROOM: rooms, links, current room (room_lab/rooms.h, simulated anchors)
 run "MULTIROOM house round trip, links valid in house/schema.py (room_lab/rooms_house.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/rooms_house_test.cpp -o $T/rh && $T/rh $T/rooms.json && python3 bench/rooms_schema_check.py $T/rooms.json"
 run "RELOCCHECK counts only frontal views with depth coverage (room_lab/reloc.h, 2026-11-04 walk replay)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/reloc_test.cpp -o $T/reloc && $T/reloc"
 run "DEPTHPLACE: the solid fitted wall a placement ray hits (room_lab/depthpick.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/depthpick_test.cpp -o $T/dp && $T/dp"
+run "MESHSAVE: two sessions in different LOCAL frames build one room mesh (room_lab/meshsave.h)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/meshsave_test.cpp -o $T/ms && (ulimit -v 1500000; timeout 120 $T/ms)"
 run "SCAN never shrinks or moves a house wall (room_lab/wallmerge.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/wallmerge_test.cpp -o $T/wm && $T/wm"
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
