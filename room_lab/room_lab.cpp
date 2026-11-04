@@ -201,6 +201,9 @@ struct App {
     bool houseMenu = false, houseFile = false; bool houseOn() const { return houseMenu || houseFile; }
     // DEPTHGAP flag (room_lab/wallfit.h): read-only; measures how far each screen sits from the real wall behind it.
     bool depthGapMenu = false, depthGapFile = false; bool depthGap() const { return depthGapMenu || depthGapFile; }
+    // WRIST flag (room_lab/shoulder.h radial root): the back of the left wrist toward the face shows a button; a tap opens
+    // a ring menu that cascades like SHOULDER. It replaces the watch-pose hold that opens the settings panel.
+    bool wristMenu = false, wristFile = false; bool wristOn() const { return wristMenu || wristFile; }
     vt::Heroes heroPicker; std::set<int> heroLayout;  // heroLayout: the sender's layout "hero":[ids]
     std::mutex heroLock; std::map<int, std::unique_ptr<VideoStream>> heroStreams; std::map<int, std::deque<std::vector<uint8_t>>> heroPending;
     long heroPackets = 0;
@@ -459,7 +462,7 @@ struct App {
     // its action in choose() and, for a toggle, its state in itemOn().
     // Each item carries a one-line explanation in plain words, shown under its label (5x7 font: A-Z 0-9 % - . : !).
     struct MenuItem { const char* label; const char* section; const char* hint; };
-    static constexpr int kMenuItems = 32;
+    static constexpr int kMenuItems = 33;
     const MenuItem menuItems[kMenuItems] = {
         {"MINI", "SOURCE", "SHOW THE MAC MINI"}, {"LAPTOP", "SOURCE", "SHOW THE LAPTOP"},
         {"H264", "SOURCE", "GAME IN H264 NOT HEVC"}, {"HOSTRES", "SOURCE", "FIND THE LAPTOP BY NAME"},
@@ -475,7 +478,7 @@ struct App {
         {"MODELS", "EXPERIMENTAL", "SHOW A 3D MODEL"}, {"LODPOSE", "EXPERIMENTAL", "DETAIL BY VIEWING ANGLE"},
         {"HERO", "EXPERIMENTAL", "OWN STREAM FOR A BIG SCREEN"}, {"KEYREQ", "EXPERIMENTAL", "ASK FOR KEYFRAMES"},
         {"SHOULDER", "EXPERIMENTAL", "MENU BUTTON BY YOUR SHOULDER"}, {"HOUSE", "EXPERIMENTAL", "SYNC LAYOUT TO THE HOUSE FILE"},
-        {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}};
+        {"DEPTHGAP", "EXPERIMENTAL", "MEASURE SCREENS VS REAL WALLS"}, {"WRIST", "EXPERIMENTAL", "TAP YOUR WRIST FOR A RING MENU"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -501,6 +504,7 @@ struct App {
         if (l == "SHOULDER") return shoulderOn();
         if (l == "HOUSE") return houseOn();
         if (l == "DEPTHGAP") return depthGap();
+        if (l == "WRIST") return wristOn();
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -561,7 +565,7 @@ struct App {
                 {"SUPER", panelLayer.super}, {"BEZEL", bezel}, {"FADE", bezelFade}, {"GLASS", bezelGlass}, {"AMBI", bezelAmbi},
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
-                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}};
+                {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -590,7 +594,7 @@ struct App {
             get("BEZEL", bezel); get("FADE", bezelFade); get("GLASS", bezelGlass); get("AMBI", bezelAmbi); get("SPELL", spellOn);
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
-            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu);
+            get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu);
         }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
         event(std::string("settings loaded, locked ") + (editLocked ? "on" : "off") + ", toggles restored " + std::to_string(restored) +
@@ -626,6 +630,7 @@ struct App {
         else if (l == "SHOULDER") { shoulderMenuFlag = !shoulderMenuFlag; if (!shoulderOn()) sm.stack.clear(); }  // shoulder button menus
         else if (l == "HOUSE") { houseMenu = !houseMenu; if (houseOn()) { houseStart(); houseQueueScreens(); } }  // layout to the house file
         else if (l == "DEPTHGAP") depthGapMenu = !depthGapMenu;               // screen vs real wall, in status.json
+        else if (l == "WRIST") { wristMenu = !wristMenu; if (!wristOn() && !shoulderOn()) sm.stack.clear(); }  // wrist ring menu
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
         else if (l == "SUPER") panelLayer.super = !panelLayer.super;     // compositor super-sampling for the layer
@@ -657,7 +662,7 @@ struct App {
             menuOpen = true;
         }
         V3 palm;
-        if (palmFacing(palm)) {
+        if (!wristOn() && palmFacing(palm)) {  // WRIST on: the wrist button takes this pose instead
             if (palmArmed && palmHold == 0) palmStart = std::chrono::steady_clock::now();
             if (palmArmed) palmHold = std::fmax(std::chrono::duration<float>(std::chrono::steady_clock::now() - palmStart).count() / kPalmHold, 1e-3f);
             if (palmArmed && palmHold >= 1) {
@@ -710,12 +715,16 @@ struct App {
     // cascading stack of panels that drive the screens and every setting; each button explains itself in one line.
     // With the flag off nothing here runs and nothing is drawn.
     shoulder::Menu sm; bool stickyMove = false, smButtonHover = false, smPokePrev = false; shoulder::Hit smHover; long smPresses = 0;
+    bool wristShown = false, wristHover = false, wristPokePrev = false; V3 wristBtn{0, 0, 0};
     static shoulder::P3 sp(V3 v) { return {v.x, v.y, v.z}; }
     static V3 vp(shoulder::P3 p) { return {p.x, p.y, p.z}; }
     int extraIndex(int id) const { for (size_t i = 0; i < extras.size(); i++) if (extras[i].id == id) return (int)i; return -1; }
     shoulder::Level shoulderLevel(const std::string& n) {
         shoulder::Level L; L.title = n;
-        if (n == "ROOT") {
+        if (n == "WRIST") {
+            L.title = "MENU";
+            L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
+        } else if (n == "ROOT") {
             L.title = "MENU";
             L.items = {{"SCREENS", "SIZE AND MOVE SCREENS", "open:SCREENS"}, {"SETTINGS", "EVERY SWITCH", "open:SETTINGS"}, {"CLOSE", "HIDE THIS MENU", "close"}};
         } else if (n == "SCREENS") {
@@ -735,11 +744,33 @@ struct App {
     }
     // Returns true when the shoulder button or one of its panels takes the right hand this frame.
     bool updateShoulder() {
-        smButtonHover = false; smHover = {};
-        if (!shoulderOn()) { sm.stack.clear(); smPokePrev = false; return false; }
+        smButtonHover = false; smHover = {}; wristShown = false; wristHover = false;
+        if (!shoulderOn() && !wristOn()) { sm.stack.clear(); smPokePrev = false; return false; }
         if (!sm.build) sm.build = [this](const std::string& n) { return shoulderLevel(n); };
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
         bool edge = handActive[1] && ray[1].pinch && !pinchPrev[1];
+        V3 palm;
+        if (wristOn() && palmFacing(palm)) {  // the wrist button: 3 cm off the back of the left wrist
+            V3 out = rot(joints[0][XR_HAND_JOINT_PALM_EXT].pose.orientation, {0, 1, 0});
+            wristBtn = v3(joints[0][XR_HAND_JOINT_WRIST_EXT].pose.position) + out * 0.03f; wristShown = true;
+            bool poke = handActive[1] && len(v3(joints[1][XR_HAND_JOINT_INDEX_TIP_EXT].pose.position) - wristBtn) < 0.03f;
+            bool pokeEdge = poke && !wristPokePrev; wristPokePrev = poke;
+            if (handActive[1] && ray[1].valid) { V3 oc = wristBtn - ray[1].o; float t = dot(oc, ray[1].d); wristHover = t > 0 && len(oc - ray[1].d * t) < 0.03f; }
+            if (pokeEdge || (wristHover && edge)) {
+                V3 at = wristBtn + norm(hp - wristBtn) * 0.05f + V3{0, 0.09f, 0};  // the ring just above the wrist, toward the eye
+                if (sm.open() && sm.stack[0].radial) sm.stack.clear(); else sm.openRadial(sp(hp), sp(at));
+                smPresses++; event(std::string("wrist ring ") + (sm.open() ? "opened" : "closed"));
+                return true;
+            }
+            if (poke || wristHover) return true;
+        } else wristPokePrev = false;
+        if (!shoulderOn()) {  // WRIST only: the ring and its submenus, no shoulder button
+            if (!sm.open() || !(handActive[1] && ray[1].valid)) return false;
+            smHover = sm.hit(sp(ray[1].o), sp(ray[1].d));
+            if (smHover.level < 0) return false;
+            if (edge) { std::string top = sm.stack.back().name, a = sm.press(smHover); if (!a.empty()) shoulderAction(top, a); if (sm.open()) sm.refresh(); }
+            return true;
+        }
         bool poke = false;  // either index tip touching the button: one press per touch
         for (int h = 0; h < 2; h++) if (handActive[h]) poke = poke || sm.buttonPoke(sp(hp), sp(gaze), sp(v3(joints[h][XR_HAND_JOINT_INDEX_TIP_EXT].pose.position)));
         bool pokeEdge = poke && !smPokePrev; smPokePrev = poke;
@@ -785,22 +816,44 @@ struct App {
         }
     }
     void drawShoulder(Batch& b) {
-        if (!shoulderOn()) return;
+        if (!shoulderOn() && !wristOn()) return;
         V3 hp = v3(head.position), gaze = rot(head.orientation, {0, 0, -1});
-        V3 c = vp(sm.button(sp(hp), sp(gaze))), toHead = norm(hp - c), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
         const float idleB[4] = {0.75f, 0.8f, 0.9f, 0.85f}, hotB[4] = {0.3f, 0.75f, 1.0f, 1.0f};
-        const float* col = smButtonHover || sm.open() ? hotB : idleB; float r = 0.025f;
-        for (int i = 0; i < 24; i++) {
-            float a0 = i * 0.2618f, a1 = (i + 1) * 0.2618f;
-            b.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, 0.004f, col);
-        }
-        for (int k = -1; k <= 1; k++) b.line(c + ax * -0.011f + ay * (k * 0.008f), c + ax * 0.011f + ay * (k * 0.008f), toHead, 0.003f, col);
+        auto menuButton = [&](V3 c, float r, bool hot) {  // a ring with three bars: "menu"
+            V3 toHead = norm(hp - c), ax = norm(cross({0, 1, 0}, toHead)), ay = cross(toHead, ax);
+            const float* col = hot ? hotB : idleB;
+            for (int i = 0; i < 24; i++) {
+                float a0 = i * 0.2618f, a1 = (i + 1) * 0.2618f;
+                b.line(c + ax * (r * std::cos(a0)) + ay * (r * std::sin(a0)), c + ax * (r * std::cos(a1)) + ay * (r * std::sin(a1)), toHead, r * 0.16f, col);
+            }
+            for (int k = -1; k <= 1; k++) b.line(c + ax * (-0.44f * r) + ay * (k * 0.32f * r), c + ax * (0.44f * r) + ay * (k * 0.32f * r), toHead, r * 0.12f, col);
+        };
+        if (shoulderOn()) menuButton(vp(sm.button(sp(hp), sp(gaze))), 0.025f, smButtonHover || (sm.open() && !sm.stack[0].radial));
+        if (wristShown) menuButton(wristBtn, 0.018f, wristHover || (sm.open() && sm.stack[0].radial));
         for (size_t k = 0; k < sm.stack.size(); k++) {
             const shoulder::Level& L = sm.stack[k]; bool top = k + 1 == sm.stack.size();
             Entity pe; pe.pose.orientation = {0, std::sin(L.yaw / 2), 0, std::cos(L.yaw / 2)}; pe.pose.position = {L.centre.x, L.centre.y, L.centre.z};
             float s = L.scale, hw = L.grid.halfW * s, hh = L.grid.halfH * s, fade = top ? 1.0f : 0.45f;
             auto P = [&](float x, float y, float z) { return xform(pe.pose, {x, y, z}); };
             const float bg[4] = {0.05f, 0.06f, 0.08f, 0.8f * fade}, white[4] = {0.95f, 0.97f, 1.0f, fade}, dim[4] = {0.62f, 0.68f, 0.78f, fade};
+            if (L.radial) {  // round buttons on a ring; the centre shows what the pointed-at button does
+                for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
+                    const UiGrid::Cell& cl = L.grid.cells[i]; float r = L.buttonR * s;
+                    bool hot = top && smHover.level == (int)k && smHover.item == (int)i;
+                    const float idle[4] = {0.10f, 0.12f, 0.17f, 0.9f * fade}, hov[4] = {0.22f, 0.45f, 0.75f, 0.95f * fade};
+                    for (int q = 0; q < 20; q++) {
+                        float a0 = q * 0.31416f, a1 = (q + 1) * 0.31416f, cx = cl.x * s, cy = cl.y * s;
+                        b.quad(P(cx, cy, 0.002f), P(cx + r * std::cos(a0), cy + r * std::sin(a0), 0.002f), P(cx + r * std::cos(a1), cy + r * std::sin(a1), 0.002f), P(cx, cy, 0.002f), hot ? hov : idle);
+                    }
+                    text(b, pe, cl.x * s, cl.labelY * s, 0.004f, cl.px * s, L.items[i].label.c_str(), white);
+                }
+                std::string mid = (top && smHover.level == (int)k && smHover.item >= 0) ? L.items[smHover.item].hint : L.title;
+                std::string m1, m2; UiGrid::wrap(mid, m1, m2);
+                float mpx = UiGrid::fit(m1.size() > m2.size() ? m1 : m2, 0.0014f, 1.6f * (L.ringR - L.buttonR), 0.02f);
+                text(b, pe, 0, m2.empty() ? 0 : 0.006f, 0.004f, mpx, m1.c_str(), dim);
+                if (!m2.empty()) text(b, pe, 0, -0.006f, 0.004f, mpx, m2.c_str(), dim);
+                continue;
+            }
             b.quad(P(-hw, -hh, 0), P(hw, -hh, 0), P(hw, hh, 0), P(-hw, hh, 0), bg);
             text(b, pe, 0, L.grid.titleY * s, 0.003f * s, UiGrid::fit(L.title, L.grid.titlePx, 2 * L.grid.halfW - 2 * L.grid.pad, L.grid.titleH * 0.6f) * s, L.title.c_str(), white);
             for (size_t i = 0; i < L.items.size() && i < L.grid.cells.size(); i++) {
@@ -2621,6 +2674,7 @@ void main(){
             shoulderFile = access((gDir + "/shoulder-on").c_str(), F_OK) == 0;  // forces SHOULDER for self-tests
             houseFile = access((gDir + "/house-on").c_str(), F_OK) == 0;        // forces HOUSE for self-tests
             depthGapFile = access((gDir + "/depthgap-on").c_str(), F_OK) == 0;  // forces DEPTHGAP for self-tests
+            wristFile = access((gDir + "/wrist-on").c_str(), F_OK) == 0;        // forces WRIST for self-tests
             if (access((gDir + "/depth-dump").c_str(), F_OK) == 0 && !depthDumpWanted) { depthDumpWanted = true; unlink((gDir + "/depth-dump").c_str()); event("depth dump requested"); }
             if (houseOn()) { houseStart(); houseUpdate(); }
             if (models() && !modelStarted) {

@@ -80,6 +80,32 @@ int main() {
     m.toggle(head, gaze); check(!m.open(), "button closes the stack");
     Menu l; l.build = tree; l.side = -1; l.toggle(head, gaze);
     l.push("SCREENS"); check(l.stack[1].yaw < l.stack[0].yaw, "left button fans right");
+    // WRIST: a radial root around a point 0.4 m away; the cascade continues 1 m further each level.
+    Menu w; w.build = [](const std::string& n) {
+        if (n == "WRIST") { Level L; L.items = {{"SCREENS", "MOVE AND SIZE SCREENS", "open:SCREENS"}, {"SETTINGS", "ALL SWITCHES", "open:SCREENS"},
+                                                {"WALLS", "DRAW ON WALLS", "walls"}, {"CLOSE", "HIDE THIS MENU", "close"}}; return L; }
+        return tree(n); };
+    P3 at{head.x - 0.1f, head.y - 0.25f, head.z - 0.3f};
+    w.openRadial(head, at);
+    check(w.open() && w.stack[0].radial && w.stack[0].scale == 1, "radial root at scale 1");
+    check(len(sub(w.stack[0].centre, at)) < 1e-6f, "radial centred on the wrist point");
+    const UiGrid::Cell& top = w.stack[0].grid.cells[0];
+    check(top.y > 0 && std::fabs(top.x) < 1e-5f, "first button at the top");
+    for (size_t i = 0; i < 4; i++) check(std::fabs(std::hypot(w.stack[0].grid.cells[i].x, w.stack[0].grid.cells[i].y) - w.stack[0].ringR) < 1e-5f, "buttons on the ring");
+    rayTo(w, 0, w.stack[0].grid.cells[2].x, w.stack[0].grid.cells[2].y, o, r);
+    Hit hw = w.hit(o, r); check(hw.level == 0 && hw.item == 2, "ray finds a ring button");
+    check(w.press(hw) == "walls", "ring action returned");
+    rayTo(w, 0, 0, 0, o, r); hw = w.hit(o, r); check(hw.level == 0 && hw.item == -1, "ring centre is not a button");
+    rayTo(w, 0, top.x, top.y, o, r); w.press(w.hit(o, r));
+    check(w.stack.size() == 2, "ring opens a submenu");
+    float dw = std::hypot(w.stack[1].centre.x - head.x, w.stack[1].centre.z - head.z);
+    check(std::fabs(dw - (w.stack[0].dist + 1.0f)) < 1e-3f, "submenu 1 m beyond the ring");
+    check(std::fabs(w.stack[1].scale - w.stack[1].dist / w.reach) < 1e-5f, "submenu scaled by distance");
+    float ringEdge = w.stack[0].yaw + w.angularHalf(w.stack[0]), subEdge = w.stack[1].yaw - w.stack[1].grid.halfW / w.reach;
+    check(subEdge > ringEdge, "submenu clears the ring");
+    rayTo(w, 0, top.x, top.y, o, r); hw = w.hit(o, r);
+    w.press(hw); check(w.stack.size() == 1 && w.stack[0].radial, "back to the ring by pointing at it");
+    w.refresh(); check(w.stack[0].radial && w.stack[0].grid.cells.size() == 4, "refresh keeps the ring");
     printf("shoulder menu: %s\n", fails ? "FAILED" : "all checks passed");
     return fails ? 1 : 0;
 }

@@ -7,6 +7,9 @@
 //    look the same size, and each child is turned sideways, away from the button, until it clears its parent: the
 //    parents stay in view, dimmed, as breadcrumbs. Only the top panel takes button presses; a ray on a lower panel
 //    pops back to that level.
+// Radial root (flag WRIST): the same stack can open from a point instead (the wrist button): the first level is a
+// ring of round buttons around that point, at its real distance and scale 1; deeper levels cascade from there, each
+// `step` m further and scaled by distance like the shoulder's.
 // GL-free: room_lab draws the levels and dispatches item actions; bench/shoulder_test.cpp covers the geometry.
 // Units: metres, world frame of the app (+y up). Panel-local frame: origin at the panel centre, +x right, +y up,
 // +z toward the viewer, at scale 1 (UiGrid units); world = centre + R(yaw) * (local * scale).
@@ -34,7 +37,9 @@ inline float yawOf(P3 d) { return (std::fabs(d.x) + std::fabs(d.z) < 1e-6f) ? 0.
 struct Item { std::string label, hint, action; };  // action: "open:<NAME>", "back", "close", or anything room_lab handles
 struct Level {
     std::string name, title; std::vector<Item> items;
-    UiGrid grid; P3 centre; float yaw = 0, scale = 1;
+    UiGrid grid; P3 centre; float yaw = 0, scale = 1, dist = 1;  // dist: from the eye, horizontally
+    bool radial = false;                                          // a ring of round buttons (grid.cells hold them)
+    float ringR = 0, buttonR = 0;
     P3 toWorld(float x, float y, float z = 0) const { return add(centre, rotY(yaw, mul(P3{x, y, z}, scale))); }
     // Ray against the panel plane: true with panel-local (x, y) when it lands inside the panel.
     bool local(P3 o, P3 d, float& x, float& y) const {
@@ -66,13 +71,28 @@ struct Menu {
     }
     bool buttonPoke(P3 head, P3 gaze, P3 tip) const { return len(sub(tip, button(head, gaze))) < buttonR; }
 
+    // A radial level: n round buttons on a ring, the first at the top, clockwise; the centre is left for the hint.
+    static void layoutRadial(Level& L) {
+        int n = (int)L.items.size();
+        L.buttonR = 0.024f; L.ringR = std::fmax(0.07f, n * (2 * L.buttonR + 0.008f) / 6.2832f);
+        L.grid.cells.assign(n, {});
+        for (int i = 0; i < n; i++) {
+            float a = 6.2832f * i / n; UiGrid::Cell c{};
+            c.x = L.ringR * std::sin(a); c.y = L.ringR * std::cos(a); c.w = c.h = 2 * L.buttonR;
+            c.px = UiGrid::fit(L.items[i].label, 0.0022f, 1.7f * L.buttonR, 0.5f * L.buttonR); c.labelY = c.y;
+            L.grid.cells[i] = c;
+        }
+        L.grid.halfW = L.grid.halfH = L.ringR + L.buttonR + 0.01f; L.grid.titleY = 0;
+    }
+    float angularHalf(const Level& L) const { return L.grid.halfW * L.scale / std::fmax(L.dist, 0.05f); }
     void place(Level& L, int depth) const {
         L.grid.layout(toGrid(L.items));
-        float d = reach + depth * step;
-        L.scale = d / reach;
+        float base = (depth > 0 && stack[0].radial) ? stack[0].dist : reach;
+        float d = depth == 0 ? reach : base + depth * step;
+        L.scale = d / reach; L.dist = d;
         // Turn each child away from the shoulder button until it clears its parent (plus a 2 degree gap): the parent is
         // nearer, so any overlap would hide the child. Scaled by distance, a panel's angular half-width is halfW / reach.
-        float yaw = depth == 0 ? yaw0 : stack[depth - 1].yaw + side * ((stack[depth - 1].grid.halfW + L.grid.halfW) / reach + 0.035f);
+        float yaw = depth == 0 ? yaw0 : stack[depth - 1].yaw + side * (angularHalf(stack[depth - 1]) + L.grid.halfW / reach + 0.035f);
         L.yaw = yaw;
         L.centre = add(eye0, mul(forward(yaw), d));
         L.centre.y = eye0.y - 0.12f * L.scale;
@@ -85,6 +105,15 @@ struct Menu {
         eye0 = head; yaw0 = yawOf(gaze);
         push("ROOT");
     }
+    // Open a radial root around `at` (e.g. just above the wrist button), facing the eye.
+    void openRadial(P3 eye, P3 at, const std::string& name = "WRIST") {
+        if (!build) return;
+        stack.clear(); eye0 = eye;
+        P3 d = sub(at, eye); yaw0 = yawOf(d);
+        Level L = build(name); L.name = name; L.radial = true; layoutRadial(L);
+        L.centre = at; L.yaw = yaw0; L.scale = 1; L.dist = std::fmax(std::sqrt(d.x * d.x + d.z * d.z), 0.1f);
+        stack.push_back(L);
+    }
     void push(const std::string& name) {
         if (!build) return;
         Level L = build(name); L.name = name;
@@ -95,8 +124,9 @@ struct Menu {
     // Re-run the builder for every open level (labels that show state, a screen list that changed), keeping poses.
     void refresh() {
         for (size_t k = 0; k < stack.size(); k++) {
-            Level L = build(stack[k].name); L.name = stack[k].name;
-            L.grid.layout(toGrid(L.items)); L.centre = stack[k].centre; L.yaw = stack[k].yaw; L.scale = stack[k].scale;
+            Level L = build(stack[k].name); L.name = stack[k].name; L.radial = stack[k].radial;
+            if (L.radial) layoutRadial(L); else L.grid.layout(toGrid(L.items));
+            L.centre = stack[k].centre; L.yaw = stack[k].yaw; L.scale = stack[k].scale; L.dist = stack[k].dist;
             stack[k] = L;
         }
     }
@@ -106,7 +136,14 @@ struct Menu {
         for (int k = (int)stack.size() - 1; k >= 0; k--) {
             float x, y;
             if (!stack[k].local(o, d, x, y)) continue;
-            h.level = k; h.item = k == (int)stack.size() - 1 ? stack[k].grid.hit(x, y) : -1;
+            h.level = k; h.item = -1;
+            if (k == (int)stack.size() - 1) {
+                if (!stack[k].radial) h.item = stack[k].grid.hit(x, y);
+                else for (size_t i = 0; i < stack[k].grid.cells.size(); i++) {
+                    const UiGrid::Cell& c = stack[k].grid.cells[i];
+                    if ((x - c.x) * (x - c.x) + (y - c.y) * (y - c.y) < stack[k].buttonR * stack[k].buttonR * 1.21f) { h.item = (int)i; break; }
+                }
+            }
             return h;
         }
         return h;
