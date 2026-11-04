@@ -45,7 +45,7 @@ BENCH_CHIP, BENCH_MODEL = 'Apple M1', 'MacBookAir10,1'  # the pinned benchmark h
 # Older than LOCK_STALE_S means its holder died: taken over.
 BENCH_LOCK = '~/.local/share/pinpin-bench.lock'
 LOCK_STALE_S = 1800
-POOL0, CINEMA_ID = 90, 99  # the bench's display pool (AGENTS.md K24 table): 90..98 at 1920x1200 @1, 99 the cinema-sized
+POOL0, CINEMA_ID = 51, 59  # the bench's display pool (AGENTS.md K24 table): 51..58 at 1920x1200 @1, 59 the cinema-sized
                            # one (a size of its own, never a resize); ids 2-39 are the house's real screens
 HOST_PLUGINS = '"$HOME/Library/Application Support/PinPin Host/plugins"'
 TEST_PLUGIN = {'exec': '~/.local/share/pinpin-atlas/pinpin-atlas-test', 'args': ['--port', '57730', '--demand-port', '57731', '--stat-secs', '5'],

@@ -27,7 +27,7 @@ import argparse, json, math, socket, struct, threading, time
 PX_PER_RAD = 1260.0
 
 
-IDS = None  # screen ids in demand order (--ids); default 2..n+1. stress.py's sck runs pass its display pool (90.., 99)
+IDS = None  # screen ids in demand order (--ids); default 2..n+1. stress.py's sck runs pass its display pool (51.., 59)
 
 
 def sid(k):
