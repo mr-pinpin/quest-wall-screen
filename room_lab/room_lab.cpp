@@ -2967,11 +2967,11 @@ void main(){
     std::string houseErr; bool houseApplying = false; std::atomic<bool> houseStarted{false};
     void houseStart() {
         if (houseStarted.exchange(true)) return;
-        std::string host = "192.168.0.50";
-        { std::ifstream hf(gDir + "/house-host"); std::string h; if (hf >> h) host = h; }
-        event("house: syncing with " + host + ":57800");
-        std::thread([this, host] {
-            house::Store st(gDir); st.host = host;
+        std::string host = "192.168.0.50"; int port = 57800;  // files/house-host: "host" or "host:port" (e.g. a scratch server)
+        { std::ifstream hf(gDir + "/house-host"); std::string h; if (hf >> h) { size_t c = h.find(':'); host = h.substr(0, c); if (c != std::string::npos) port = atoi(h.c_str() + c + 1); } }
+        event("house: syncing with " + host + ":" + std::to_string(port));
+        std::thread([this, host, port] {
+            house::Store st(gDir); st.host = host; st.port = port;
             st.loadCache();
             for (;;) {
                 { std::lock_guard<std::mutex> g(houseLock); for (auto& e : houseQueue) st.edit(e); houseQueue.clear(); }
