@@ -10,20 +10,34 @@
 #include <vector>
 
 namespace housemerge {
+// Review fixes (work-k5, 2026-11-04): `unresolved` are house screens whose wall the headset cannot map to a scene wall
+// right now (no scene uuid yet, a wall another device added): they are still the house's screens, so a local copy is
+// kept as it is (not taken, not pushed) instead of being dropped as "removed elsewhere", and one we do not have is
+// left for later. deletions(): the only house screens a push may delete are ones the headset has seen in an applied
+// rev and no longer has locally; a screen added elsewhere that we have not applied yet is never deleted.
 struct Decision {
     std::vector<int> fromHouse;   // take the house's placement
     std::vector<int> keepLocal;   // the house never had it: keep ours, and push
+    std::vector<int> keepAsIs;    // the house has it but its wall cannot be placed here yet: keep ours, do not push
     std::vector<int> removed;     // the house had it and no longer does: removed elsewhere
     bool push() const { return !keepLocal.empty(); }
 };
-inline Decision decide(const std::set<int>& local, const std::set<int>& house, const std::set<int>& known) {
+inline Decision decide(const std::set<int>& local, const std::set<int>& house, const std::set<int>& known, const std::set<int>& unresolved = {}) {
     Decision d;
     for (int id : local) {
-        if (house.count(id)) d.fromHouse.push_back(id);
+        if (house.count(id)) (unresolved.count(id) ? d.keepAsIs : d.fromHouse).push_back(id);
         else if (known.count(id)) d.removed.push_back(id);
         else d.keepLocal.push_back(id);
     }
-    for (int id : house) if (!local.count(id)) d.fromHouse.push_back(id);
+    for (int id : house) if (!local.count(id) && !unresolved.count(id)) d.fromHouse.push_back(id);
     return d;
 }
+inline std::set<int> deletions(const std::set<int>& local, const std::set<int>& house, const std::set<int>& known) {
+    std::set<int> del; for (int id : house) if (known.count(id) && !local.count(id)) del.insert(id);
+    return del;
+}
+// At start: push the local screens before adopting the house when HOUSE was never pushed, or when the last run queued
+// screen edits the sync thread had not yet written to house-pending.json (files/house-unsent): otherwise the cached
+// house, older than screens.json, would move those screens back.
+inline bool pushFirst(bool everPushed, bool unsent) { return !everPushed || unsent; }
 }  // namespace housemerge

@@ -35,6 +35,7 @@
 #include "meshsave.h"
 #include "roomframe.h"
 #include "housemerge.h"
+#include "stagerebase.h"
 #include "scroll.h"
 #include "wallshape.h"
 #include "assist.h"
@@ -2196,7 +2197,7 @@ struct App {
     // cache (files/lastwalls.json) under the same uuid, so every screen path draws at its saved spot. Real walls refresh
     // the cache (only when they moved). status "placement" reports per screen where it is drawn from and its STAGE spot.
     json::Value sceneTest; bool sceneTestRead = false;
-    std::set<std::string> stageChecked; long stageMoves = 0; float stageJumpM = 0; bool stageRebased = false;
+    stagerebase::State stageVote; long stageMoves = 0; float stageJumpM = 0; bool stageRebased = false;
     // SCAN's own walls (multi-room): solid fitted walls no Meta scene wall matches, kept in STAGE in files/depthwalls.json
     // and shown as walls of their own (ids "w-d..."), so screens can be placed in rooms Meta never scanned.
     std::map<std::string, pguard::CachedWall> depthWalls; bool depthWallsLoaded = false; std::vector<std::string> scanIds;
@@ -2331,29 +2332,21 @@ struct App {
         // taken as the reference, "stage moved 526 cm", and the cache was shifted the wrong way; screens 6 and 7 vanished).
         // At most one rebase per session: after it, the other walls just refresh their cached spots (2026-11-04: an
         // inconsistent cache fired four rebases at one start, 331 / 466 / 266 / 439 cm, each also moving our depth walls).
-        if (stageOk && !stageRebased) {
-            // Every Meta wall located now gives one estimate; the consensus (anchors::solve, 10 cm / 3 deg) is the
-            // correction, so one bad cache entry cannot move the rest.
-            std::vector<anchors::Seen> est; float jump = 0; std::string ref;
-            std::vector<std::string> seen;
-            for (auto& e : entities) if (!e.standIn && e.located && e.space != XR_NULL_HANDLE && wallCache.count(e.uuid) && !stageChecked.count(e.uuid)) {
-                seen.push_back(e.uuid);
-                wallfit::Pose realStage = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose)), c = unitPose(wallCache[e.uuid].stage);
-                est.push_back({"x", unitPose(anchors::compose(realStage, anchors::inverse(c)))});
-                float j = wallfit::len(realStage.p - c.p); if (j > jump) { jump = j; ref = e.uuid; }
-            }
-            if (est.size() < 2 && now() < 5) est.clear();          // wait (up to 5 s) for a second wall to vote
-            else for (auto& u : seen) stageChecked.insert(u);
-            anchors::Frame f = est.empty() ? anchors::Frame{} : anchors::solve({{"x", wallfit::Pose{{0, 0, 0, 1}, {0, 0, 0}}}}, est, 0.10f, 3.0f);
-            if (f.ok && wallfit::len(f.roomInLocal.p) > 0.10f && (f.used >= 2 || est.size() == 1)) {
-                wallfit::Pose T = unitPose(f.roomInLocal);
+        if (stageOk && !stageRebased) {  // the vote (room_lab/stagerebase.h): every Meta wall located now gives one estimate
+            std::map<std::string, wallfit::Pose> real, cache;
+            for (auto& e : entities) if (!e.standIn && e.located && e.space != XR_NULL_HANDLE && wallCache.count(e.uuid))
+                real[e.uuid] = anchors::compose(anchors::inverse(wp(stageInLocal)), wp(e.pose));
+            for (auto& [u, c] : wallCache) cache[u] = c.stage;
+            stagerebase::Out o = stagerebase::step(stageVote, now(), real, cache);
+            if (o.rebase) {
+                wallfit::Pose T = o.T;
                 for (auto& [u, cw] : wallCache) cw.stage = unitPose(anchors::compose(T, cw.stage));
                 for (auto& [u, dw] : depthWalls) dw.stage = unitPose(anchors::compose(T, dw.stage));   // our walls move with STAGE too
                 if (!depthWalls.empty()) house::writeAtomic(gDir + "/depthwalls.json", pguard::dump(depthWalls));
                 stageMoves++; stageJumpM = wallfit::len(T.p); stageRebased = true; house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
-                event("placement: stage moved " + std::to_string((int)(stageJumpM * 100)) + " cm (" + std::to_string(f.used) + " of " + std::to_string(est.size()) + " walls agree); cache rebased");
-            } else if (!est.empty() && jump > 0.10f) {
-                event("placement: walls disagree with the cache (" + std::to_string(f.used) + " of " + std::to_string(est.size()) + " agree, worst " + std::to_string((int)(jump * 100)) + " cm at " + ref.substr(0, 8) + "); cache refreshed, not rebased");
+                event("placement: stage moved " + std::to_string((int)(stageJumpM * 100)) + " cm (" + std::to_string(o.used) + " of " + std::to_string(o.ests) + " walls agree); cache rebased");
+            } else if (o.disagree) {
+                event("placement: walls disagree with the cache (" + std::to_string(o.used) + " of " + std::to_string(o.ests) + " agree, worst " + std::to_string((int)(o.worst * 100)) + " cm at " + o.ref.substr(0, 8) + "); cache refreshed, not rebased");
             }
         }
         // Cache refresh from real walls, at most every 2 s.
@@ -2362,6 +2355,7 @@ struct App {
             for (auto& e : entities) if (!e.standIn && e.located && need.count(e.uuid) && e.has2d) {
                 pguard::CachedWall c = pguard::fromLocal(e.uuid, wp(stageInLocal), wp(e.pose), e.r2.offset.x, e.r2.offset.y, e.r2.extent.width, e.r2.extent.height);
                 auto it = wallCache.find(e.uuid);
+                if (it != wallCache.end() && !stagerebase::refreshAllowed(stageVote)) continue;  // review fix 3: not before the vote
                 if (it == wallCache.end() || pguard::moved(it->second, c)) { wallCache[e.uuid] = c; dirty = true; }
             }
             if (dirty) house::writeAtomic(gDir + "/lastwalls.json", pguard::dump(wallCache));
@@ -3477,7 +3471,8 @@ void main(){
             house::Store st(gDir); st.host = host; st.port = port;
             st.loadCache();
             for (;;) {
-                { std::lock_guard<std::mutex> g(houseLock); for (auto& e : houseQueue) st.edit(e); houseQueue.clear(); }
+                { std::lock_guard<std::mutex> g(houseLock); bool any = !houseQueue.empty(); for (auto& e : houseQueue) st.edit(e); houseQueue.clear();
+                  if (any) house::writeAtomic(gDir + "/house-unsent", "0"); }   // st.edit saved them to house-pending.json
                 bool ok = st.sync();
                 {
                     std::lock_guard<std::mutex> g(houseLock);
@@ -3510,32 +3505,32 @@ void main(){
         houseAppliedRev = rev;
         // The first sync after HOUSE is turned on: the headset is the truth. Push every local screen before adopting
         // anything (2026-11-04: the house knew 1-3, the headset had 1-7). Later revs merge (housemerge.h).
-        if (!houseKnownLoaded) {
-            houseKnownLoaded = true; housePushed = access((gDir + "/house-pushed").c_str(), F_OK) == 0;
-            std::ifstream kf(gDir + "/house-known"); int id; while (kf >> id) houseKnown.insert(id);
-        }
-        if (!housePushed) {
+        loadHouseKnown();
+        bool unsent = false; if (!houseUnsentChecked) { houseUnsentChecked = true; std::ifstream uf(gDir + "/house-unsent"); std::string u; unsent = (uf >> u) && u == "1"; }
+        if (housemerge::pushFirst(housePushed, unsent)) {  // review fix 4: edits the last run never wrote to house-pending.json
             housePushed = true; house::writeAtomic(gDir + "/house-pushed", "1");
-            houseQueueScreens(); event("house: first sync, the headset's " + std::to_string(extras.size() + (placed.active ? 1 : 0)) + " screens pushed");
+            houseQueueScreens(); event(std::string("house: ") + (unsent ? "unsent edits from the last run" : "first sync") + ", the headset's " + std::to_string(extras.size() + (placed.active ? 1 : 0)) + " screens pushed");
             return;
         }
         if ((*d)["screens"].size() == 0) return;
-        Placement main; bool haveMain = false; std::vector<Screen> ex;
+        Placement main; bool haveMain = false; std::vector<Screen> ex; std::set<int> unresolved;
         for (auto& sc : (*d)["screens"].a) {
-            Placement p; p.wall = houseSceneOf(*d, sc["wall"].str()); if (p.wall.empty()) continue;
+            Placement p; p.wall = houseSceneOf(*d, sc["wall"].str());
+            if (p.wall.empty()) { int uid = sc["id"].integer(); if (uid > 1 && sc["on"].integer(1) != 0) unresolved.insert(uid); continue; }  // review fix 2
             p.x = (float)sc["x"].num(); p.y = (float)sc["y"].num(); p.w = (float)sc["w"].num(1.44); p.h = (float)sc["h"].num(0.9);
             p.active = sc["on"].integer(1) != 0; p.valid = true;
             int id = sc["id"].integer();
             if (id == 1) { main = p; haveMain = true; } else if (id > 1 && p.active) ex.push_back({id, p});
         }
         // Merge, never drop a screen the house never knew (housemerge.h).
-        std::set<int> localIds, houseIds; for (auto& e : extras) localIds.insert(e.id); for (auto& e : ex) houseIds.insert(e.id);
-        housemerge::Decision md = housemerge::decide(localIds, houseIds, houseKnown);
+        std::set<int> localIds, houseIds(unresolved); for (auto& e : extras) localIds.insert(e.id); for (auto& e : ex) houseIds.insert(e.id);
+        housemerge::Decision md = housemerge::decide(localIds, houseIds, houseKnown, unresolved);
         std::vector<Screen> merged;
         for (int id : md.fromHouse) for (auto& e : ex) if (e.id == id) merged.push_back(e);
         for (int id : md.keepLocal) for (auto& e : extras) if (e.id == id) merged.push_back(e);
+        for (int id : md.keepAsIs) for (auto& e : extras) if (e.id == id) merged.push_back(e);
         std::sort(merged.begin(), merged.end(), [](const Screen& a, const Screen& b) { return a.id < b.id; });
-        houseKnown = houseIds; { std::string k; for (int id : houseKnown) k += std::to_string(id) + "\n"; house::writeAtomic(gDir + "/house-known", k); }
+        houseKnown = houseIds; saveHouseKnown();
         std::set<int> before, after; for (auto& e : extras) before.insert(e.id); for (auto& e : merged) after.insert(e.id);
         houseApplying = true;
         if (haveMain) { placed = main; savePlacement(); }
@@ -3554,7 +3549,13 @@ void main(){
         if (md.push()) houseQueueScreens();
     }
     bool houseOn66Pending = false;
-    bool houseAppliedOnce = false, houseKnownLoaded = false, housePushed = false; std::set<int> houseKnown;  // housemerge.h
+    bool houseAppliedOnce = false, houseKnownLoaded = false, housePushed = false, houseUnsentChecked = false; std::set<int> houseKnown;  // housemerge.h
+    void loadHouseKnown() {
+        if (houseKnownLoaded) return;
+        houseKnownLoaded = true; housePushed = access((gDir + "/house-pushed").c_str(), F_OK) == 0;
+        std::ifstream kf(gDir + "/house-known"); int id; while (kf >> id) houseKnown.insert(id);
+    }
+    void saveHouseKnown() { std::string k; for (int id : houseKnown) k += std::to_string(id) + "\n"; house::writeAtomic(gDir + "/house-known", k); }
     void houseQueueScreens() {
         std::shared_ptr<const json::Value> d; { std::lock_guard<std::mutex> g(houseLock); d = houseDoc; }
         json::Value none; const json::Value& doc = d ? *d : none;
@@ -3601,7 +3602,13 @@ void main(){
             json::Value src = house::obj(); src.o["kind"] = house::str("mac-display"); src.o["screen"] = house::num(e.id);
             screenObj(e.id, e.p, "extra", src); have.insert(e.id);
         }
-        for (auto& sc : doc["screens"].a) { int id = sc["id"].integer(); if (id > 1 && !have.count(id)) edits.push_back({"screens", std::to_string(id), json::Value{}}); }
+        // Review fix 1: delete only screens we have seen in an applied rev (houseKnown) and no longer have; a screen added
+        // elsewhere that we have not applied yet is not ours to delete. What we push now is known from here on.
+        loadHouseKnown();
+        for (int id : housemerge::deletions(have, [&] { std::set<int> h; for (auto& sc : doc["screens"].a) if (sc["id"].integer() > 1) h.insert(sc["id"].integer()); return h; }(), houseKnown))
+            edits.push_back({"screens", std::to_string(id), json::Value{}});
+        size_t known0 = houseKnown.size(); houseKnown.insert(have.begin(), have.end()); if (houseKnown.size() != known0) saveHouseKnown();
+        house::writeAtomic(gDir + "/house-unsent", "1");   // review fix 4: cleared once the sync thread has them in house-pending.json
         std::lock_guard<std::mutex> g(houseLock);
         for (auto& e : edits) houseQueue.push_back(e);
     }
