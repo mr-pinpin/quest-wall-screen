@@ -32,8 +32,11 @@ Task {
         }
         let filter = SCContentFilter(display: disp, excludingWindows: [])
         let cfg = SCStreamConfiguration()
-        cfg.width = disp.width        // points; a 1x grab is plenty for the model to read layout
-        cfg.height = disp.height
+        // Cap the long edge to ~900 px: the model reads layout fine at this size, and smaller PNGs cut the
+        // verify-after-act latency and token cost a lot.
+        let scale = min(1.0, 900.0 / Double(disp.width))
+        cfg.width = Int(Double(disp.width) * scale)
+        cfg.height = Int(Double(disp.height) * scale)
         cfg.showsCursor = false
         image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
     } catch {

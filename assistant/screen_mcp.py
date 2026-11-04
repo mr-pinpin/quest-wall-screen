@@ -146,10 +146,14 @@ def _move_screen(args):
         s["x"] = round(float(args["x_m"]), 3)
     if args.get("y_m") is not None:
         s["y"] = round(float(args["y_m"]), 3)
+    if args.get("dx_m") is not None:  # relative: "a bit to the left" = negative dx
+        s["x"] = round(s["x"] + float(args["dx_m"]), 3)
+    if args.get("dy_m") is not None:
+        s["y"] = round(s["y"] + float(args["dy_m"]), 3)
     wall = _wall_of(doc, s["wall"])
     if wall and wall.get("w"):  # clamp to the wall extent (3 cm margin)
         lim = wall["w"] / 2 - s["w"] / 2 - 0.03
-        s["x"] = max(-lim, min(lim, s["x"]))
+        s["x"] = 0.0 if lim <= 0 else max(-lim, min(lim, s["x"]))  # wider-than-wall screen -> centre it
     res = _house_put(doc, rev)
     return {"ok": True, "screen": sid, "wall": s["wall"], "x": s["x"], "y": s["y"], "rev": res.get("rev")}
 
@@ -171,6 +175,30 @@ def _resize_screen(args):
     return {"ok": True, "screen": sid, "w": s["w"], "h": s["h"], "rev": res.get("rev")}
 
 
+def _play_youtube(args):
+    import urllib.parse
+    q = args["query"]
+    _apps("POST", f"/api/screens/{SCREEN}/open", {"url": "https://www.youtube.com/results?search_query="
+                                                  + urllib.parse.quote(q)})
+    js = "(()=>{const a=[...document.querySelectorAll('a')].find(x=>x.href&&x.href.includes('/watch'));"\
+         "return a?a.href:''})()"
+    href = ""
+    for _ in range(14):
+        time.sleep(1)
+        r = _apps("POST", f"/api/screens/{SCREEN}/eval", {"js": js})
+        href = r.get("value") if isinstance(r, dict) else ""
+        if href and "/watch" in href:
+            break
+    if not href or "/watch" not in href:
+        return {"error": "no video found in the YouTube results (page may still be loading)"}
+    _apps("POST", f"/api/screens/{SCREEN}/open", {"url": href})
+    time.sleep(2.5)
+    # nudge playback (autoplay in an --app window can be blocked)
+    _apps("POST", f"/api/screens/{SCREEN}/eval",
+          {"js": "const v=document.querySelector('video'); if(v){try{v.muted=false;v.play()}catch(e){}}; location.href"})
+    return {"ok": True, "playing": href, "query": q}
+
+
 def _house_info():
     doc, rev = _house_get()
     walls = [{"id": w["id"], "w": w.get("w"), "h": w.get("h")}
@@ -183,7 +211,7 @@ def _house_info():
 def _apps(method, path, body=None, timeout=90):
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"} if data is not None else {}
-    req = urllib.request.Request(APPS + path, data=data, method=method, headers=headers)
+    req = urllib.request.Request(APPS + path, data=data, method=method, headers=pa.apps_headers(headers))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r)
@@ -248,6 +276,12 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}}, "required": ["combo"]}},
     {"name": "open_url", "description": "Navigate this screen's browser window to a URL (it lands on this screen).",
      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+    {"name": "eval", "description": "Run a JavaScript expression in this screen's web page and return its result. "
+                     "Use it to click an element reliably (e.g. document.querySelector('a').click()), read the URL "
+                     "(location.href), or inspect the page — more reliable than clicking by coordinates.",
+     "inputSchema": {"type": "object", "properties": {"js": {"type": "string"}}, "required": ["js"]}},
+    {"name": "play_youtube", "description": "Search YouTube for a query and start playing the first result.",
+     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     # App building (make this screen a custom mini-app). Read authoring_guide first.
     {"name": "authoring_guide", "description": "How to write a PinPin mini-app. Read this before building one.",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -278,9 +312,12 @@ TOOLS = [
          "app": {"type": "string"}, "url": {"type": "string"}}}},
     {"name": "close_screen", "description": "Turn a screen off (reversible). Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}}}},
-    {"name": "move_screen", "description": "Move a screen along its wall (x_m,y_m in metres from wall centre) or to another scene wall. Defaults to THIS screen.",
+    {"name": "move_screen", "description": "Move a screen. Absolute: x_m,y_m (metres from wall centre). RELATIVE: "
+                    "dx_m,dy_m (metres to shift) — use these for 'a bit to the left' (dx_m negative) / right "
+                    "(positive). Or move to another scene wall. Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "x_m": {"type": "number"},
-                     "y_m": {"type": "number"}, "wall": {"type": "string"}}}},
+                     "y_m": {"type": "number"}, "dx_m": {"type": "number"}, "dy_m": {"type": "number"},
+                     "wall": {"type": "string"}}}},
     {"name": "resize_screen", "description": "Set a screen's width in metres (height keeps its aspect). Defaults to THIS screen.",
      "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}, "width_m": {"type": "number"}},
                      "required": ["width_m"]}},
@@ -342,6 +379,10 @@ def call(name, args):
         return {"content": [{"type": "text", "text": json.dumps(_resize_screen(args))}]}
     # Mutating actions. verify-after-act (work-df): every action returns a fresh screenshot of the TARGET screen,
     # so the model confirms the real result from the pixels instead of trusting the call returned.
+    if name == "eval":
+        return {"content": [{"type": "text", "text": json.dumps(_apps("POST", f"/api/screens/{s}/eval", {"js": args["js"]}))}]}
+    if name == "play_youtube":
+        return {"content": [{"type": "text", "text": json.dumps(_play_youtube(args))}]}
     if name == "move":
         CTL.move(s, args["u"], args["v"]); msg = f"moved to {args['u']},{args['v']}"
     elif name == "click":

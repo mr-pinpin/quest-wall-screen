@@ -23,6 +23,32 @@ MAX_WALL_S = float(os.environ.get("PINPIN_ASSIST_MAX_WALL_S", "90"))
 DISPLAYS_HTTP = os.environ.get("PINPIN_DISPLAYS_HTTP", "http://127.0.0.1:57710")
 DISPLAYS_UDP = (os.environ.get("PINPIN_DISPLAYS_HOST", "127.0.0.1"), 57711)
 APPS_BASE = os.environ.get("PINPIN_APPS_BASE", "http://192.168.0.50:57830")  # mini-apps server (work-ad's Chrome runner)
+
+_APPS_TOKEN = ""
+
+
+def apps_token():
+    """Shared bearer token for the apps server's powerful endpoints (work-ad). Read from a local 600 file; never
+    logged or committed. Re-read until found (it may be placed after startup)."""
+    global _APPS_TOKEN
+    if _APPS_TOKEN:
+        return _APPS_TOKEN
+    for p in ("~/.local/share/pinpin-apps/token", "/root/.config/pinpin-apps/token", "~/pinpin-apps-data/token"):
+        try:
+            _APPS_TOKEN = open(os.path.expanduser(p)).read().strip()
+            if _APPS_TOKEN:
+                return _APPS_TOKEN
+        except Exception:
+            continue
+    return ""
+
+
+def apps_headers(extra=None):
+    h = dict(extra or {})
+    t = apps_token()
+    if t:
+        h["Authorization"] = "Bearer " + t
+    return h
 MODEL_FAST = os.environ.get("PINPIN_ASSIST_MODEL", "sonnet")      # tool/build turns
 MODEL_THINK = os.environ.get("PINPIN_ASSIST_MODEL_THINK", "opus")  # "think harder"
 MODEL_CHAT = os.environ.get("PINPIN_ASSIST_MODEL_CHAT", "haiku")   # plain conversation (fast first word)
@@ -67,6 +93,9 @@ def chat_system_prompt(screen):
             "screens — new_screen (on a named wall), move_screen, resize_screen, close_screen — always naming the "
             "screen by its id; and build apps (authoring_guide, put_app, assign_app). The user speaks from anywhere: "
             "\"make screen 3 bigger\", \"put a weather screen on the big wall\", \"turn off the screen by the window\". "
+            "The wall frame has +x to the RIGHT (seen from inside the room) and +y UP. For a RELATIVE nudge like "
+            "\"a bit to the left/right\", call move_screen with dx_m (negative = left, positive = right) — do NOT "
+            "set an absolute x_m. A good nudge is about 0.3 m. "
             "If a request names a wall by feel (\"by the door\") and you can't map it to a wall id, say what walls "
             "exist and ask which. You do NOT have a single screen's pointer tools (screenshot/click) here.\n"
             "CONFIRMATION: a destructive tool (close_screen, or put_app with replace) returns needs_confirmation — "
@@ -79,6 +108,10 @@ def chat_system_prompt(screen):
         f"THIS screen's browser window to a page (it lands on this display), and click/scroll/type act inside "
         f"it. Every action returns a screenshot of the screen — read it to CONFIRM the result actually "
         f"happened before you say it did; if it didn't, try again or report what you see.\n"
+        f"To PLAY a video, use play_youtube(query) — it finds and starts the first result. To act precisely on a "
+        f"page (click a specific link/button), prefer eval (e.g. the first link: "
+        f"[...document.querySelectorAll('a')].find(x=>/learn more|more info/i.test(x.textContent))?.click()) over "
+        f"guessing click coordinates.\n"
         f"To turn this screen into a custom mini-app (\"make this a kitchen timer\", \"build me X here\"): call "
         f"authoring_guide first, write the app with put_app (create:true for a new app; id derived from the "
         f"name) and iterate until check.errors is empty AND check.text matches what was asked, then assign_app "
@@ -175,7 +208,7 @@ class LiveScreenController(ScreenController):
         try:
             req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/{verb}",
                                          data=json.dumps(body).encode(),
-                                         headers={"Content-Type": "application/json"}, method="POST")
+                                         headers=apps_headers({"Content-Type": "application/json"}), method="POST")
             with urllib.request.urlopen(req, timeout=6) as r:
                 json.load(r)
             return True
@@ -220,7 +253,7 @@ class LiveScreenController(ScreenController):
             url = "https://" + url
         body = json.dumps({"url": url}).encode()
         req = urllib.request.Request(f"{APPS_BASE}/api/screens/{int(screen)}/open", data=body,
-                                     headers={"Content-Type": "application/json"}, method="POST")
+                                     headers=apps_headers({"Content-Type": "application/json"}), method="POST")
         with urllib.request.urlopen(req, timeout=8) as r:
             resp = json.load(r)
         seq = resp.get("seq")
@@ -678,7 +711,7 @@ class Assistant:
             try:
                 req = urllib.request.Request(f"{APPS_BASE}/api/screens/{screen}/app",
                                              data=json.dumps({"app": new_app}).encode(),
-                                             headers={"Content-Type": "application/json"}, method="POST")
+                                             headers=apps_headers({"Content-Type": "application/json"}), method="POST")
                 urllib.request.urlopen(req, timeout=10).read()
                 res["assigned"] = screen
             except Exception as e:
