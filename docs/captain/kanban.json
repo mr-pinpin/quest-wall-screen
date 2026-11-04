@@ -1,11 +1,11 @@
 {
- "rev": 78,
+ "rev": 94,
  "next": 29,
  "cards": [
   {
    "title": "Select + draw primitives",
    "details": "A gold outline + number on a screen (select/clear); draw a label or shape on a wall; compose higher actions from atomic primitives. Headset side c4, assistant tools 42.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "review",
+   "column": "done",
    "owner": "work-c4",
    "area": "headset",
    "links": [
@@ -13,7 +13,7 @@
    ],
    "id": "K1",
    "created": "2026-11-04T09:55:17Z",
-   "updated": "2026-11-04T11:34:09Z",
+   "updated": "2026-11-04T12:36:27Z",
    "by": "work-ad",
    "comments": [
     {
@@ -70,13 +70,21 @@
      "at": "2026-11-04T11:34:09Z",
      "by": "work-df",
      "what": "commented"
+    },
+    {
+     "at": "2026-11-04T12:36:27Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
   {
    "title": "White control under each screen always visible",
    "details": "Even where the screen meets the floor.\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "review",
+   "column": "done",
    "owner": "work-c4",
    "area": "headset",
    "links": [
@@ -84,7 +92,7 @@
    ],
    "id": "K2",
    "created": "2026-11-04T09:55:22Z",
-   "updated": "2026-11-04T11:05:58Z",
+   "updated": "2026-11-04T12:37:08Z",
    "by": "work-ad",
    "comments": [
     {
@@ -112,13 +120,21 @@
      "from": "next",
      "to": "review",
      "note": "CTLTOP in k5-next ee94966 (off until seen)"
+    },
+    {
+     "at": "2026-11-04T12:37:08Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped off-by-default; waiting for the user to try it"
     }
    ]
   },
   {
    "title": "Dictation always on and queued (headset)",
    "details": "Keep listening while the assistant replies, queue it, never lock up; don't cut a sentence at a breath. Server side: the dictation-server card (work-42).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "review",
+   "column": "done",
    "owner": "work-c4",
    "area": "headset",
    "links": [
@@ -126,7 +142,7 @@
    ],
    "id": "K3",
    "created": "2026-11-04T09:55:27Z",
-   "updated": "2026-11-04T10:03:06Z",
+   "updated": "2026-11-04T12:36:31Z",
    "by": "work-ad",
    "comments": [
     {
@@ -163,13 +179,21 @@
      "what": "moved",
      "from": "next",
      "to": "review"
+    },
+    {
+     "at": "2026-11-04T12:36:31Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
   {
    "title": "Dictation server: queue, never lock up",
    "details": "The server half of always-on dictation: accept phrases while a reply is running, queue them in order, never drop or lock up; join a sentence split at a breath. Headset side: the dictation card (work-c4).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "review",
+   "column": "done",
    "owner": "work-42",
    "area": "assistant",
    "links": [
@@ -177,7 +201,7 @@
    ],
    "id": "K4",
    "created": "2026-11-04T09:55:31Z",
-   "updated": "2026-11-04T10:02:08Z",
+   "updated": "2026-11-04T12:36:34Z",
    "by": "work-ad",
    "comments": [],
    "history": [
@@ -200,13 +224,21 @@
      "what": "moved",
      "from": "doing",
      "to": "review"
+    },
+    {
+     "at": "2026-11-04T12:36:34Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
   {
    "title": "Pointer stabilization flag (STEADY)",
    "details": "steady.h done (4626f40); integrate after v0.65 (c4)",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [
@@ -214,7 +246,7 @@
    ],
    "id": "K5",
    "created": "2026-11-04T09:55:35Z",
-   "updated": "2026-11-04T09:58:58Z",
+   "updated": "2026-11-04T12:37:13Z",
    "by": "work-ad",
    "comments": [],
    "history": [
@@ -241,13 +273,21 @@
      "from": "next",
      "to": "review",
      "note": "header+tests done by work-0e; needs c4 integration"
+    },
+    {
+     "at": "2026-11-04T12:37:13Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped off-by-default; waiting for the user to try it"
     }
    ]
   },
   {
    "title": "Room assistant fixes",
    "details": "Room screenshot crash; a \"nudge\" that moves far; house_info missing y; an add_card tool (now: POST /api/kanban, see pinpin-apps docs/KANBAN.md).\nFrom the user, spoken in the headset room chat 2026-11-04 09:35–09:46Z (imported from docs/captain/KANBAN.md).",
-   "column": "review",
+   "column": "done",
    "owner": "work-42",
    "area": "assistant",
    "links": [
@@ -255,7 +295,7 @@
    ],
    "id": "K6",
    "created": "2026-11-04T09:55:41Z",
-   "updated": "2026-11-04T10:02:14Z",
+   "updated": "2026-11-04T12:36:38Z",
    "by": "work-ad",
    "comments": [
     {
@@ -290,6 +330,14 @@
      "what": "moved",
      "from": "doing",
      "to": "review"
+    },
+    {
+     "at": "2026-11-04T12:36:38Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -386,13 +434,13 @@
   {
    "title": "SETTINGS panel as a texture (fps 43-53 when open)",
    "details": "panel_texture.h header; c4 integrates",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K10",
    "created": "2026-11-04T09:59:28Z",
-   "updated": "2026-11-04T10:06:34Z",
+   "updated": "2026-11-04T12:36:43Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -409,6 +457,14 @@
      "from": "doing",
      "to": "review",
      "note": "panel_texture.h 351a4b2 (work-0e)"
+    },
+    {
+     "at": "2026-11-04T12:36:43Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -454,13 +510,13 @@
   {
    "title": "Air cost per extra screen",
    "details": "",
-   "column": "review",
+   "column": "done",
    "owner": "work-42",
    "area": "perf",
    "links": [],
    "id": "K12",
    "created": "2026-11-04T10:03:19Z",
-   "updated": "2026-11-04T10:06:02Z",
+   "updated": "2026-11-04T12:36:47Z",
    "by": "work-42",
    "comments": [
     {
@@ -487,6 +543,14 @@
      "what": "moved",
      "from": "doing",
      "to": "review"
+    },
+    {
+     "at": "2026-11-04T12:36:47Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -522,13 +586,13 @@
   {
    "title": "Integrate STEADY, CTLTOP, select outline, panel texture, dictation into v0.66",
    "details": "branch k5-v066, c4 reviews and installs",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K14",
    "created": "2026-11-04T10:06:37Z",
-   "updated": "2026-11-04T10:30:48Z",
+   "updated": "2026-11-04T12:36:51Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -545,6 +609,14 @@
      "from": "next",
      "to": "review",
      "note": "k5-v066 head 0231e11 ready for c4 review (ships as v0.67 after c4's HOUSE v0.66)"
+    },
+    {
+     "at": "2026-11-04T12:36:51Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -603,13 +675,13 @@
   {
    "title": "SETTINGS redesign: categories, cascade, hide hidden flags, ≤1.2 m panels",
    "details": "",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K16",
    "created": "2026-11-04T10:30:51Z",
-   "updated": "2026-11-04T10:43:07Z",
+   "updated": "2026-11-04T12:37:17Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -626,6 +698,14 @@
      "from": "doing",
      "to": "review",
      "note": "k5-v068 2dbd004, SETCAT flag (default off), root 0.78 m vs 3.68 m"
+    },
+    {
+     "at": "2026-11-04T12:37:17Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped off-by-default; waiting for the user to try it"
     }
    ]
   },
@@ -653,13 +733,13 @@
   {
    "title": "Claude chat survives app restarts: reopen shows the conversation history",
    "details": "On start, reload the reception conversation (conversation_id in files/reception-id) from work-42's receptionist history; keep the panel open across restarts if it was open. User request via headset 10:42Z",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K18",
    "created": "2026-11-04T10:41:11Z",
-   "updated": "2026-11-04T10:54:30Z",
+   "updated": "2026-11-04T12:36:55Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -692,6 +772,14 @@
      "from": "doing",
      "to": "review",
      "note": "v0.69 k5-k18 003ff63: history reload, reopen, LISTENING strip (RECKEEP)"
+    },
+    {
+     "at": "2026-11-04T12:36:55Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -850,13 +938,13 @@
   {
    "title": "Headset fps: batch mesh draws, cheaper VT bezel, frameCost instrumentation",
    "details": "",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "perf",
    "links": [],
    "id": "K22",
    "created": "2026-11-04T11:06:02Z",
-   "updated": "2026-11-04T11:22:37Z",
+   "updated": "2026-11-04T12:36:59Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -873,6 +961,14 @@
      "from": "doing",
      "to": "review",
      "note": "k5-mesh 4568da5: MESHBATCH (off, A/B), BEZELFEW on, frameCost counts mesh draws"
+    },
+    {
+     "at": "2026-11-04T12:36:59Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -900,13 +996,13 @@
   {
    "title": "colorsync CPU on the Air: which display/event drives it",
    "details": "30-min read-only correlation of colorsyncd + colorsync.displayservices CPU against the pinpin-displays log, atlas capture restarts and per-display config (scale, HDR, profile); find the driver and propose a fix; then air_smoke under the exclusive lock in a gap of work-34's campaign. Follows K21 (wallpaper ruled out).",
-   "column": "review",
+   "column": "done",
    "owner": "work-ad",
    "area": "perf",
    "links": [],
    "id": "K24",
    "created": "2026-11-04T11:25:31Z",
-   "updated": "2026-11-04T12:01:50Z",
+   "updated": "2026-11-04T12:37:20Z",
    "by": "work-ad",
    "comments": [
     {
@@ -944,19 +1040,27 @@
      "at": "2026-11-04T12:01:50Z",
      "by": "work-ad",
      "what": "commented"
+    },
+    {
+     "at": "2026-11-04T12:37:20Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "cause: display churn; pool rule in AGENTS.md; reboot resets"
     }
    ]
   },
   {
    "title": "Placement review fixes (4 bugs) + MULTIROOM review + repair/setup-change hints",
    "details": "k5-review 0274257, k5-review2 e623251; c4 to install with k5-marks as one v0.70",
-   "column": "review",
+   "column": "done",
    "owner": "work-0e",
    "area": "headset",
    "links": [],
    "id": "K25",
    "created": "2026-11-04T11:52:10Z",
-   "updated": "2026-11-04T11:52:10Z",
+   "updated": "2026-11-04T12:37:03Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -965,6 +1069,14 @@
      "by": "work-df",
      "what": "created",
      "column": "review"
+    },
+    {
+     "at": "2026-11-04T12:37:03Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "review",
+     "to": "done",
+     "note": "shipped (installed by v0.71)"
     }
    ]
   },
@@ -1032,24 +1144,42 @@
   {
    "title": "Nightly health suite",
    "details": "Cron ~01:40Z after work-42's eval: apps render checks + sandbox probe; house round trip on scratch :57801 (put/get/409/rollback to tag); kanban add/move/delete test card; backups <2 h + restore diff clean; network rows; receptionist health. One /status line per check. Read-only on everything live.",
-   "column": "doing",
+   "column": "review",
    "owner": "work-ad",
    "area": "ops",
    "links": [],
    "id": "K28",
    "created": "2026-11-04T12:18:17Z",
-   "updated": "2026-11-04T12:18:17Z",
+   "updated": "2026-11-04T12:36:03Z",
    "by": "work-ad",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-04T12:36:00Z",
+     "by": "work-ad",
+     "text": "Live: tools/nightly_health.py, root cron 40 1 * * * on the VPS (ulimit, timeout 1500). Posts nightly-<area> lines plus a nightly summary to /status. First run 12:32 UTC, 4/6 pass. FAIL house: the scratch :57801 house server has no /house/tag (older code than the live :57800, started 04:36Z); put, the 409 stale put and rollback all pass. FAIL network: colorsync 62% (K24, real). Kanban uses ?board=scratch plus a new delete op; backups restore 13 files identical by sha256."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T12:18:17Z",
      "by": "work-ad",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T12:36:00Z",
+     "by": "work-ad",
+     "what": "commented"
+    },
+    {
+     "at": "2026-11-04T12:36:03Z",
+     "by": "work-ad",
+     "what": "moved",
+     "from": "doing",
+     "to": "review"
     }
    ]
   }
  ],
- "updated": "2026-11-04T12:32:59Z"
+ "updated": "2026-11-04T12:37:20Z"
 }
