@@ -1,5 +1,5 @@
 {
- "rev": 96,
+ "rev": 97,
  "next": 30,
  "cards": [
   {
@@ -1123,13 +1123,13 @@
   {
    "title": "Real-time consolidation on the headset",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-0e",
    "area": "geometry",
    "links": [],
    "id": "K27",
    "created": "2026-11-04T11:58:11Z",
-   "updated": "2026-11-04T11:58:11Z",
+   "updated": "2026-11-04T13:10:06Z",
    "by": "unknown",
    "comments": [],
    "history": [
@@ -1138,6 +1138,14 @@
      "by": "unknown",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-04T13:10:06Z",
+     "by": "work-0e",
+     "what": "moved",
+     "from": "doing",
+     "to": "review",
+     "note": "Merged on main (v0.72-v0.75): consolidate.h port (exact vs consolidate.py on 12 fixtures, 0.3 ms), floor plan, score + live SCAN hint, CLEANLIVE placement hook, wall tool on the clean room. Waiting for the headset (unreachable) and c4's install; tour in docs/try-v075.md."
     }
    ]
   },
@@ -1210,5 +1218,5 @@
    ]
   }
  ],
- "updated": "2026-11-04T13:04:39Z"
+ "updated": "2026-11-04T13:10:06Z"
 }
