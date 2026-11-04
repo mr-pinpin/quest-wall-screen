@@ -18,7 +18,9 @@ import json, os, sys, time, urllib.request, urllib.error
 
 APPS = os.environ.get("PINPIN_APPS_BASE", "http://100.64.243.30:57830")   # Mini, Tailscale
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://100.64.243.30:57800")
-VIS_URL = os.environ.get("PINPIN_VIS_URL")                                # atlas per-screen vis (optional)
+VIS_FILE = os.environ.get("PINPIN_VIS_FILE", "/tmp/pinpin-atlas-vis.json")  # atlas vis tap (work-c4)
+VIS_STALE_S = float(os.environ.get("PINPIN_VIS_STALE_S", "2"))            # older -> unknown, assume visible
+VIS_URL = os.environ.get("PINPIN_VIS_URL")                                # alternative: atlas vis over HTTP
 ENABLED = os.environ.get("PINPIN_FOCUS_ENABLED", "") == "1"              # must opt in to act
 DRY = os.environ.get("PINPIN_FOCUS_DRY", "") == "1"                       # log decisions, never POST act
 POLL_S = float(os.environ.get("PINPIN_FOCUS_POLL_S", "10"))
@@ -67,7 +69,17 @@ def web_screens():
 
 
 def get_vis():
-    """Return {screen_id: seen_bool}, or None if no visibility source is available."""
+    """Return {screen_id: seen_bool}, or None if no fresh visibility source (-> treat all as seen)."""
+    # 1) atlas vis tap file (work-c4): {"t": unix, "screens": {"1": {"vis","pri","px"}, ...}}
+    if VIS_FILE and os.path.exists(VIS_FILE):
+        try:
+            d = json.load(open(VIS_FILE))
+            if time.time() - float(d.get("t", 0)) > VIS_STALE_S:
+                return None                      # stale -> unknown, assume visible (work-c4's rule)
+            return {str(k): float(v.get("vis", 0)) > 0.05 for k, v in d.get("screens", {}).items()}
+        except Exception:
+            return None
+    # 2) explicit HTTP vis endpoint (alternative)
     if VIS_URL:
         try:
             raw = _get(VIS_URL)
@@ -75,6 +87,7 @@ def get_vis():
                     for k, v in raw.items()}
         except Exception:
             return None
+    # 3) coarse fallback: only house.selected screens count as seen
     try:
         doc = _get(HOUSE + "/house")
         sel = doc.get("selected")
@@ -136,7 +149,8 @@ def tick(state):
 
 def main():
     mode = "ACTIVE" if (ENABLED and not DRY) else ("DRY" if DRY else "DISABLED (observe only)")
-    src = VIS_URL or ("house.selected" if get_vis() is not None else "none(all-seen)")
+    src = (VIS_FILE if os.path.exists(VIS_FILE) else None) or VIS_URL or (
+        "house.selected" if get_vis() is not None else "none(all-seen)")
     print("focus_controller: mode=%s vis=%s poll=%gs pause_after=%gs" % (mode, src, POLL_S, UNSEEN_PAUSE_S),
           flush=True)
     state = {}
