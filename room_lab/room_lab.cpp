@@ -1677,7 +1677,7 @@ struct App {
     // with SCROLL. Orbiting dots: terracotta while listening, amber while the answer streams. The panel is a texture
     // redrawn only when that chat changes, drawn as one quad per screen.
     std::mutex assistLock; std::map<int, assist::Chat> chats; std::map<int, float> chatScroll;
-    int assistArmed = 0, assistHover = 0, chatHover = 0; std::string assistBuffer, assistErr, assistHost; long assistSent = 0;
+    int assistArmed = -1, assistHover = 0, chatHover = 0; std::string assistBuffer, assistErr, assistHost; long assistSent = 0;
     std::chrono::steady_clock::time_point assistT0{}, assistHeardAt{}, assistPressAt{}; bool assistSending = false, assistHistoryLoaded = false;
     struct ChatQuad { int id; V3 c[4]; GLuint tex = 0; long version = -1; int scroll = -1; };
     std::map<int, ChatQuad> chatTex; std::vector<int> chatQuads;
@@ -1741,28 +1741,28 @@ struct App {
     }
     void assistClose(int id) {
         chatOpen.erase(id);
-        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = 0; assistBuffer.clear(); assistWaiting = false; }
+        if (assistArmed == id) { if (dictation.recording) dictation.stop(); assistArmed = -1; assistBuffer.clear(); assistWaiting = false; }
         event("assist: chat closed for screen " + std::to_string(id));
     }
     // Returns true when a Claude button takes the right hand this frame.
     bool updateAssist() {
         assistHover = 0; chatHover = 0;
-        if (!assistOn()) { if (assistArmed) { dictation.stop(); assistArmed = 0; } chatOpen.clear(); return false; }
+        if (!assistOn()) { if (assistArmed >= 0) { dictation.stop(); assistArmed = -1; } chatOpen.clear(); return false; }
         assistLoadHistory();
         auto tn = std::chrono::steady_clock::now();
-        if (assistArmed && dictation.recording && !assistWaiting) {
+        if (assistArmed >= 0 && dictation.recording && !assistWaiting) {
             // Pause: words were heard, then 3.5 s of nothing new and a quiet microphone -> stop and send.
             if (!assistBuffer.empty() && tn - assistHeardAt > std::chrono::milliseconds(3500) && dictation.level.load() < 800) { dictation.stop(); event("assist: pause, sending"); }  // 3.5 s: 2.5 split a thought
             // Nothing said for 60 s: close the mic, keep the panel.
-            else if (assistBuffer.empty() && tn - assistT0 > std::chrono::seconds(60)) { dictation.stop(); assistArmed = 0; event("assist: 60 s quiet, mic closed"); }
+            else if (assistBuffer.empty() && tn - assistT0 > std::chrono::seconds(60)) { dictation.stop(); assistArmed = -1; event("assist: 60 s quiet, mic closed"); }
         }
-        if (assistArmed && !assistWaiting && !dictation.recording && dictation.drained()) {
-            if (!assistBuffer.empty()) { assistSend(assistArmed, assistBuffer); assistWaiting = true; } else assistArmed = 0;
+        if (assistArmed >= 0 && !assistWaiting && !dictation.recording && dictation.drained()) {
+            if (!assistBuffer.empty()) { assistSend(assistArmed, assistBuffer); assistWaiting = true; } else assistArmed = -1;
             assistBuffer.clear();
         }
-        if (assistArmed && assistWaiting) {  // the answer is done: listen again while the chat is open
+        if (assistArmed >= 0 && assistWaiting) {  // the answer is done: listen again while the chat is open
             std::string st; { std::lock_guard<std::mutex> g(assistLock); st = chats[assistArmed].state; }
-            if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = 0; assistWaiting = false; } }
+            if (st == "idle" || st == "error") { if (chatOpen.count(assistArmed)) assistListen(assistArmed); else { assistArmed = -1; assistWaiting = false; } }
         }
         if (!(handActive[1] && ray[1].valid)) return false;
         float hx, hy; Entity* hw = rayWall(ray[1].o, ray[1].d, hx, hy); if (!hw) return false;
@@ -3338,11 +3338,11 @@ void main(){
         }
         // While a Claude button is armed it owns the microphone: the fist gesture neither starts nor stops it (v0.47 bug:
         // the open hand stopped the button's recording 150 ms after every press).
-        if (!assistArmed && !dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
-        if (!assistArmed && dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
+        if (assistArmed < 0 && !dictation.recording && fistTime >= kFistHold) { dictation.start(); event("dictation started"); }
+        if (assistArmed < 0 && dictation.recording && openTime >= kFistRelease) { dictation.stop(); event("dictation stopped"); }
         std::string t;
         while (dictation.take(t)) {
-            if (assistArmed > 0) {  // the Claude button is armed: the words go to that screen's assistant, not the stream
+            if (assistArmed >= 0) {  // the Claude button (or ASK..., id 0) is armed: the words go to that screen's assistant, not the stream
                 assistBuffer += (assistBuffer.empty() ? "" : " ") + t; caption = t; captionAt = std::chrono::steady_clock::now(); assistHeardAt = captionAt;
                 event("assist: heard " + t); continue;
             }
