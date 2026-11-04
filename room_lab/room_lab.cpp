@@ -3713,11 +3713,14 @@ void main(){
             }
         }).detach();
     }
-    static std::string houseSceneOf(const json::Value& d, const std::string& wid) {
+    std::string houseSceneOf(const json::Value& d, const std::string& wid) {
         for (auto& w : d["walls"].a) if (w["id"].str() == wid) {
             if (w["scene"].size()) return w["scene"][0].str();
             if (wid.rfind("w-d", 0) == 0) return wid;   // our depth wall: the entity has the house id
         }
+        // v0.66 pushed screens on depth walls as "w-" + the first 8 chars of the depth wall's id ("w-w-d12ed9"): the
+        // depth wall whose id starts with the rest.
+        if (wid.rfind("w-w-d", 0) == 0) for (auto& [u, dw] : depthWalls) if (u.rfind(wid.substr(2), 0) == 0) return u;
         return "";
     }
     void houseUpdate() {
@@ -3741,9 +3744,11 @@ void main(){
             return;
         }
         if ((*d)["screens"].size() == 0) return;
-        Placement main; bool haveMain = false; std::vector<Screen> ex;
+        Placement main; bool haveMain = false; std::vector<Screen> ex; std::set<int> unmapped;
         for (auto& sc : (*d)["screens"].a) {
-            Placement p; p.wall = houseSceneOf(*d, sc["wall"].str()); if (p.wall.empty()) continue;
+            // A house screen whose wall we cannot map is still the house's screen: never "removed elsewhere" for that
+            // (2026-11-04: screens 6 and 7 were dropped this way); it keeps its local spot if we have one.
+            Placement p; p.wall = houseSceneOf(*d, sc["wall"].str()); if (p.wall.empty()) { if (sc["on"].integer(1) != 0) unmapped.insert(sc["id"].integer()); continue; }
             p.x = (float)sc["x"].num(); p.y = (float)sc["y"].num(); p.w = (float)sc["w"].num(1.44); p.h = (float)sc["h"].num(0.9);
             p.active = sc["on"].integer(1) != 0; p.valid = true;
             int id = sc["id"].integer();
@@ -3751,9 +3756,13 @@ void main(){
         }
         // Merge, never drop a screen the house never knew (housemerge.h).
         std::set<int> localIds, houseIds; for (auto& e : extras) localIds.insert(e.id); for (auto& e : ex) houseIds.insert(e.id);
+        for (int id : unmapped) if (id > 1) houseIds.insert(id);
         housemerge::Decision md = housemerge::decide(localIds, houseIds, houseKnown);
         std::vector<Screen> merged;
-        for (int id : md.fromHouse) for (auto& e : ex) if (e.id == id) merged.push_back(e);
+        for (int id : md.fromHouse) {
+            bool got = false; for (auto& e : ex) if (e.id == id) { merged.push_back(e); got = true; }
+            if (!got) for (auto& e : extras) if (e.id == id) merged.push_back(e);   // unmapped in the house: our spot
+        }
         for (int id : md.keepLocal) for (auto& e : extras) if (e.id == id) merged.push_back(e);
         std::sort(merged.begin(), merged.end(), [](const Screen& a, const Screen& b) { return a.id < b.id; });
         houseKnown = houseIds; { std::string k; for (int id : houseKnown) k += std::to_string(id) + "\n"; house::writeAtomic(gDir + "/house-known", k); }
