@@ -8,7 +8,7 @@ rejects it). Transport: newline-delimited JSON-RPC 2.0 over stdio (Claude Code's
 
 Python stdlib only. Runs on the Mac as a child of PinPin Host (inherits Screen Recording + Accessibility).
 """
-import os, sys, json, base64, pathlib, time, urllib.request, urllib.error
+import os, sys, json, base64, pathlib, time, hashlib, urllib.request, urllib.error
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pinpin_assistant as pa
@@ -16,6 +16,91 @@ import pinpin_assistant as pa
 SCREEN = os.environ.get("PINPIN_SCREEN")
 CTL = pa.LiveScreenController()
 APPS = pa.APPS_BASE  # mini-apps server (work-ad)
+HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://192.168.0.50:57800")  # Mini house server (work-c4 contract)
+
+
+def _house_get():
+    with urllib.request.urlopen(HOUSE + "/house", timeout=10) as r:
+        return json.load(r), r.headers.get("X-House-Rev")
+
+
+def _house_put(doc, rev):
+    body = json.dumps(doc).encode()
+    req = urllib.request.Request(HOUSE + "/house", data=body, method="PUT",
+                                 headers={"Content-Type": "application/json", "If-Match": str(rev),
+                                          "X-House-SHA256": hashlib.sha256(body).hexdigest()})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+
+def _place_next_to(doc, cur, new_w):
+    # work-c4's rule: same wall, x = cur.x +/- (cur.w/2 + 0.15 + new_w/2), clamp to wall extent (3 cm margin),
+    # try right then left; return (x, y) or (None, None) if it doesn't fit.
+    wall = next((w for w in doc["walls"] if w.get("id") == cur.get("wall")), None)
+    half = (wall.get("w", 0) / 2.0) if wall and wall.get("w") else 1e9
+    for sign in (1, -1):
+        x = cur["x"] + sign * (cur["w"] / 2 + 0.15 + new_w / 2)
+        if abs(x) + new_w / 2 <= half - 0.03:
+            return round(x, 3), round(cur.get("y", 0), 3)
+    return None, None
+
+
+def _new_screen(args):
+    doc, rev = _house_get()
+    cur = next((s for s in doc.get("screens", []) if str(s.get("id")) == str(SCREEN)), None)
+    new_w = float(args.get("width_m") or (min(1.2, cur["w"]) if cur else 1.0))
+    if args.get("wall"):
+        if not any(w.get("id") == args["wall"] and w.get("scene") for w in doc["walls"]):
+            return {"error": f"wall {args['wall']} is not a scene-located wall; the headset can only place on those"}
+        wall_id, x, y = args["wall"], 0.0, 0.0
+    elif cur:
+        wall_id = cur["wall"]
+        x, y = _place_next_to(doc, cur, new_w)
+        if x is None:
+            return {"error": "no room on this wall next to the current screen"}
+    else:
+        return {"error": "no current screen to place next to; name a wall (see house_info)"}
+    did = int(doc["nextScreenId"])
+    # create the Mac virtual display for this screen on the Air (source.screen == the pinpin-displays id)
+    urllib.request.urlopen(urllib.request.Request(f"{pa.DISPLAYS_HTTP}/displays?id={did}&w=1600&h=1000&scale=2",
+                                                   data=b"", method="POST"), timeout=8).read()
+    h = round(new_w * (1000.0 / 1600.0), 3)  # display is 1600x1000 points
+    screen = {"id": did, "role": "extra", "on": 1, "wall": wall_id, "x": x, "y": y,
+              "w": round(new_w, 3), "h": h, "source": {"kind": "mac-display", "screen": did}}
+    doc["screens"].append(screen)
+    doc["nextScreenId"] = did + 1
+    try:
+        res = _house_put(doc, rev)
+    except urllib.error.HTTPError as e:
+        urllib.request.urlopen(urllib.request.Request(f"{pa.DISPLAYS_HTTP}/remove?id={did}", data=b"", method="POST"), timeout=5).read()
+        if e.code == 409:
+            return {"error": "the house changed during the write (409) — try again"}
+        return {"error": f"house PUT failed {e.code}: {e.read().decode('utf-8','replace')[:200]}"}
+    if args.get("app"):
+        _apps("POST", f"/api/screens/{did}/app", {"app": args["app"]})
+    elif args.get("url"):
+        _apps("POST", f"/api/screens/{did}/open", {"url": args["url"]})
+    return {"ok": True, "screen": did, "wall": wall_id, "x": x, "w": round(new_w, 3), "h": h, "rev": res.get("rev")}
+
+
+def _close_screen(args):
+    doc, rev = _house_get()
+    sid = args.get("screen", SCREEN)
+    s = next((s for s in doc.get("screens", []) if str(s.get("id")) == str(sid)), None)
+    if not s:
+        return {"error": f"no screen {sid} in the house"}
+    s["on"] = 0
+    res = _house_put(doc, rev)
+    return {"ok": True, "screen": sid, "closed": True, "rev": res.get("rev")}
+
+
+def _house_info():
+    doc, rev = _house_get()
+    walls = [{"id": w["id"], "w": w.get("w"), "h": w.get("h")}
+             for w in doc.get("walls", []) if w.get("kind") == "wall" and w.get("scene")]
+    screens = [{"id": s["id"], "wall": s.get("wall"), "x": s.get("x"), "w": s.get("w"),
+                "on": s.get("on"), "source": s.get("source")} for s in doc.get("screens", [])]
+    return {"rev": rev, "nextScreenId": doc.get("nextScreenId"), "placeable_walls": walls, "screens": screens}
 
 
 def _apps(method, path, body=None, timeout=90):
@@ -104,6 +189,17 @@ TOOLS = [
          "create": {"type": "boolean"}, "base": {"type": "string"}}, "required": ["id", "files", "message"]}},
     {"name": "assign_app", "description": "Show an app on THIS screen.",
      "inputSchema": {"type": "object", "properties": {"app": {"type": "string"}}, "required": ["app"]}},
+    # House tools: add / place / close wall screens in the house (so "put a weather screen next to this one" works).
+    {"name": "house_info", "description": "List the house's placeable (scene-located) walls and existing screens.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "new_screen",
+     "description": "Create a new wall screen. By default it goes next to THIS screen on the same wall; or pass a "
+                    "wall id (from house_info). Optionally put an app or url on it. Returns the new screen id.",
+     "inputSchema": {"type": "object", "properties": {
+         "wall": {"type": "string"}, "width_m": {"type": "number"},
+         "app": {"type": "string"}, "url": {"type": "string"}}}},
+    {"name": "close_screen", "description": "Turn a screen off (reversible). Defaults to THIS screen.",
+     "inputSchema": {"type": "object", "properties": {"screen": {"type": "number"}}}},
 ]
 
 
@@ -144,6 +240,12 @@ def call(name, args):
     if name == "assign_app":
         res = _apps("POST", f"/api/screens/{s}/app", {"app": args["app"]})
         return {"content": [{"type": "text", "text": json.dumps(res)}]}
+    if name == "house_info":
+        return {"content": [{"type": "text", "text": json.dumps(_house_info())}]}
+    if name == "new_screen":
+        return {"content": [{"type": "text", "text": json.dumps(_new_screen(args))}]}
+    if name == "close_screen":
+        return {"content": [{"type": "text", "text": json.dumps(_close_screen(args))}]}
     # Mutating actions. verify-after-act (work-df): every action returns a fresh screenshot of the TARGET screen,
     # so the model confirms the real result from the pixels instead of trusting the call returned.
     if name == "move":
