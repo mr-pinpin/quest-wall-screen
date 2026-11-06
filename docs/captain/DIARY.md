@@ -270,3 +270,25 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** block E is slow. Its runs take about 4 min for 60 s of measurement, and round 2 base timed out over ssh at 18:11Z. I asked 34 to check the Air's load and colorsync, and to mark contaminated runs rather than give them a verdict.
 - **Learned:** I relayed "encprobe.swift was never committed" after searching only one directory. It was a moved-path bug. Search the whole repo before calling a file missing.
 - **Next:** E finishes, then the install window; then ad's colorsync write-up and the F rerun. The headset (v0.76) is still waiting for the user to charge it and wake it.
+
+## 2026-11-06 19:00 UTC
+
+- **Decided:**
+  - The user came back wanting to show off the headset. I stopped all Air work so the stream would stay smooth (campaign, K30/K31b install, samplers).
+  - At their explicit request, c4 installed v0.76 while they wore it, with no prox at all and a rollback to v0.72 if it failed.
+  - The user then asked for nothing more to be installed (a demo for their wife), so everything is FROZEN until they lift it.
+  - work-ad added a shared freeze flag, /root/work/.air-freeze (pinpin-apps 43ac89e).
+- **Shipped:**
+  - v0.76 is on the headset and verified through HEARTBEAT: v76, 72–73 fps, focused, and house revs applied in sync (rev 42 now, from the user's own edits).
+  - c4 fixed room.sh status so it no longer reports off screens as missing (abed50b).
+  - colorsync_reset now uses launchctl kickstart -k and checks that the pids changed (63e90c0, c09619c, 56ffe05).
+- **Broke or learned:**
+  - The first v0.76 launch was killed by the delayed package broadcast; the retry stuck (a known gotcha).
+  - `sudo killall` on colorsync was a silent no-op: launchd's EnableTransactions defers SIGTERM, so the pids stayed the same. Always check that the pids changed.
+  - The Air was off the network 18:18–18:36Z, with no reboot, sleep or logout, so block E is CONTAMINATED.
+  - I couldn't reach adb myself. The path only works from the Mini (now saved in memory).
+  - I closed the ghost campaign[3822215] (block B, 01:34Z).
+- **Next, after the user lifts the freeze:**
+  - the colorsync kickstart (me, as root on the Air) plus air_smoke (ad);
+  - the K30+K31b install window, then E (with a warm-up if needed), then F (34);
+  - the K15 phase 2 DRY watch, now that vis is live (42).
