@@ -1,6 +1,6 @@
 {
- "rev": 99,
- "next": 31,
+ "rev": 101,
+ "next": 32,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -623,13 +623,13 @@
   {
    "title": "Video focus: pause/cap unseen web video",
    "details": "",
-   "column": "doing",
+   "column": "review",
    "owner": "work-42",
    "area": "perf",
    "links": [],
    "id": "K15",
    "created": "2026-11-04T10:10:00Z",
-   "updated": "2026-11-04T10:21:51Z",
+   "updated": "2026-11-06T16:31:15Z",
    "by": "work-42",
    "comments": [
     {
@@ -669,6 +669,13 @@
      "at": "2026-11-04T10:21:51Z",
      "by": "work-df",
      "what": "commented"
+    },
+    {
+     "at": "2026-11-06T16:31:15Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "review"
     }
    ]
   },
@@ -1244,7 +1251,28 @@
      "column": "backlog"
     }
    ]
+  },
+  {
+   "title": "Host plugins exit on parent death + Host startup orphan sweep (2 orphans survived 11-05 WindowServer crash)",
+   "details": "",
+   "column": "backlog",
+   "owner": "work-42",
+   "area": "",
+   "links": [],
+   "id": "K31",
+   "created": "2026-11-06T16:31:11Z",
+   "updated": "2026-11-06T16:31:11Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-06T16:31:11Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
   }
  ],
- "updated": "2026-11-06T16:20:50Z"
+ "updated": "2026-11-06T16:31:15Z"
 }
