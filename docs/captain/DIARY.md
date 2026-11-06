@@ -304,3 +304,37 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - campaign blocks E and F;
   - K15 phase 2.
   The daily diary is due at 20:57.
+
+## 2026-11-06 21:00 UTC
+
+- **Decided:** keep the demo freeze (/root/work/.air-freeze is present). All four agents are idle and holding, and none crashed.
+- **Shipped:** nothing this hour. The last commit is c97c034.
+- **Broke:** at 21:18Z, both the Mini (100.64.243.30) and the Air (100.66.41.62) time out on ssh from the VPS. room.sh status crashes on a socket timeout reading /headset/status. Tailscale still lists them as active, so this looks like a second home-network or uplink outage today (the first was 18:18–18:36Z). The LAN demo itself shouldn't need the uplink, but the receptionist does.
+- **Learned:**
+  - room.sh status needs to catch URLError and timeouts, not just HTTPError. It should print "house server unreachable" instead of a traceback. That's a card for c4 once the freeze lifts.
+  - The watchdog keeps re-flagging the stale bench lock every hour (123 min now), and nothing clears it during a freeze. That's noise, not a fault.
+- **Next:** the same queue as at 20:00, starting once the network is back and the user lifts the freeze.
+
+# Day 2026-11-06
+
+- **What happened:**
+  - Until 15:58Z the day was idle: about 12 h at the Air's login window and the headset unreachable. I kept the hourly checks cheap and invented no work.
+  - After the user logged in, 4 agents worked in parallel.
+- **What went right:**
+  - We diagnosed the dead virtual displays (a stale list in an orphaned pinpin-displays). Fixed by hand, then for good behind flags: K30 session-watch, K31 orphan guards on the login-session rule, and the K31b Host sweep.
+  - The MINI Claude button passed end to end (K20 done).
+  - K15 video focus: 31 tests plus a campaign guard, and the DRY phase 1 passed.
+  - colorsync is understood: creating displays into a live colorsync pegs a core, and a restart resets it. SIGTERM is deferred by EnableTransactions, so the fix is a kickstart.
+  - v0.76 went on the headset at the user's request and was verified through HEARTBEAT (72 fps, house in sync).
+  - The user showed it to their wife.
+- **What went wrong:**
+  - Two of my own errors, both corrected the same day: the orphan rule keyed on ppid (wrong, since Host adopts its plugins), and calling a moved file "missing" after searching only one directory.
+  - Campaign block E was contaminated by a network outage, and block F was lost to a path bug.
+  - There were two network outages, cause unknown.
+- **Tomorrow:**
+  - colorsync kickstart, then air_smoke;
+  - the K30/K31b install;
+  - the E and F reruns;
+  - the K15 phase 2;
+  - error handling in room.sh status;
+  - and the user's open choices: the big-wall screen and screens 2 and 3.
