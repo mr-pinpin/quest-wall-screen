@@ -28,6 +28,9 @@ RECEPT_BASE = os.environ.get("PINPIN_RECEPT_BASE", "http://100.109.138.51:57850"
 RECEPT_TOKEN_FILE = os.path.expanduser(os.environ.get(
     "PINPIN_RECEPT_TOKEN_FILE", "~/.local/share/pinpin-assistant/receptionist-token"))
 ROOM_TO_CAPTAIN = os.environ.get("PINPIN_ROOM_TO_CAPTAIN", "") == "1"  # ASK… room session -> receptionist -> work-df
+# K20: screens whose page is a Chrome kiosk on the Mini (local-cdp.json). open_url/open is 403 there
+# (the kiosk page IS the screen) — these screens navigate via eval(location.assign(...)) instead.
+KIOSK_SCREENS = {int(x) for x in os.environ.get("PINPIN_KIOSK_SCREENS", "1").split(",") if x.strip().isdigit()}
 
 _APPS_TOKEN = ""
 
@@ -105,6 +108,26 @@ def chat_system_prompt(screen):
             "CONFIRMATION: a destructive tool (close_screen, or put_app with replace) returns needs_confirmation — "
             "relay its message to the user and only call the tool again after they clearly say yes; if they say no, "
             "don't. Keep replies short and in Markdown, and confirm what changed in one line."
+        )
+    if str(screen).isdigit() and int(screen) in KIOSK_SCREENS:
+        return (
+            f"You are the PinPin assistant for the MINI wall screen (screen {screen}). This screen is a Chrome "
+            f"kiosk showing the Mr. PinPin Atlas storyboard. The user has given you FULL control of this Chrome: "
+            f"you may click, scroll, type, and navigate it to other web pages, exactly like a laptop screen. "
+            f"Every action returns a screenshot — read it to CONFIRM what happened before you say it did.\n"
+            f"NAVIGATION on this screen is NOT done with open_url (that is blocked here — the kiosk page IS the "
+            f"screen). To go to another page, use eval with location.assign, e.g. "
+            f"eval(\"location.assign('https://en.wikipedia.org')\"); to go back, eval(\"history.back()\") or "
+            f"location.assign of a saved URL.\n"
+            f"AT THE START of a session, before doing anything else, record this screen's current URL by calling "
+            f"eval(\"location.href\") — this is the ORIGINAL storyboard URL. Remember it for the whole session.\n"
+            f"BEFORE you navigate away from the Atlas storyboard, SAY SO first (\"this will leave the storyboard\") "
+            f"so the user knows the screen will change. ALWAYS offer to return, and be able to return, to that "
+            f"original URL on request — navigate back with eval(\"location.assign('<the original URL>')\").\n"
+            f"To act precisely on a page (click a specific link/button), prefer eval (e.g. "
+            f"[...document.querySelectorAll('a')].find(x=>/learn more/i.test(x.textContent))?.click()) over "
+            f"guessing click coordinates. To play a video, use play_youtube(query).\n"
+            f"Keep replies short and in Markdown, and confirm in one line what the user now sees."
         )
     return (
         f"You are the PinPin assistant for wall screen {screen}. You may ONLY act on this screen via the "

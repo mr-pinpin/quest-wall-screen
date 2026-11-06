@@ -1,5 +1,20 @@
 # Mini screen-tools contract (K20)
 
+> **LIVE 2026-11-06 (user: "Full control").** The MINI Claude button drives the Atlas kiosk over CDP.
+> On the Mini, `~/pinpin-apps-data/local-cdp.json` enables screen 1:
+> `{"1": {"port": 9612, "match": null, "allow": ["shot","eval","click","move","scroll","type","key"]}}`.
+> `match` is **null on purpose** (not `"atlas-webgpu.html"`): the runner picks the CDP target by the first
+> page whose URL contains `match` (apps_runner.py:62), there is exactly one page target on 9612, and a
+> non-null match would stop matching the moment the brain navigates off the storyboard — so it could
+> neither drive nor return. `null` always selects the one kiosk tab and survives navigate + return.
+> **`open`/navigate is hard-403'd** on a kiosk screen (apps_server.py:1565, "the kiosk page IS the
+> screen") — the screen-1 assistant prompt navigates via `eval("location.assign('…')")` instead,
+> records the original storyboard URL at session start, announces before leaving it, and can always
+> return. The screen-1 kiosk prompt lives in `assistant/pinpin_assistant.py` (`KIOSK_SCREENS`,
+> default `{1}`, env `PINPIN_KIOSK_SCREENS`). Verified at the apps-server level (shot 200 PNG
+> 1920x1080, eval, harmless click, open→403); full headset→/session/1 e2e pending the Air GUI login
+> (PinPin Host is a GUI login item; the Air's WindowServer died 17:45Z 2026-11-05).
+
 > **SHELVED 2026-11-04 (work-df + work-c4).** The MINI screen turned out to be the Atlas Chrome
 > kiosk (chrome-atlas-profile, atlas-webgpu.html) with remote debugging on 127.0.0.1:9612 — not a
 > native-desktop display. So K20 is done the way the Air web screens work: **CDP** —
