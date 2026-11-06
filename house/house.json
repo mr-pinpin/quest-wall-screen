@@ -23,37 +23,12 @@
  },
  "nextScreenId": 8,
  "plan": {
-  "algo": "consolidate/1",
-  "src": "e9e092bf7a4b75a86f9dec8194286b5e8404a8568b013217ef28f1806fb42fd4",
-  "rev": 30,
-  "axesDeg": 17.3,
+  "algo": "consolidate/2",
+  "src": "17cffc0707d8fde740541619402bbb7e0f3e081b7b568b40ceb8e49b395758ad",
+  "rev": 31,
+  "axesDeg": 16.83,
   "floorY": -1.422,
-  "frames": [
-   {
-    "batch": "2026-11-04T02:15:42Z",
-    "surfaces": 12,
-    "samples": 809751,
-    "dy": -0.059,
-    "yawDeg": 0.61,
-    "status": "moved -0.06 m onto the meta floor"
-   },
-   {
-    "batch": "2026-11-04T03:03:27Z",
-    "surfaces": 19,
-    "samples": 1088111,
-    "dy": -0.158,
-    "yawDeg": 0.36,
-    "status": "moved -0.16 m onto the meta floor"
-   },
-   {
-    "batch": "2026-11-04T09:32:05Z",
-    "surfaces": 11,
-    "samples": 405955,
-    "dy": -0.262,
-    "yawDeg": -1.77,
-    "status": "moved -0.26 m onto the meta floor"
-   }
-  ],
+  "frames": [],
   "walls": [
    {
     "id": "p-851ff933",
@@ -66,9 +41,9 @@
      ],
      "q": [
       0.0,
-      0.592691,
+      0.596034,
       0.0,
-      -0.80543
+      -0.802959
      ]
     },
     "w": 3.587,
@@ -91,9 +66,9 @@
      ],
      "q": [
       0.0,
-      0.80543,
+      0.802959,
       0.0,
-      0.592691
+      0.596034
      ]
     },
     "w": 3.564,
@@ -116,9 +91,9 @@
      ],
      "q": [
       0.0,
-      0.150429,
+      0.146318,
       0.0,
-      0.988621
+      0.989238
      ]
     },
     "w": 2.973,
@@ -141,9 +116,9 @@
      ],
      "q": [
       0.0,
-      0.592691,
+      0.596034,
       0.0,
-      -0.80543
+      -0.802959
      ]
     },
     "w": 2.896,
@@ -156,33 +131,6 @@
     "room": "pr1"
    },
    {
-    "id": "p-dde1888",
-    "kind": "wall",
-    "pose": {
-     "p": [
-      -2.831,
-      -0.152,
-      0.128
-     ],
-     "q": [
-      0.0,
-      0.80543,
-      0.0,
-      0.592691
-     ]
-    },
-    "w": 2.069,
-    "h": 2.54,
-    "from": [
-     "w-dde1888",
-     "w-df68afd",
-     "w-db3243d"
-    ],
-    "src": "depth",
-    "conf": 1.0,
-    "room": "pr2"
-   },
-   {
     "id": "p-e76f73ed",
     "kind": "wall",
     "pose": {
@@ -193,9 +141,9 @@
      ],
      "q": [
       0.0,
-      0.80543,
+      0.802959,
       0.0,
-      0.592691
+      0.596034
      ]
     },
     "w": 2.08,
@@ -218,9 +166,9 @@
      ],
      "q": [
       0.0,
-      0.988621,
+      0.989238,
       0.0,
-      -0.150429
+      -0.146318
      ]
     },
     "w": 1.388,
@@ -243,9 +191,9 @@
      ],
      "q": [
       0.0,
-      0.988621,
+      0.989238,
       0.0,
-      -0.150429
+      -0.146318
      ]
     },
     "w": 1.135,
@@ -258,120 +206,6 @@
     "room": "pr1"
    },
    {
-    "id": "p-d381789",
-    "kind": "wall",
-    "pose": {
-     "p": [
-      0.181,
-      -0.152,
-      -0.415
-     ],
-     "q": [
-      0.0,
-      0.592691,
-      0.0,
-      -0.80543
-     ]
-    },
-    "w": 2.822,
-    "h": 2.54,
-    "from": [
-     "w-d381789",
-     "w-dc83d0f"
-    ],
-    "src": "depth",
-    "conf": 0.833,
-    "room": "pr2",
-    "stacked": [
-     {
-      "id": "w-d528b76",
-      "gap": 0.296,
-      "src": "depth",
-      "samples": 52151
-     }
-    ],
-    "clippedFrom": 7.8
-   },
-   {
-    "id": "p-d62e425",
-    "kind": "wall",
-    "pose": {
-     "p": [
-      -1.689,
-      -0.152,
-      -1.311
-     ],
-     "q": [
-      0.0,
-      0.150429,
-      0.0,
-      0.988621
-     ]
-    },
-    "w": 3.037,
-    "h": 2.54,
-    "from": [
-     "w-de9ab30",
-     "w-d9c605d",
-     "w-d3c184d",
-     "w-d62e425"
-    ],
-    "src": "depth",
-    "conf": 0.988,
-    "room": "pr2",
-    "stacked": [
-     {
-      "id": "w-d9c605d",
-      "gap": 0.063,
-      "src": "depth",
-      "samples": 12473
-     },
-     {
-      "id": "w-d3c184d",
-      "gap": 0.063,
-      "src": "depth",
-      "samples": 26757
-     },
-     {
-      "id": "w-d62e425",
-      "gap": 0.063,
-      "src": "depth",
-      "samples": 43843
-     },
-     {
-      "id": "w-dfbc805",
-      "gap": 0.202,
-      "src": "depth",
-      "samples": 19297
-     },
-     {
-      "id": "w-d173082",
-      "gap": 0.202,
-      "src": "depth",
-      "samples": 19866
-     },
-     {
-      "id": "w-d47a8b1",
-      "gap": 0.138,
-      "src": "depth",
-      "samples": 14607
-     },
-     {
-      "id": "w-d9f6087",
-      "gap": 0.337,
-      "src": "depth",
-      "samples": 14603
-     },
-     {
-      "id": "w-de15e9e",
-      "gap": 0.258,
-      "src": "depth",
-      "samples": 17645
-     }
-    ],
-    "clippedFrom": 3.476
-   },
-   {
     "id": "p-9e501f4e",
     "kind": "wall",
     "pose": {
@@ -382,9 +216,9 @@
      ],
      "q": [
       0.0,
-      0.150429,
+      0.146318,
       0.0,
-      0.988621
+      0.989238
      ]
     },
     "w": 0.236,
@@ -395,46 +229,6 @@
     "src": "scene",
     "conf": 1.0,
     "room": "pr1"
-   },
-   {
-    "id": "p-d59bcc9",
-    "kind": "wall",
-    "pose": {
-     "p": [
-      0.13,
-      -0.152,
-      1.079
-     ],
-     "q": [
-      0.0,
-      0.988621,
-      0.0,
-      -0.150429
-     ]
-    },
-    "w": 1.204,
-    "h": 2.54,
-    "from": [
-     "w-d59bcc9",
-     "w-d9d9413"
-    ],
-    "src": "depth",
-    "conf": 0.67,
-    "room": "pr2",
-    "stacked": [
-     {
-      "id": "w-d9d9413",
-      "gap": 0.092,
-      "src": "depth",
-      "samples": 42409
-     },
-     {
-      "id": "w-d091859",
-      "gap": 0.172,
-      "src": "depth",
-      "samples": 30682
-     }
-    ]
    },
    {
     "id": "p-f8817eb5",
@@ -576,106 +370,184 @@
     "doors": [],
     "opens": [],
     "tops": []
-   },
-   {
-    "id": "pr2",
-    "floor": [
-     [
-      -0.239,
-      -1.762
-     ],
-     [
-      0.6,
-      0.932
-     ],
-     [
-      -1.017,
-      1.436
-     ],
-     [
-      -1.234,
-      0.74
-     ],
-     [
-      -2.528,
-      1.143
-     ],
-     [
-      -3.151,
-      -0.855
-     ]
-    ],
-    "holes": [],
-    "area": 7.619,
-    "floorY": -1.422,
-    "ceilingY": 1.118,
-    "closed": false,
-    "closure": 0.84,
-    "support": 0.788,
-    "perimeter": 11.744,
-    "openM": 1.875,
-    "doors": [],
-    "opens": [
-     {
-      "a": [
-       -1.234,
-       0.74
-      ],
-      "b": [
-       -1.017,
-       1.436
-      ],
-      "w": 0.729
-     },
-     {
-      "a": [
-       -2.328,
-       1.081
-      ],
-      "b": [
-       -1.234,
-       0.74
-      ],
-      "w": 1.146
-     }
-    ],
-    "tops": [
-     {
-      "id": "w-d45b26b",
-      "y": -1.12,
-      "area": 0.825
-     },
-     {
-      "id": "w-dd21c4b",
-      "y": -0.98,
-      "area": 4.728
-     },
-     {
-      "id": "w-d6410cb",
-      "y": -1.108,
-      "area": 0.9
-     },
-     {
-      "id": "w-d28b5e6",
-      "y": -1.132,
-      "area": 4.5
-     },
-     {
-      "id": "w-dc55781",
-      "y": -1.134,
-      "area": 3.688
-     }
-    ]
    }
   ],
   "dropped": [
    {
+    "id": "w-d5829e5",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d635408",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d528b76",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d173082",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d091859",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d62e425",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
     "id": "w-d7eb258",
-    "why": "slanted (normal 40 deg above horizontal): neither wall nor floor"
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d95fea7",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-df68afd",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-de9ab30",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d45b26b",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dcb94db",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-ddcd28c",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dc2ffcf",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d964db3",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-de15e9e",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d47a8b1",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d49753d",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d2622ca",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dd21c4b",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dc6e7bb",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d3c184d",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
    },
    {
     "id": "w-d5adf23",
-    "why": "slanted (normal 44 deg above horizontal): neither wall nor floor"
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d6410cb",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d97621a",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d9d9413",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d9cb069",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d381789",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d19beb6",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dd02221",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dde1888",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-da61212",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dc83d0f",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d59bcc9",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d12ed9f",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-db3243d",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d9f6087",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d9c605d",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dfbc805",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d8d1778",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dc6020a",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d6f9ef4",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-d28b5e6",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
+   },
+   {
+    "id": "w-dc55781",
+    "why": "frame-suspect: no frame record (committed before v0.65); kept in raw, not in the plan"
    },
    {
     "id": "w-w-d12ed9",
@@ -684,110 +556,34 @@
    {
     "id": "w-w-d59bcc",
     "why": "no pose or size yet"
-   },
-   {
-    "id": "w-d95fea7",
-    "why": "off-axis: 10 deg from the room directions"
-   },
-   {
-    "id": "w-dc2ffcf",
-    "why": "off-axis: 35 deg from the room directions"
-   },
-   {
-    "id": "w-dc6e7bb",
-    "why": "off-axis: 42 deg from the room directions"
-   },
-   {
-    "id": "w-d97621a",
-    "why": "low confidence 0.34"
-   },
-   {
-    "id": "w-d9cb069",
-    "why": "off-axis: 43 deg from the room directions"
-   },
-   {
-    "id": "w-d19beb6",
-    "why": "low confidence 0.27"
-   },
-   {
-    "id": "w-dc6020a",
-    "why": "off-axis: 13 deg from the room directions"
-   },
-   {
-    "id": "w-d6f9ef4",
-    "why": "off-axis: 10 deg from the room directions"
-   },
-   {
-    "id": "w-dfbc805",
-    "why": "0.20 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-d173082",
-    "why": "0.20 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-d47a8b1",
-    "why": "0.14 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-d9f6087",
-    "why": "0.34 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-de15e9e",
-    "why": "0.26 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-d528b76",
-    "why": "0.30 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-d091859",
-    "why": "0.17 m in front of a wall it overlaps (furniture face or a second look)"
-   },
-   {
-    "id": "w-ddcd28c",
-    "why": "short (0.23 m after merging and corners)"
-   },
-   {
-    "id": "w-d8d1778",
-    "why": "short (0.14 m after merging and corners)"
    }
   ],
   "score": {
-   "verdict": "not yet",
-   "reasons": [
-    "pr2: open 1.9 m of 11.7 m (closure 0.84 < 0.9)",
-    "w-dde1888 is 3 cm behind Meta w-851ff933: thinner than a real wall (6+ cm), so the scan and Meta disagree by a few cm (frame offset?)"
-   ],
+   "verdict": "satisfactory",
+   "reasons": [],
    "duplicates": {
-    "raw": 70,
+    "raw": 0,
     "plan": 0
    },
-   "rooms": 2,
-   "closure": 0.84,
+   "rooms": 1,
+   "closure": 1.0,
    "sceneFit": {
     "pairs": 0,
     "median_m": null,
     "max_m": null,
-    "backToBack": [
-     {
-      "depth": "w-dde1888",
-      "meta": "w-851ff933",
-      "thickness_m": 0.026
-     }
-    ]
+    "backToBack": []
    },
-   "explained": 0.713,
+   "explained": null,
    "walls": {
-    "raw": 39,
-    "plan": 15
+    "raw": 11,
+    "plan": 11
    },
-   "axesShare": 0.886
+   "axesShare": 0.873,
+   "frameSuspect": 44
   },
-  "updated": "2026-11-04T11:00:26Z"
+  "updated": "2026-11-06T01:21:01Z"
  },
- "rev": 30,
+ "rev": 35,
  "rooms": [
   {
    "anchors": [
@@ -862,7 +658,7 @@
   {
    "h": 0.657638013,
    "id": 2,
-   "on": 1,
+   "on": 0,
    "role": "extra",
    "source": {
     "kind": "mac-display",
@@ -874,17 +670,17 @@
    "y": 0.311352998
   },
   {
-   "h": 0.425307006,
+   "h": 0.5625,
    "id": 3,
-   "on": 1,
+   "on": 0,
    "role": "extra",
    "source": {
     "kind": "mac-display",
     "screen": 3
    },
-   "w": 0.680490971,
+   "w": 0.9,
    "wall": "w-aeda1f4d",
-   "x": 0.848351955,
+   "x": 0.728,
    "y": 0.177444085
   },
   {
@@ -948,7 +744,7 @@
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-04T11:00:26Z",
+ "updated": "2026-11-06T01:22:40Z",
  "walls": [
   {
    "h": 2.50954533,
@@ -2446,5 +2242,6 @@
    "source": "scene",
    "w": 1.1500001
   }
- ]
+ ],
+ "selected": []
 }
