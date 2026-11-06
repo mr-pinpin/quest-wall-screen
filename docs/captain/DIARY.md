@@ -352,3 +352,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 4. K15 phase 2 on the live vis (42).
 5. room.sh status: handle timeouts (c4).
 6. Open questions for the user: the big-wall screen, and screens 2 and 3 off or on.
+
+## 2026-11-06 22:00 UTC
+
+- **Decided:** keep the demo freeze (/root/work/.air-freeze is present; the user hasn't lifted it). All four agents are idle and holding, and none crashed.
+- **Shipped:** the full daily diary (57e4aca) and new lessons in captain-lessons memory. K30 and K31 are moved to review on the kanban; the K31 move had failed at 21:30Z while the Mini was unreachable.
+- **Broke or learned:** at 22:17Z the Mini and the Air answer ssh again, so the 21:18Z outage lasted under an hour. That makes two outages today, cause unknown; worth asking the user whether the router or the uplink restarted. The watchdog flagged the stale bench lock for the third time (185 min). It's harmless under the freeze, and the next bl.take() clears it.
+- **Next:** unchanged. Once the user lifts the freeze: the colorsync kickstart and air_smoke, then the K30+K31b install, then E and F, then K15 phase 2, then room.sh status timeout handling.
