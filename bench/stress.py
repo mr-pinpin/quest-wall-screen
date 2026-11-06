@@ -422,8 +422,10 @@ def _stamp(t):
 BENCH_PROCS = re.compile(r'^(pinpin-|encprobe|stresspattern|python3?$|sshd|WindowServer$|replayd$|ps$)')
 # Known steady background, recorded in 'background' but not contamination: colorsync.displayservices has run at ~55-62%
 # since the display churn (K24) and stays there until the Air reboots. It is constant across both arms of a pair, so
-# excluding every pair for it would leave no verdicts at all.
-STEADY_BG = re.compile(r'^colorsync')
+# excluding every pair for it would leave no verdicts at all. audiomxd likewise: one core pegged at 100% (load ~1.1) for
+# 7+ hours from 2026-11-05 17:51 UTC, likely the laptop Sunshine's audio tap (work-df). Both are re-judgeable:
+# campaign.py reads the stored strings, so taking a name out of here and re-running --runs restores the exclusion.
+STEADY_BG = re.compile(r'^(colorsync|audiomxd$)')
 
 
 def air_load():
