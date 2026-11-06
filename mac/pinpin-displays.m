@@ -28,8 +28,8 @@
 // virtual desktop, so a screen nobody touches still costs a full capture and encode on every frame (work-09,
 // 2026-11-03: 1-2% identical frames). The user's own displays are never touched.
 //
-// Session watch (flag: the file ~/.local/share/pinpin-displays/session-watch exists; rules in displays_watch.h, which
-// sits next to this file): every 10 s the helper compares its displays with the online display list. A display gone
+// Session watch (flag: the file ~/.local/share/pinpin-displays/session-watch exists, read live on every tick, so it
+// is turned on or off without a restart; rules in displays_watch.h, which sits next to this file): every 10 s the helper compares its displays with the online display list. A display gone
 // for 3 checks (WindowServer restarted, 2026-11-05 17:45 UTC) is re-created from its saved size, at most once per
 // 5 min per screen (K24: no churn); when re-creating cannot work (no online display at all, or re-creates that do not
 // stick) it exits so PinPin Host starts a fresh helper in the live session. It also exits when its Host parent dies,
@@ -172,6 +172,8 @@ static NSString *listJSON(void) {
 // Session watch, every 10 s on the main queue (flag session-watch). Exits rather than guess when this process can no
 // longer reach the session: its owner (PinPin Host) restarts it from displays.json in the live one.
 static void checkDisplays(void) {
+    watchOn = [[NSFileManager defaultManager] fileExistsAtPath:[dataDir stringByAppendingPathComponent:@"session-watch"]];
+    if (!watchOn) { emptyChecks = 0; for (int i = 0; i < 65; i++) watch[i].missing = 0; return; }  // off: count nothing
     if (startParent > 1 && getppid() != startParent) { NSLog(@"session watch: Host parent %d gone, exiting", startParent); exit(0); }
     if (CGDisplayIsAsleep(CGMainDisplayID())) return;  // a sleeping Mac is not a dead session: count nothing
     CGDirectDisplayID on[64]; int n = onlineList(on, 64);
@@ -358,18 +360,19 @@ int main(void) {
 
         watchOn = [[NSFileManager defaultManager] fileExistsAtPath:[dir stringByAppendingPathComponent:@"session-watch"]];
         startParent = getppid();  // 1 = started by launchd by hand: no parent to follow
-        NSLog(@"session watch %@ (parent %d)", watchOn ? @"on" : @"off", startParent);
-        if (watchOn) {
-            if (startParent > 1) {  // exit with the Host, at once (the 10 s check also catches a missed event)
-                dispatch_source_t ps = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)startParent, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
-                dispatch_source_set_event_handler(ps, ^{ NSLog(@"session watch: Host parent %d exited, exiting", startParent); exit(0); });
-                dispatch_resume(ps);
-            }
-            dispatch_source_t tm = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-            dispatch_source_set_timer(tm, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), 10 * NSEC_PER_SEC, NSEC_PER_SEC);
-            dispatch_source_set_event_handler(tm, ^{ checkDisplays(); });
-            dispatch_resume(tm);
+        NSLog(@"session watch %@ at start (parent %d; the flag is read on every 10 s tick)", watchOn ? @"on" : @"off", startParent);
+        if (startParent > 1) {  // exit with the Host at once, when the flag is on (the 10 s check also catches a missed event)
+            dispatch_source_t ps = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)startParent, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+            dispatch_source_set_event_handler(ps, ^{
+                if (![[NSFileManager defaultManager] fileExistsAtPath:[dataDir stringByAppendingPathComponent:@"session-watch"]]) return;
+                NSLog(@"session watch: Host parent %d exited, exiting", startParent); exit(0);
+            });
+            dispatch_resume(ps);
         }
+        dispatch_source_t tm = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(tm, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), 10 * NSEC_PER_SEC, NSEC_PER_SEC);
+        dispatch_source_set_event_handler(tm, ^{ checkDisplays(); });
+        dispatch_resume(tm);
         [[NSRunLoop mainRunLoop] run];
     }
     return 0;
