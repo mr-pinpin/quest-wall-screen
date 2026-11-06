@@ -1,5 +1,5 @@
 {
- "rev": 98,
+ "rev": 99,
  "next": 31,
  "cards": [
   {
@@ -842,13 +842,13 @@
   {
    "title": "Mini Claude button: run brain on VPS/Air, Mini exposes only screen tools over token LAN API; drop Mini claude + Mini assistant plugin; supersede docs/mini-assistant-reauth.md",
    "details": "",
-   "column": "doing",
+   "column": "done",
    "owner": "work-42",
    "area": "platform",
    "links": [],
    "id": "K20",
    "created": "2026-11-04T10:47:25Z",
-   "updated": "2026-11-04T12:19:43Z",
+   "updated": "2026-11-06T16:20:50Z",
    "by": "work-42",
    "comments": [
     {
@@ -875,6 +875,13 @@
      "at": "2026-11-04T12:19:43Z",
      "by": "work-42",
      "what": "commented"
+    },
+    {
+     "at": "2026-11-06T16:20:50Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "doing",
+     "to": "done"
     }
    ]
   },
@@ -1239,5 +1246,5 @@
    ]
   }
  ],
- "updated": "2026-11-06T16:20:03Z"
+ "updated": "2026-11-06T16:20:50Z"
 }
