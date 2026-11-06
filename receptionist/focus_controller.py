@@ -34,7 +34,8 @@ ONLY = [s.strip() for s in os.environ.get("PINPIN_FOCUS_SCREENS", "").split(",")
 def _token():
     p = os.path.expanduser("~/.local/share/pinpin-apps/token")
     try:
-        return open(p).read().strip()
+        with open(p) as f:
+            return f.read().strip()
     except OSError:
         import subprocess
         r = subprocess.run(["sudo", "-n", "cat", "/root/.config/pinpin-apps/token"],
@@ -86,7 +87,8 @@ def web_screens():
         pass
     try:                                               # plus whatever the atlas vis tap currently reports
         if VIS_FILE and os.path.exists(VIS_FILE):      # (authoritative active set; house may be incomplete)
-            ids |= set(json.load(open(VIS_FILE)).get("screens", {}).keys())
+            with open(VIS_FILE) as f:
+                ids |= set(json.load(f).get("screens", {}).keys())
     except Exception:
         pass
     return sorted(ids, key=lambda x: (len(x), x))      # non-web ones 404 at probe time and are skipped
@@ -97,7 +99,8 @@ def get_vis():
     # 1) atlas vis tap file (work-c4): {"t": unix, "screens": {"1": {"vis","pri","px"}, ...}}
     if VIS_FILE and os.path.exists(VIS_FILE):
         try:
-            d = json.load(open(VIS_FILE))
+            with open(VIS_FILE) as f:
+                d = json.load(f)
             if time.time() - float(d.get("t", 0)) > VIS_STALE_S:
                 return None                      # stale -> unknown, assume visible (work-c4's rule)
             return {str(k): float(v.get("vis", 0)) > 0.05 for k, v in d.get("screens", {}).items()}
