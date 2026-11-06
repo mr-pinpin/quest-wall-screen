@@ -7,7 +7,8 @@ set -e
 D="$HOME/.local/share/pinpin-assistant"
 SRC="${1:-$D/src}"            # source dir holding the files from the repo's assistant/
 mkdir -p "$D"
-for f in pinpin_assistant.py screen_mcp.py; do cp "$SRC/$f" "$D/$f"; done
+# parent_watch.py is a synced copy of receptionist/parent_watch.py (the orphan guard); keep them identical.
+for f in pinpin_assistant.py screen_mcp.py parent_watch.py; do cp "$SRC/$f" "$D/$f"; done
 
 # Build the helpers (Swift). Ad-hoc signed; they run as host children so their own signature does not gate TCC.
 swiftc -O "$SRC/pinpin-screencap.swift" -o "$D/pinpin-screencap"

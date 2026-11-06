@@ -15,6 +15,10 @@ Visibility source is pluggable:
   - else None -> treat everything as seen (safe no-op; never pauses)
 """
 import json, os, sys, time, urllib.request, urllib.error
+try:
+    import parent_watch                    # Host-plugin orphan guard (flag-gated); optional
+except ImportError:
+    parent_watch = None
 
 APPS = os.environ.get("PINPIN_APPS_BASE", "http://100.64.243.30:57830")   # Mini, Tailscale
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://100.64.243.30:57800")
@@ -238,6 +242,8 @@ def tick(state):
 
 
 def main():
+    if parent_watch:
+        parent_watch.watch_parent()        # exit if the Host parent dies (PINPIN_ORPHAN_EXIT=1)
     mode = "ACTIVE" if (ENABLED and not DRY) else ("DRY" if DRY else "DISABLED (observe only)")
     src = (VIS_FILE if os.path.exists(VIS_FILE) else None) or VIS_URL or (
         "house.selected" if get_vis() is not None else "none(all-seen)")

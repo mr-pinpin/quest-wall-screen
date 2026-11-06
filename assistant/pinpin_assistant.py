@@ -14,6 +14,10 @@ Python stdlib only (matches the mini-apps server). Protocol: docs/prd/assistant-
 """
 import json, os, sys, time, threading, subprocess, urllib.request, urllib.parse, urllib.error, socket, base64, pathlib, queue, shutil, re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+try:
+    import parent_watch                    # Host-plugin orphan guard (flag-gated); optional
+except ImportError:
+    parent_watch = None
 
 # ---- config -----------------------------------------------------------------
 PORT = int(os.environ.get("PINPIN_ASSIST_PORT", "57840"))
@@ -936,6 +940,8 @@ def build(live=False):
 
 
 def main():
+    if parent_watch:
+        parent_watch.watch_parent()        # exit if the Host parent dies (PINPIN_ORPHAN_EXIT=1)
     live = "--mock" not in sys.argv
     backend = ClaudeCliBackend() if live else MockBackend()
     ctl = LiveScreenController()
