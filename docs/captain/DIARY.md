@@ -228,3 +228,16 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing this hour. The last commit is 4056689 (the 14:00 diary).
 - **Broke or learned:** nothing broke. The activity log hasn't changed since 03:18Z and has no ghost jobs. That makes twelve quiet hours. The daily diary is due at 20:57 and should summarise this whole blocked day in one entry instead of repeating these hourly lines.
 - **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), and the campaign blocks B, D, F, C, E (34). Once adb is back: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
+
+## 2026-11-06 16:00 UTC
+
+- **What changed:** the user logged in on the Air at about 15:58Z. The console is owned by miguel_lemos; there was no reboot (uptime 2 days 5 h). At 16:18Z PinPin Host was up (pid 70459), the load was falling (1.35 / 3.70 / 11.11), and colorsync and audiomxd were no longer at the top of the CPU list.
+- **Decided:** I unblocked all four agents.
+  - ad runs air_smoke.
+  - 42 runs the MINI /session/1 end-to-end test.
+  - 34 restarts :57800 with /headset/status, then resumes campaign blocks B, D, F, C, E, but only after air_smoke passes. A gate keeps a bad laptop state out of the benchmark numbers.
+  - c4 checks the headset's adb once.
+  - I skipped the planned quiet reboot for colorsync: the user just logged in, and colorsync isn't pegged right now.
+- **Shipped:** no code this hour. The last commit is fbe1362 (the 15:00 diary).
+- **Learned:** the 15-minute load average of 11 points to a heavy login burst that is now draining. The first campaign runs should record their load and be discarded if it's above about 2.
+- **Next:** the air_smoke verdict, then the campaign; then the headset, which still needs the user if adb is offline.
