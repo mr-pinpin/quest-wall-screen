@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(ROOT, 'house'))
 import consolidate as C  # noqa: E402
 import test_consolidate as T  # noqa: E402
 
-assert C.ALGO == 'consolidate/2', 'consolidate.py moved to %s: port room_lab/consolidate.h first' % C.ALGO
+assert C.ALGO == 'consolidate/3', 'consolidate.py moved to %s: port room_lab/consolidate.h first' % C.ALGO
 
 
 def stage(doc):

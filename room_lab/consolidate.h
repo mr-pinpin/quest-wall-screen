@@ -1,4 +1,4 @@
-// House consolidation on the headset (kanban K27, work-0e): a port of work-34's house/consolidate.py ("consolidate/2",
+// House consolidation on the headset (kanban K27, work-0e): a port of work-34's house/consolidate.py ("consolidate/3",
 // the same PARAMS), steps 0-3 and Meta's room chains, so SCAN can show clean walls live and use them as placement
 // targets instead of raw fits. Stage for stage the same rules and the same arithmetic (doubles, Python's floor modulo
 // and round-half-even), so the output matches the Python on the same input: bench/consolidate_xcheck.py runs the Python
@@ -28,7 +28,7 @@ struct Params {
            stackOverlap = 0.5, stackKeep = 0.25, cornerReach = 0.7, overshoot = 0.3, doorMin = 0.7, doorMax = 1.2,
            yShiftMax = 0.3, batchDeg = 3.0, cellMerge = 0.05, minRoomArea = 1.0;
 };
-constexpr const char* kAlgo = "consolidate/2";
+constexpr const char* kAlgo = "consolidate/3";
 constexpr double kPi = 3.14159265358979323846;
 
 inline double deg(double r) { return r * 180.0 / kPi; }
@@ -756,13 +756,16 @@ inline void score(Result& R, const Params& P) {
     S.badFrames = nb;
     if (nb) { ok = false; rs.push_back(std::to_string(nb) + " scan commit(s) in another frame: " + bad); }
     for (auto& d : R.dropped) if (d.why.rfind("frame-suspect", 0) == 0) S.frameSuspect++;
+    // consolidate/3: a room seen only by old scans would otherwise vanish from a "satisfactory" plan.
+    if (S.frameSuspect) { ok = false; rs.push_back(std::to_string(S.frameSuspect) + " depth wall(s) predate the frame record (pre-v0.65): rescan with v0.65+"); }
     S.ok = ok;
 }
 
 // The live SCAN hint (work-df: guided capture): the verdict as one short line that says where to look, from the head
 // (room frame: position and forward). "ROOM: GOOD", or "NOT YET: ..." from the first reason that applies, in the
 // order a user can fix them: no room at all, an open side (a door-sized gap: "DOORWAY ... UNCLEAR", else "WALL ...
-// UNSEEN"), a wall bounding no room, double walls, mostly furniture, scan vs Meta, an old scan in another frame.
+// UNSEEN"), a wall bounding no room, double walls, mostly furniture, scan vs Meta, an old scan in another frame,
+// pre-v0.65 scans with no frame record (consolidate/3).
 inline std::string where(double hx, double hz, double fx, double fz, double tx, double tz) {
     double dx = tx - hx, dz = tz - hz, ahead = dx * fx + dz * fz, right = dx * -fz + dz * fx;
     double a = deg(std::atan2(right, ahead));
@@ -787,6 +790,7 @@ inline Hint hint(const Result& R, double hx, double hz, double fx, double fz, co
     if (S.dupPlan) { h.text = "NOT YET: DOUBLE WALLS, SWEEP THEM AGAIN SLOWLY"; return h; }
     if (S.haveExplained && S.explained < 0.6) { h.text = "NOT YET: MOSTLY FURNITURE, AIM AT THE WALLS"; return h; }
     if (S.badFrames) { h.text = "NOT YET: AN OLD SCAN IS IN ANOTHER FRAME"; return h; }
+    if (S.frameSuspect) { h.text = "NOT YET: OLD SCANS, SCAN THIS ROOM AGAIN"; return h; }
     h.text = "NOT YET: SCAN AND ROOM SETUP DISAGREE"; return h;
 }
 

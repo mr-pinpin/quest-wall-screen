@@ -84,6 +84,7 @@ int main(int argc, char** argv) {
                         (sc["explained"].type == json::Value::Null ? !R.score.haveExplained : std::fabs(r3c(R.score.explained) - sc["explained"].n) < 1e-9) &&
                         R.score.pairs == sc["sceneFit"]["pairs"].integer() && R.score.frameSuspect == sc["frameSuspect"].integer();
             suspects += R.score.frameSuspect;
+            if (R.score.frameSuspect) check(!R.score.ok && R.score.reasons.back().find("rescan with v0.65+") != std::string::npos, name + ": consolidate/3, frame-suspect walls block the verdict (last reason)");
             check(ok && rs && nums, name + ": score (verdict, reasons word for word, duplicates, explained, Meta pairs)");
             verdicts += ok && rs; okRooms += R.score.ok; }
         // budget: best of 20 runs (a worker thread, but not slower than 2 ms)
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
         json::Value d2 = load(dir + "/house-rev25-framed.doc.json"); consolidate::Result R2; consolidate::run(d2, R2, {}, true);
         auto h2 = consolidate::hint(R2, 0, 0, 0, -1); printf("  house-rev25 hint: \"%s\" (%s)\n", h2.text.c_str(), R2.score.ok ? "satisfactory" : "not yet");
         check(h2.good == R2.score.ok, "the hint says GOOD exactly when the verdict is satisfactory"); }
-    printf("  scores: %d of %d verdicts with every reason word for word (%d satisfactory); %d frame-suspect walls (consolidate/2)\n", verdicts, cases, okRooms, suspects);
+    printf("  scores: %d of %d verdicts with every reason word for word (%d satisfactory); %d frame-suspect walls (consolidate/3: each blocks its verdict)\n", verdicts, cases, okRooms, suspects);
     check(suspects > 0, "consolidate/2: the stored rev 25 has frame-suspect depth walls");
     check(cases >= 10, "fixtures present");
     check(bestUs < 2000, "under 2 ms on house-rev25");
