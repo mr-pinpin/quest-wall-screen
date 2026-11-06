@@ -92,6 +92,7 @@ class TickTests(unittest.TestCase):
         fc.get_vis = lambda: (None if self.vis_is_none else dict(self.vis))
         fc.web_screens = lambda: list(self.screens)
         fc.post_status = lambda n: self.calls.append(("STATUS", n))
+        fc.campaign_busy = lambda: None   # default: no benchmark campaign; busy tests override
         self._saved = (fc.ENABLED, fc.DRY)
         fc.ENABLED, fc.DRY = True, False   # ACTIVE by default; individual tests flip
 
@@ -173,12 +174,13 @@ class TickTests(unittest.TestCase):
         self.assertEqual(self.acts(), [])              # but no repeated low
 
     def test_probe_404_skips(self):
+        import io
         import urllib.error
 
         def video_404(sid, state):
             self.calls.append((str(sid), state))
             if state == "probe":
-                raise urllib.error.HTTPError("u", 404, "no window", {}, None)
+                raise urllib.error.HTTPError("u", 404, "no window", {}, io.BytesIO(b""))
             return {"ok": True}
 
         fc.video = video_404
@@ -200,6 +202,32 @@ class TickTests(unittest.TestCase):
         # bookkeeping still records intent so DRY logs are meaningful
         self.assertEqual(st["2"]["acted"], ("pause",))
 
+    def test_busy_skips_probe_and_act_for_unseen(self):
+        # A benchmark campaign holds the Air: an unseen screen must NOT be probed or acted on.
+        fc.campaign_busy = lambda: "exclusive held by work-34"
+        self.vis = {"2": False}
+        self.probe_reply["2"] = probe(vid(muted=True))
+        st = {"2": {"last_seen": 1000.0 - (fc.UNSEEN_PAUSE_S + 5), "acted": None, "last_probe": 0.0}}
+        fc.tick(st)
+        self.assertEqual([c for c in self.calls if c[1] == "probe"], [])   # no runner POST at all
+        self.assertEqual(self.acts(), [])
+        self.assertIsNone(st["2"]["acted"])
+
+    def test_busy_defers_restore_until_clear(self):
+        # Seen again while acted, but campaign busy: hold the acted state, don't POST play/full yet.
+        fc.campaign_busy = lambda: "exclusive held"
+        self.vis = {"2": True}
+        st = {"2": {"last_seen": 500.0, "acted": ("pause",), "last_probe": 500.0}}
+        fc.tick(st)
+        self.assertEqual(self.acts(), [])                 # restore deferred
+        self.assertEqual(st["2"]["acted"], ("pause",))    # still marked paused
+        self.assertEqual(st["2"]["last_seen"], 1000.0)    # but last_seen stays current
+        # campaign clears: now the restore fires
+        fc.campaign_busy = lambda: None
+        fc.tick(st)
+        self.assertEqual(self.acts(), [("2", "play"), ("2", "full")])
+        self.assertIsNone(st["2"]["acted"])
+
     def test_active_posts_status_count(self):
         self.vis = {"2": False, "3": False}
         self.screens = ["2", "3"]
@@ -208,6 +236,57 @@ class TickTests(unittest.TestCase):
               for s in ("2", "3")}
         fc.tick(st)
         self.assertIn(("STATUS", 2), self.calls)   # both lowered/paused -> count 2
+
+
+class CampaignBusyTests(unittest.TestCase):
+    """campaign_busy() reads benchlock's on-disk markers under BENCH_DIR."""
+
+    def setUp(self):
+        self._saved = (fc.BENCH_DIR, fc.BENCH_STALE_S)
+        self.dir = tempfile.mkdtemp()
+        fc.BENCH_DIR = self.dir
+        fc.BENCH_STALE_S = 1800
+
+    def tearDown(self):
+        fc.BENCH_DIR, fc.BENCH_STALE_S = self._saved
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _lockdir(self, owner="work-34"):
+        p = os.path.join(self.dir, "pinpin-bench.lock")
+        os.mkdir(p)
+        with open(os.path.join(p, "owner"), "w") as f:
+            f.write(owner + "\n")
+        return p
+
+    def _wantx(self, name, expiry):
+        d = os.path.join(self.dir, "pinpin-bench.wantx")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w") as f:
+            f.write("work-09\n%d\n" % expiry)
+
+    def test_no_markers_is_free(self):
+        self.assertIsNone(fc.campaign_busy())
+
+    def test_fresh_exclusive_is_busy_with_owner(self):
+        self._lockdir(owner="work-34")
+        r = fc.campaign_busy()
+        self.assertIsNotNone(r)
+        self.assertIn("work-34", r)
+
+    def test_stale_exclusive_is_free(self):
+        p = self._lockdir()
+        old = time.time() - (fc.BENCH_STALE_S + 60)
+        os.utime(p, (old, old))
+        self.assertIsNone(fc.campaign_busy())    # older than STALE_S -> benchlock would drop it
+
+    def test_pending_exclusive_intent_is_busy(self):
+        self._wantx("abc", int(time.time()) + 300)
+        self.assertEqual(fc.campaign_busy(), "exclusive pending")
+
+    def test_expired_intent_is_free(self):
+        self._wantx("abc", int(time.time()) - 10)
+        self.assertIsNone(fc.campaign_busy())
 
 
 class GetVisTests(unittest.TestCase):

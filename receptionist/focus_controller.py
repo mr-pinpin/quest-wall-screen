@@ -29,6 +29,10 @@ UNSEEN_PAUSE_S = float(os.environ.get("PINPIN_FOCUS_PAUSE_S", "60"))
 HYST_UNSEEN_S = float(os.environ.get("PINPIN_FOCUS_HYST_S", "5"))         # drop quality only after >=5s unseen
 STATUS_URL = os.environ.get("PINPIN_STATUS_URL", APPS + "/api/status/component")
 ONLY = [s.strip() for s in os.environ.get("PINPIN_FOCUS_SCREENS", "").split(",") if s.strip()]
+# Yield the Air runner to work-34's benchmark campaign: never probe/act while the bench lock holds (or
+# has pending) EXCLUSIVE (work-df, AGENTS.md). We run ON the Air, so read benchlock's markers locally.
+BENCH_DIR = os.path.expanduser(os.environ.get("PINPIN_BENCH_DIR", "~/.local/share"))
+BENCH_STALE_S = float(os.environ.get("PINPIN_BENCH_STALE_S", "1800"))   # matches benchlock STALE_S
 
 
 def _token():
@@ -127,6 +131,43 @@ def get_vis():
     return None
 
 
+def campaign_busy():
+    """Reason string if the Air bench lock holds or has a pending EXCLUSIVE request (a benchmark
+    campaign) — we must not touch the runner then; else None. Reads benchlock's on-disk markers under
+    BENCH_DIR locally (no ssh): exclusive = the pinpin-bench.lock dir, fresh within BENCH_STALE_S;
+    pending = a non-expired file in pinpin-bench.wantx. Any read error on a marker is skipped, not
+    treated as a global failure, so a stray file never wedges the controller off."""
+    try:
+        lock = os.path.join(BENCH_DIR, "pinpin-bench.lock")
+        if os.path.isdir(lock):
+            try:
+                fresh = time.time() - os.path.getmtime(lock) <= BENCH_STALE_S
+            except OSError:
+                fresh = True                                  # vanished mid-check: treat as held, fail safe
+            if fresh:
+                who = ""
+                try:
+                    with open(os.path.join(lock, "owner")) as f:
+                        who = f.read().strip()
+                except OSError:
+                    pass
+                return "exclusive held" + (" by %s" % who if who else "")
+        wantx = os.path.join(BENCH_DIR, "pinpin-bench.wantx")
+        now = time.time()
+        if os.path.isdir(wantx):
+            for fn in os.listdir(wantx):
+                try:
+                    with open(os.path.join(wantx, fn)) as f:
+                        lines = f.read().splitlines()
+                    if len(lines) > 1 and float(lines[1]) > now:
+                        return "exclusive pending"            # writer priority: yield to a waiting benchmark
+                except (OSError, ValueError):
+                    continue
+    except Exception as e:
+        print("campaign_busy check failed (assuming free):", e, flush=True)
+    return None
+
+
 def decide_unseen(unseen_for, probe):
     """Action for an UNSEEN screen. Hysteresis: do nothing until unseen >=HYST_UNSEEN_S (anti-flap).
     Then pause if muted & unseen >=60 s, else low quality. Never pauses audible video."""
@@ -153,15 +194,25 @@ def _apply(sid, want, note):
 def tick(state):
     vis = get_vis()
     now = time.time()
+    busy = campaign_busy()                                  # a benchmark holds the Air: no runner POSTs
+    if busy and not state.get("_busy"):
+        print("%s campaign %s -> holding off (no probe/act) " % (time.strftime("%H:%M:%S"), busy), flush=True)
+    elif state.get("_busy") and not busy:
+        print("%s campaign clear -> resuming" % time.strftime("%H:%M:%S"), flush=True)
+    state["_busy"] = bool(busy)
     for sid in web_screens():
         st = state.setdefault(sid, {"last_seen": now, "acted": None, "last_probe": 0.0})
         seen = True if vis is None else vis.get(sid, False)
         if seen:
             st["last_seen"] = now
             if st["acted"] in (("low",), ("pause",)):      # restore INSTANTLY on first visible frame
+                if busy:
+                    continue                                # can't POST now; restore when the campaign clears
                 _apply(sid, ("play", "full"), "seen -> restore")
                 st["acted"] = None
             continue
+        if busy:
+            continue                                        # unseen, but yield the runner to the campaign
         unseen_for = now - st["last_seen"]
         if unseen_for < HYST_UNSEEN_S:
             continue                                        # anti-flap: hold until >=5s unseen
@@ -182,7 +233,8 @@ def tick(state):
             st["acted"] = want
     # /status line so the user can see it (only when actually active)
     if ENABLED and not DRY:
-        post_status(sum(1 for s in state.values() if s.get("acted") in (("low",), ("pause",))))
+        post_status(sum(1 for k, s in state.items() if isinstance(s, dict)
+                        and s.get("acted") in (("low",), ("pause",))))
 
 
 def main():
