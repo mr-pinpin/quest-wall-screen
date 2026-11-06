@@ -20,13 +20,14 @@ import json, os, sys, hashlib, urllib.request, urllib.error, subprocess, time
 
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://100.64.243.30:57800")   # Mini, Tailscale
 KANBAN_API = os.environ.get("PINPIN_KANBAN_API", "http://100.64.243.30:57830/api/kanban")  # work-ad's board
+TIMEOUT = 10              # s, every house / kanban request
 NUDGE_DEFAULT = 0.12      # a nudge is a small fixed step
 NUDGE_MAX = 0.30
 _DIRS = {"left": ("x", -1), "right": ("x", 1), "up": ("y", 1), "down": ("y", -1)}
 
 
 def _get():
-    with urllib.request.urlopen(HOUSE + "/house", timeout=10) as r:
+    with urllib.request.urlopen(HOUSE + "/house", timeout=TIMEOUT) as r:
         return json.load(r), r.headers.get("X-House-Rev")
 
 
@@ -36,7 +37,7 @@ def _put(doc, rev):
     req = urllib.request.Request(HOUSE + "/house", data=body, method="PUT",
                                  headers={"Content-Type": "application/json", "If-Match": str(rev),
                                           "X-House-SHA256": hashlib.sha256(body).hexdigest()})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         return json.load(r)
 
 
@@ -85,7 +86,7 @@ def compare(beat, doc, tol=0.01):
 
 def status(sid=None):
     try:
-        with urllib.request.urlopen(HOUSE + "/headset/status", timeout=10) as r:
+        with urllib.request.urlopen(HOUSE + "/headset/status", timeout=TIMEOUT) as r:
             beat = json.load(r)
     except urllib.error.HTTPError as e:
         sys.exit("no headset status on the house server yet (HTTP %d): the headset has not posted since the server "
@@ -220,14 +221,29 @@ def add_card(title, details=""):
     req = urllib.request.Request(KANBAN_API, data=body, method="POST",
                                  headers={"Authorization": "Bearer " + _apps_token(),
                                           "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         card = json.load(r)
     print(json.dumps({"ok": True, "card": card.get("id"), "title": title}))
+
+
+def _reason(e):
+    r = getattr(e, "reason", None) or e
+    return (str(r) or type(r).__name__)[:80]
 
 
 def main(argv):
     if not argv:
         sys.exit(__doc__)
+    try:
+        _main(argv)
+    except urllib.error.HTTPError:
+        raise                           # the server answered; its error is not "unreachable"
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # One short line (the receptionist relays it to the headset), nonzero exit; no traceback.
+        sys.exit("house server unreachable (%s)" % _reason(e))
+
+
+def _main(argv):
     cmd, rest = argv[0], argv[1:]
     if cmd == "house_info":
         house_info()

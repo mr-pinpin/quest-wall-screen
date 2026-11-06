@@ -191,9 +191,35 @@ def test_heartbeat_compare():
     check("screen 3 applied: ok", rt.compare(beat, doc)[3]["ok"])
 
 
+def test_unreachable():
+    import room_tools as rt, socket, threading
+    old = (rt.HOUSE, rt.TIMEOUT)
+
+    def run(argv):
+        try:
+            rt.main(argv); return 0, ""
+        except SystemExit as e:
+            return e.code, str(e.code)
+    try:
+        # Nothing listening: connection refused.
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        rt.HOUSE = "http://127.0.0.1:%d" % port
+        for argv in (["status"], ["house_info"]):
+            code, msg = run(argv)
+            check("refused %s: one line, nonzero" % argv[0], code and msg.startswith("house server unreachable (") and "\n" not in msg and len(msg) < 120)
+        # Accepts but never answers: timeout.
+        srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(4); rt.TIMEOUT = 0.5
+        rt.HOUSE = "http://127.0.0.1:%d" % srv.getsockname()[1]
+        code, msg = run(["status"])
+        check("silent server: timeout reported in one line", code and msg.startswith("house server unreachable (") and "timed out" in msg)
+        srv.close()
+    finally:
+        rt.HOUSE, rt.TIMEOUT = old
+
+
 if __name__ == "__main__":
     for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch,
-              test_reply_cleaner, test_focus_policy, test_history, test_audit, test_block, test_heartbeat_compare):
+              test_reply_cleaner, test_focus_policy, test_history, test_audit, test_block, test_heartbeat_compare, test_unreachable):
         print(t.__name__); t()
     print("\n%d passed, %d failed" % (PASS, FAIL))
     sys.exit(1 if FAIL else 0)
