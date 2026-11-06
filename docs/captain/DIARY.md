@@ -241,3 +241,22 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** no code this hour. The last commit is fbe1362 (the 15:00 diary).
 - **Learned:** the 15-minute load average of 11 points to a heavy login burst that is now draining. The first campaign runs should record their load and be discarded if it's above about 2.
 - **Next:** the air_smoke verdict, then the campaign; then the headset, which still needs the user if adb is offline.
+
+## 2026-11-06 17:00 UTC
+
+- **Decided:**
+  - Gave the go for a single install window for K30 (pinpin-displays session watch) and K31b (Host stale-session sweep) after campaign block E, so the user sees one blink.
+  - Approved per-run colorsync bracketing (ad).
+  - Put the K15 phase 2 test on hold until v0.76 is on the headset.
+  - The headset install is still waiting: c4 aborted cleanly at 16:27Z (adb flapping, nothing changed), and the user needs to charge and wake the headset.
+- **Shipped:** K30 (68e7178, 2cf5281, b9a724b), K31 orphan guards (ffd4fd7, 7c2f932, 2dd12d4, 6d03728), K15 tests and the campaign guard (9138be1, ebc4016), air_smoke's stale-displays check (8c816d1), and AGENTS.md notes (d71f34b, 2a311f7).
+- **Broke or learned:**
+  - My orphan rule ("exit when ppid becomes 1") was wrong. Host adopts plugins across its own restarts. work-09 caught it, and the rule is now "started before the current WindowServer".
+  - colorsync's creep lives inside the colorsync process: restarting colorsync resets it to about 31%.
+  - A second +12-point step showed up during the campaign, with no display churn.
+  - Block F is failing on a missing bench/stress/encprobe.swift that was never committed. I sent it back to 34 (commit it or void F).
+- **Next:**
+  - finish the campaign (C, E);
+  - the K30/K31b window;
+  - ad's colorsync write-up;
+  - v0.76 on the headset once the user wakes it.
