@@ -10,6 +10,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <atomic>
+#include <deque>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -39,6 +40,7 @@
 #include "ui_grid.h"
 #include "shoulder.h"
 #include "house.h"
+#include "heartbeat.h"
 #include "wallfit.h"
 #include "anchors.h"
 #include "rooms_house.h"
@@ -71,6 +73,9 @@
 #include "model_view.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PinPinRoomLab", __VA_ARGS__)
+#ifndef ROOM_LAB_VERSION
+#define ROOM_LAB_VERSION 0   // build.py passes the manifest versionCode (HEARTBEAT "v")
+#endif
 
 static JavaVM* gVm = nullptr;
 static jobject gActivity = nullptr;
@@ -266,7 +271,7 @@ struct App {
     // v0.67 (work-k5): STEADY pointer stabilization (room_lab/steady.h), CTLTOP screen controls drawn on top and never
     // under the floor (docs/controls-never-occluded.md), PANELTEX the SETTINGS panel as one texture (panel_texture.h),
     // DICTQ the assistant mic through dictation.h (one owner, breath-proof ends, queued behind replies, watchdogs).
-    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true, marksMenu = true, cleanLiveMenu = false; float steadyK = 0.7f;
+    bool steadyMenu = false, ctlTopMenu = false, panelTexMenu = true, dictQMenu = true, setCatMenu = false, recKeepMenu = true, meshBatchMenu = false, bezelFewMenu = true, marksMenu = true, cleanLiveMenu = false, heartbeatMenu = true; float steadyK = 0.7f;
     bool depthPlaceMenu = true, depthPlaceFile = false; bool depthPlaceOn() const { return depthPlaceMenu || depthPlaceFile; }
     bool multiRoomMenu = false, multiRoomFile = false; bool multiRoomOn() const { return multiRoomMenu || multiRoomFile; }
     // ALLBARS (default ON, the user asked: "every screen must have the same bar"): every screen shows its move bar,
@@ -581,7 +586,8 @@ struct App {
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
         {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"},
         {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"},
-        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}, {"CLEANLIVE", "EXPERIMENTAL", "CLEAN WALLS LIVE WHILE SCANNING"}};
+        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}, {"CLEANLIVE", "EXPERIMENTAL", "CLEAN WALLS LIVE WHILE SCANNING"},
+        {"HEARTBEAT", "MEMORY", "SEND STATUS TO THE HOUSE EVERY 10 S"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -630,6 +636,7 @@ struct App {
         if (l == "BEZELFEW") return bezelFewMenu;
         if (l == "MARKS") return marksMenu;
         if (l == "CLEANLIVE") return cleanLiveMenu;
+        if (l == "HEARTBEAT") return heartbeatMenu;
         if (l == "H264") return codecMenu || codecFile;
         if (l == "MARGIN") return panelLayer.margin;
         if (l == "SUPER") return panelLayer.super;
@@ -727,7 +734,7 @@ struct App {
                 {"SPELL", spellOn}, {"MACDISP", macDisplays}, {"H264", codecMenu}, {"HOSTRES", hostResMenu}, {"VT", vtMenu},
                 {"BUDGET", budgetMenu}, {"GPUTIME", gpuTimeMenu}, {"WIFILL", wifiLlMenu}, {"MODELS", modelsMenu},
                 {"LODPOSE", lodPoseMenu}, {"HERO", heroMenu}, {"KEYREQ", keyReqMenu}, {"SHOULDER", shoulderMenuFlag}, {"HOUSE", houseMenu}, {"DEPTHGAP", depthGapMenu}, {"WRIST", wristMenu}, {"SCAN", scanMenu}, {"SCROLL", scrollMenu}, {"WALLTOOL", wallToolMenu}, {"ASSIST", assistMenu}, {"RELOCCHECK", relocMenu}, {"ALLBARS", allBarsMenu}, {"CLOSEX", closeXMenu}, {"GEOMETRY", geometryMenu}, {"MULTIROOM", multiRoomMenu}, {"DEPTHPLACE", depthPlaceMenu}, {"MESHSAVE", meshSaveMenu}, {"RECEPTION", receptionMenu},
-                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}, {"MARKS", marksMenu}, {"CLEANLIVE", cleanLiveMenu}};
+                {"STEADY", steadyMenu}, {"CTLTOP", ctlTopMenu}, {"PANELTEX", panelTexMenu}, {"DICTQ", dictQMenu}, {"SETCAT", setCatMenu}, {"RECKEEP", recKeepMenu}, {"MESHBATCH", meshBatchMenu}, {"BEZELFEW", bezelFewMenu}, {"MARKS", marksMenu}, {"CLEANLIVE", cleanLiveMenu}, {"HEARTBEAT", heartbeatMenu}};
             bool first = true; for (auto& [k, v] : t) { f << (first ? "" : ",") << "\"" << k << "\":" << (v ? 1 : 0); first = false; }
             f << "}";
         }
@@ -799,7 +806,7 @@ struct App {
             get("MACDISP", macDisplays); get("H264", codecMenu); get("HOSTRES", hostResMenu); get("VT", vtMenu); get("BUDGET", budgetMenu);
             get("GPUTIME", gpuTimeMenu); get("WIFILL", wifiLlMenu); get("MODELS", modelsMenu); get("LODPOSE", lodPoseMenu);
             get("HERO", heroMenu); get("KEYREQ", keyReqMenu); get("SHOULDER", shoulderMenuFlag); get("HOUSE", houseMenu); get("DEPTHGAP", depthGapMenu); get("WRIST", wristMenu); get("SCAN", scanMenu); get("SCROLL", scrollMenu); get("WALLTOOL", wallToolMenu); get("ASSIST", assistMenu); get("RELOCCHECK", relocMenu); get("ALLBARS", allBarsMenu); get("CLOSEX", closeXMenu); get("GEOMETRY", geometryMenu); get("MULTIROOM", multiRoomMenu); get("DEPTHPLACE", depthPlaceMenu); get("MESHSAVE", meshSaveMenu); get("RECEPTION", receptionMenu);
-            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu); get("MARKS", marksMenu); get("CLEANLIVE", cleanLiveMenu);
+            get("STEADY", steadyMenu); get("CTLTOP", ctlTopMenu); get("PANELTEX", panelTexMenu); get("DICTQ", dictQMenu); get("SETCAT", setCatMenu); get("RECKEEP", recKeepMenu); get("MESHBATCH", meshBatchMenu); get("BEZELFEW", bezelFewMenu); get("MARKS", marksMenu); get("CLEANLIVE", cleanLiveMenu); get("HEARTBEAT", heartbeatMenu);
         }
         if (houseOn66Pending) { houseMenu = true; event("settings: HOUSE sync turned on (v0.66 default)"); }
         if (resumeOn && (lastSource == "MINI" || lastSource == "LAPTOP")) pendingResume = lastSource;
@@ -863,6 +870,7 @@ struct App {
         else if (l == "BEZELFEW") bezelFewMenu = !bezelFewMenu;                 // AMBI under VT cut on tile edges only
         else if (l == "MARKS") marksMenu = !marksMenu;                          // house marks on the walls
         else if (l == "CLEANLIVE") cleanLiveMenu = !cleanLiveMenu;              // live consolidation while scanning
+        else if (l == "HEARTBEAT") heartbeatMenu = !heartbeatMenu;              // compact status to the house every 10 s
         else if (l == "SETCAT") { setCatMenu = !setCatMenu; if (sm.open() && sm.stack[0].anchored) sm.stack.clear(); }  // SETTINGS by category
         else if (l == "HOSTRES") { hostResMenu = !hostResMenu; std::thread([this] { resolveLaptop(); }).detach(); }  // find the laptop by name
         else if (l == "MARGIN") panelLayer.margin = !panelLayer.margin;  // transparent margin around the layer image
@@ -2743,7 +2751,8 @@ struct App {
         auto one = [&](int id, const Placement& p) {
             Entity* w = p.active ? wallById(p.wall) : nullptr;
             std::string src = !w ? "none" : w->standIn ? "cache" : w->located ? "scene" : "unlocated";
-            j << (first ? "" : ",") << "{\"id\":" << id << ",\"wall\":\"" << p.wall.substr(0, 8) << "\",\"source\":\"" << src << "\"";
+            j << (first ? "" : ",") << "{\"id\":" << id << ",\"on\":" << (p.active ? 1 : 0) << ",\"wall\":\"" << p.wall.substr(0, 8) << "\",\"source\":\"" << src << "\""
+              << ",\"x\":" << p.x << ",\"y\":" << p.y << ",\"w\":" << p.w << ",\"h\":" << p.h;
             if (w && stageOk) {
                 V3 c = xform(w->pose, {p.x, p.y, 0.02f}); wallfit::Pose s = anchors::compose(anchors::inverse(wp(stageInLocal)), wallfit::Pose{{0, 0, 0, 1}, {c.x, c.y, c.z}});
                 j << ",\"stage\":[" << s.p.x << "," << s.p.y << "," << s.p.z << "]";
@@ -3003,8 +3012,10 @@ struct App {
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now(), lastStatus = start;
 
     void error(const std::string& s) { LOGI("ERROR %s", s.c_str()); if (errors.size() < 40) errors.push_back(s); }
+    std::mutex recentLock; std::deque<std::string> recentEvents;   // HEARTBEAT: the last few, for the remote read path
     void event(const std::string& s) {
         LOGI("%s", s.c_str());
+        { std::lock_guard<std::mutex> g(recentLock); recentEvents.push_back(s.substr(0, 160)); if (recentEvents.size() > 6) recentEvents.pop_front(); }
         std::ofstream f(gDir + "/events.log", std::ios::app);
         f << std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() << " " << s << "\n";
     }
@@ -5161,12 +5172,38 @@ void main(){
         j << ",\"battery\":{\"pct\":" << batteryPct << ",\"charging\":" << (charging ? 1 : 0) << ",\"toasts\":" << toasts.size() << "}";
         j << ",\"spell\":{\"on\":" << spellOn << ",\"cw\":" << spellsCw << ",\"ccw\":" << spellsCcw << ",\"progress\":" << spellProgress << ",\"extras\":" << extras.size() << ",\"macDisplays\":" << macDisplays << ",\"demandSent\":" << demandSent << ",\"stressN\":" << stressN << ",\"extraClicks\":" << extraClicks << ",\"extraMoves\":" << extraMoves << ",\"displayCalls\":" << displayCalls.load() << ",\"displayFailures\":" << displayFailures.load() << "}";
         j << ",\"voice\":" << dictation.json() << ",\"throws\":" << throws << ",\"enters\":" << enters << ",\"undos\":" << undos;
+        { std::lock_guard<std::mutex> g(hbLock); j << ",\"heartbeat\":{\"on\":" << (heartbeatMenu ? 1 : 0) << ",\"seq\":" << hbSeq << ",\"sent\":" << hb.sent << ",\"failed\":" << hb.failed
+          << ",\"target\":\"" << jsonEscape(hb.lastTarget) << "\",\"error\":\"" << jsonEscape(hb.lastError) << "\"}"; }
         j << ",\"errors\":[";
         for (size_t i = 0; i < errors.size(); i++) j << (i ? "," : "") << "\"" << jsonEscape(errors[i]) << "\"";
         j << "]}";
         std::string tmp = gDir + "/status.json.tmp";
         { std::ofstream f(tmp); f << j.str(); }
         rename(tmp.c_str(), (gDir + "/status.json").c_str());
+        heartbeatTick(j.str());
+    }
+
+    // ---- HEARTBEAT (room_lab/heartbeat.h, default on, read-only telemetry; work-df 2026-11-06): every 10 s the compact
+    // status goes to the house server (POST /headset/status) on a worker thread, so room.sh and /status can read what
+    // the headset shows without adb. files/heartbeat-hosts overrides the targets; files/heartbeat-token is sent if present.
+    heartbeat::Sender hb; std::atomic<bool> hbBusy{false}; long hbSeq = 0; double hbAt = -1e9; std::mutex hbLock;
+    void heartbeatTick(const std::string& full) {
+        if (!heartbeatMenu || hbBusy || now() - hbAt < 10) return;
+        hbAt = now();
+        bool ok = false; json::Value st = json::parse(full, &ok); if (!ok) return;
+        std::vector<std::string> ev; { std::lock_guard<std::mutex> g(recentLock); ev.assign(recentEvents.begin(), recentEvents.end()); }
+        std::string body = house::dump(heartbeat::compact(st, ROOM_LAB_VERSION, ++hbSeq, ev));
+        heartbeat::Target d{"192.168.0.50", 57800};
+        { std::ifstream hf(gDir + "/house-host"); std::string h; if (hf >> h) { size_t c = h.find(':'); d.host = h.substr(0, c); if (c != std::string::npos) d.port = atoi(h.c_str() + c + 1); } }
+        std::string hosts, token; house::readFile(gDir + "/heartbeat-hosts", hosts); house::readFile(gDir + "/heartbeat-token", token);
+        while (!token.empty() && isspace((unsigned char)token.back())) token.pop_back();
+        auto ts = heartbeat::parseTargets(hosts, d);
+        hbBusy = true;
+        std::thread([this, ts, body, token] {
+            heartbeat::Sender s; { std::lock_guard<std::mutex> g(hbLock); s = hb; }
+            s.post(ts, body, token);
+            { std::lock_guard<std::mutex> g(hbLock); hb = s; } hbBusy = false;
+        }).detach();
     }
 
     // files/moonlight/session.json is replaced by moonlight_host.py launch; Sunshine only holds a launched

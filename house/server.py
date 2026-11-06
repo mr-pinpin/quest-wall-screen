@@ -33,6 +33,11 @@ Every accepted write that changes walls or rooms gets a fresh "plan" layer in th
 frame hygiene, Manhattan snap, merge, rooms, score; ~0.1 s). The writer's If-Match/rev flow is unchanged; a failing
 consolidation never blocks a write (the previous plan is kept, marked stale).
   GET  /health
+  POST /headset/status         HEARTBEAT: the headset's compact status (JSON object, <= 64 KB), every ~10 s. Kept in
+                               memory (the last 360, one hour) and in headset-status.json (git-ignored). If the data
+                               directory holds headset-token, the post needs X-Headset-Token: <its contents>.
+  GET  /headset/status         the last one, plus received (UTC), ageS and from (sender address); 404 none yet
+  GET  /headset/status/history[?limit=N]  the last N (default 30), newest first
 """
 import argparse
 import datetime
@@ -43,6 +48,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -52,6 +58,7 @@ import schema  # noqa: E402
 
 MAX_HOUSE = 16 << 20
 MAX_BLOB = 256 << 20
+MAX_HEARTBEAT = 64 << 10
 AUTHOR = ['-c', 'user.name=Mr. PinPin', '-c', 'user.email=miguelemosreverte@gmail.com']
 
 
@@ -101,6 +108,7 @@ class Store:
         self.grace = self.GRACE if grace is None else grace
         self.lock = threading.Lock()
         self.gc_report = {}
+        self.beats = deque(maxlen=360)   # HEARTBEAT: [(received epoch s, from, status)], newest last
         os.makedirs(self.blobdir, exist_ok=True)
         if not os.path.isdir(os.path.join(self.root, '.git')):
             self.git('init', '-q')
@@ -114,7 +122,7 @@ class Store:
     def _untrack_blobs(self):
         """blobs/ and the mesh log are not in git (history stays bounded); a store from before stops tracking them."""
         gi = os.path.join(self.root, '.gitignore')
-        want = ['blobs/', 'meshlog.jsonl']
+        want = ['blobs/', 'meshlog.jsonl', 'headset-status.json', 'headset-token']
         have = open(gi).read().split() if os.path.exists(gi) else []
         if any(w not in have for w in want):
             with open(gi, 'a') as f:
@@ -374,6 +382,14 @@ class Handler(BaseHTTPRequestHandler):
                                    'blobs': st.gc_report.get('count'), 'blobBytes': st.gc_report.get('bytes')})
         if p == '/blobs':
             return self.send(200, st.gc_report)
+        if p == '/headset/status':
+            if not st.beats:
+                return self.send(404, {'error': 'no headset status yet'})
+            return self.send(200, beat_view(st.beats[-1]))
+        if p == '/headset/status/history':
+            n = q.get('limit', ['30'])[0]
+            n = int(n) if n.isdigit() else 30
+            return self.send(200, [beat_view(b) for b in list(st.beats)[::-1][:n]])
         if p == '/house/tags':
             return self.send(200, st.tags())
         if p == '/house':
@@ -481,6 +497,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path); q = parse_qs(u.query); p = u.path.rstrip('/')
         st = self.store
+        if p == '/headset/status':
+            return self.headset_status()
         if p == '/house/tag' and q.get('rev', [''])[0].isdigit():
             name = q.get('name', [''])[0]
             if not schema.ID.match(name):
@@ -510,6 +528,44 @@ class Handler(BaseHTTPRequestHandler):
             refresh_plan(old, st.doc)
             st.put(old, f'to rev {q["rev"][0]}')
         self.send(200, {'rev': old['rev'], 'restored': int(q['rev'][0])})
+
+
+    def headset_status(self):
+        st = self.store
+        tok = os.path.join(st.root, 'headset-token')
+        if os.path.exists(tok):
+            want = open(tok).read().strip()
+            if want and self.headers.get('X-Headset-Token', '').strip() != want:
+                self.close_connection = True
+                return self.send(403, {'error': 'X-Headset-Token required'})
+        data = self.body(MAX_HEARTBEAT)
+        if data is None:
+            return
+        try:
+            v = json.loads(data)
+        except ValueError as ex:
+            return self.send(400, {'error': f'not JSON: {ex}'})
+        if not isinstance(v, dict):
+            return self.send(400, {'error': 'a JSON object expected'})
+        b = (time.time(), self.client_address[0], v)
+        st.beats.append(b)
+        try:
+            tmp = os.path.join(st.root, 'headset-status.json.tmp')
+            with open(tmp, 'w') as f:
+                json.dump(beat_view(b), f, indent=1)
+            os.replace(tmp, os.path.join(st.root, 'headset-status.json'))
+        except OSError:
+            pass   # the in-memory copy still serves GET
+        self.send(200, {'ok': True, 'kept': len(st.beats)})
+
+
+def beat_view(b):
+    t, frm, v = b
+    out = dict(v)
+    out['received'] = datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    out['ageS'] = round(time.time() - t, 1)
+    out['from'] = frm
+    return out
 
 
 def serve(data, port=57800, bind='0.0.0.0', keep=None, grace=None):

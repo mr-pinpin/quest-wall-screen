@@ -204,6 +204,37 @@ class Server(unittest.TestCase):
         self.assertEqual(st, 200, r)
         return r['rev']
 
+    def test_headset_status(self):
+        # HEARTBEAT: none yet -> 404; posts kept newest first; never touches the house or its git history.
+        st, _, _ = self.req('GET', '/headset/status')
+        self.assertEqual(st, 404)
+        n0 = self.commits()
+        for seq in (1, 2, 3):
+            body = json.dumps({'v': 76, 'seq': seq, 'screens': [{'id': 3, 'on': 1, 'w': 0.9}]}).encode()
+            st, _, data = self.req('POST', '/headset/status', body, {'Content-Type': 'application/json'})
+            self.assertEqual(st, 200, data)
+        got, _, _ = self.get('/headset/status')
+        self.assertEqual(got['seq'], 3)
+        self.assertEqual(got['screens'][0]['w'], 0.9)
+        self.assertEqual(got['from'], '127.0.0.1')
+        self.assertTrue(got['received'].endswith('Z'))
+        self.assertLess(got['ageS'], 5)
+        hist, _, _ = self.get('/headset/status/history?limit=2')
+        self.assertEqual([h['seq'] for h in hist], [3, 2])
+        self.assertTrue(os.path.exists(os.path.join(self.dir, 'headset-status.json')))
+        self.assertEqual(self.commits(), n0)
+        self.assertEqual(self.get()[0]['rev'], 0)
+        # Bad bodies refused.
+        self.assertEqual(self.req('POST', '/headset/status', b'[1]', {})[0], 400)
+        self.assertEqual(self.req('POST', '/headset/status', b'{nope', {})[0], 400)
+        self.assertEqual(self.req('POST', '/headset/status', b'x' * (65 << 10), {})[0], 413)
+        # With a token file, the header is required.
+        with open(os.path.join(self.dir, 'headset-token'), 'w') as f:
+            f.write('s3cret\n')
+        self.assertEqual(self.req('POST', '/headset/status', b'{"seq": 9}', {})[0], 403)
+        self.assertEqual(self.req('POST', '/headset/status', b'{"seq": 9}', {'X-Headset-Token': 's3cret'})[0], 200)
+        self.assertEqual(self.get('/headset/status')[0]['seq'], 9)
+
     def test_round_trip(self):
         doc, h, raw = self.get()
         self.assertEqual(doc['rev'], 0)

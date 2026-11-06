@@ -175,9 +175,24 @@ def test_block():
         svc.BLOCKED = old
 
 
+def test_heartbeat_compare():
+    import room_tools as rt
+    doc = {"screens": [{"id": 1, "on": 1, "x": -0.374, "y": 0.475, "w": 2.4, "h": 1.5},
+                       {"id": 3, "on": 0, "x": 0.728, "y": 0.177, "w": 0.9, "h": 0.5625},
+                       {"id": 4, "on": 1, "x": 0, "y": 0, "w": 0.6, "h": 0.4}]}
+    beat = {"screens": [{"id": 1, "on": 1, "x": -0.371, "y": 0.475, "w": 2.4, "h": 1.5},
+                        {"id": 3, "on": 1, "x": 0.728, "y": 0.177, "w": 1.05, "h": 0.5625}]}
+    c = rt.compare(beat, doc)
+    check("screen 1 within 1 cm: ok", c[1]["ok"])
+    check("screen 3 still on and 1.05 m: both reported", not c[3]["ok"] and c[3]["diff"]["on"] == [0, 1] and c[3]["diff"]["w"] == [0.9, 1.05])
+    check("screen 4 not reported", not c[4]["ok"] and "missing" in c[4]["diff"])
+    beat["screens"][1].update(on=0, w=0.9)
+    check("screen 3 applied: ok", rt.compare(beat, doc)[3]["ok"])
+
+
 if __name__ == "__main__":
     for t in (test_topic, test_index, test_deliver_verbatim, test_detect_switch,
-              test_reply_cleaner, test_focus_policy, test_history, test_audit, test_block):
+              test_reply_cleaner, test_focus_policy, test_history, test_audit, test_block, test_heartbeat_compare):
         print(t.__name__); t()
     print("\n%d passed, %d failed" % (PASS, FAIL))
     sys.exit(1 if FAIL else 0)

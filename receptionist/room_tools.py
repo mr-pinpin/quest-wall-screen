@@ -10,11 +10,13 @@ Usage:
   room_tools.py draw '<json mark>'                            # any mark (label|arrow|rect|circle); full control
   room_tools.py unmark [id]                                   # drop one mark, or all. marks drawn by the headset
   room_tools.py add_card "<title>" "<details>"                # -> work-ad kanban API
+  room_tools.py status [screen_id]                            # what the headset SHOWS (HEARTBEAT, no adb): age,
+                                                              # version, house rev applied, each screen vs the house
 
 House server: PINPIN_HOUSE_BASE (default the Mini over Tailscale). Writes use If-Match + SHA256.
 TEST writes against the SCRATCH house (:57801), never the real house, until the user asks.
 """
-import json, os, sys, hashlib, urllib.request, subprocess, time
+import json, os, sys, hashlib, urllib.request, urllib.error, subprocess, time
 
 HOUSE = os.environ.get("PINPIN_HOUSE_BASE", "http://100.64.243.30:57800")   # Mini, Tailscale
 KANBAN_API = os.environ.get("PINPIN_KANBAN_API", "http://100.64.243.30:57830/api/kanban")  # work-ad's board
@@ -51,6 +53,53 @@ def house_info():
     out = {"rev": rev, "nextScreenId": doc.get("nextScreenId"),
            "selected": doc.get("selected"), "marks": doc.get("marks"),
            "placeable_walls": walls, "screens": screens}
+    print(json.dumps(out, indent=2))
+
+
+# --- HEARTBEAT read path: the headset posts its compact status to the house server every ~10 s (room_lab/heartbeat.h)
+STALE_S = 30              # older than this: the headset is not reporting (off, asleep, app closed, off the LAN)
+
+
+def compare(beat, doc, tol=0.01):
+    """Each house screen against what the headset reports: {id: {"ok": bool, "diff": {...}}}. on, x, y, w, h must
+    agree within tol metres. A screen the headset does not report is not ok."""
+    seen = {s.get("id"): s for s in beat.get("screens", [])}
+    out = {}
+    for hs in doc.get("screens", []):
+        sid = hs.get("id"); got = seen.get(sid)
+        if got is None:
+            out[sid] = {"ok": False, "diff": {"missing": "not reported by the headset"}}
+            continue
+        diff = {}
+        if int(bool(hs.get("on", 1))) != int(bool(got.get("on", 1))):
+            diff["on"] = [hs.get("on", 1), got.get("on")]
+        for k in ("x", "y", "w", "h"):
+            a, b = hs.get(k), got.get(k)
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) > tol:
+                diff[k] = [round(a, 3), round(b, 3)]
+        out[sid] = {"ok": not diff, "diff": diff}
+    return out
+
+
+def status(sid=None):
+    try:
+        with urllib.request.urlopen(HOUSE + "/headset/status", timeout=10) as r:
+            beat = json.load(r)
+    except urllib.error.HTTPError as e:
+        sys.exit("no headset status on the house server yet (HTTP %d): the headset has not posted since the server "
+                 "started, or HEARTBEAT is off / not installed (v0.76+)" % e.code)
+    doc, rev = _get()
+    cmp_ = compare(beat, doc)
+    screens = beat.get("screens", [])
+    if sid is not None:
+        screens = [s for s in screens if str(s.get("id")) == str(sid)]
+        cmp_ = {k: v for k, v in cmp_.items() if str(k) == str(sid)}
+    applied = (beat.get("house") or {}).get("applied")
+    out = {"age_s": beat.get("ageS"), "fresh": (beat.get("ageS") or 1e9) <= STALE_S, "received": beat.get("received"),
+           "version": beat.get("v"), "fps": beat.get("fps"), "battery": beat.get("battery"),
+           "house_rev": int(rev) if rev and str(rev).isdigit() else rev, "headset_applied_rev": applied,
+           "in_sync": str(applied) == str(rev), "screens": screens, "vs_house": cmp_,
+           "errors": beat.get("errors"), "events": beat.get("events")}
     print(json.dumps(out, indent=2))
 
 
@@ -186,6 +235,8 @@ def main(argv):
         select(rest[0])
     elif cmd == "clear":
         clear(rest[0] if rest else None)   # clear <id> drops one; clear drops all
+    elif cmd == "status":               # status [screen_id]
+        status(rest[0] if rest else None)
     elif cmd == "add_card":
         add_card(rest[0], rest[1] if len(rest) > 1 else "")
     elif cmd == "draw":                 # draw '<json mark>'  (full control, all kinds)

@@ -38,6 +38,7 @@ run "commit frame from Meta's scene planes, floor check (room_lab/roomframe.h, t
 run "MESHSAVE: two sessions in different LOCAL frames build one room mesh (room_lab/meshsave.h)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/meshsave_test.cpp -o $T/ms && (ulimit -v 1500000; timeout 120 $T/ms)"
 run "HOUSE first sync pushes the headset, then merges (room_lab/housemerge.h: house 1-3, headset 1-5)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/housemerge_test.cpp -o $T/hm && $T/hm"
 run "SCAN never shrinks or moves a house wall (room_lab/wallmerge.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/wallmerge_test.cpp -o $T/wm && $T/wm"
+run "HEARTBEAT: compact status posted to house/server.py, read back (room_lab/heartbeat.h)" bash bench/heartbeat_test.sh
 run "laptop discovery (room_lab/hosts.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/hosts_test.cpp -o $T/hosts && $T/hosts"
 run "depth wall fitting (room_lab/wallfit.h, synthetic depth)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_test.cpp -o $T/wallfit && $T/wallfit"
 run "depth wall fitting on a real Quest depth frame (both eyes agree on the wall)" bash -c "g++ -std=c++17 -O2 -Wall -I room_lab bench/wallfit_replay.cpp -o $T/wfreplay && $T/wfreplay house/fixtures/depth-47041720"

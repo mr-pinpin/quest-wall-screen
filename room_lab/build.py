@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import pathlib
+import re
 import subprocess
 import urllib.request
 import zipfile
@@ -31,7 +32,8 @@ def main():
     tool=args.ndk/'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++'
     library=sdk/'prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so'
     def run(values):subprocess.run([str(v) for v in values],check=True)
-    run([tool,'-shared','-fPIC','-O2','-std=c++17','-Wall','-Wno-missing-braces','-static-libstdc++','-I'+str(sdk/'prefab/modules/headers/include'),
+    vc=re.search(r'android:versionCode="(\d+)"',(SRC/'AndroidManifest.xml').read_text()).group(1)
+    run([tool,'-shared','-fPIC','-O2','-std=c++17','-DROOM_LAB_VERSION='+vc,'-Wall','-Wno-missing-braces','-static-libstdc++','-I'+str(sdk/'prefab/modules/headers/include'),
          '-I'+str(ml_src/'src'),'-I'+str(_mb/'include'),'-I'+str(opus_src/'include'),SRC/'room_lab.cpp',ml_out/'libmoonlight.a',ml_out/'libmbedcrypto.a',ml_out/'libopus.a',library,'-lEGL','-lGLESv3','-llog','-landroid','-lmediandk','-laaudio','-lz','-lnativewindow','-Wl,-soname,libpinpin_room_lab.so','-o',out/'libpinpin_room_lab.so'])
     classes=out/'classes';classes.mkdir(exist_ok=True)
     android='/usr/lib/android-sdk/platforms/android-23/android.jar'
