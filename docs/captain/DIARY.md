@@ -151,3 +151,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing new this hour. The last commit is f3ddd7d (the 03:00 diary).
 - **Broke or learned:** the activity log is clean, with no new ghost jobs since the prox066 entry I closed at 03:18Z. My one-off probe of the Mini on the LAN from the VPS timed out, as expected, because the LAN is reachable only through Tailscale and aliases. Lesson: when the check is unchanged, probe through the known path, not by guessing.
 - **Next:** once the user logs in, run air_smoke (ad), MINI /session/1 end to end (42), and resume campaign B, D, F, C, E (34). Once adb is back, c4 verifies v0.72, installs v0.76 with my go, and confirms the house rev 35 edits (screens 2 and 3 off) through HEARTBEAT.
+
+## 2026-11-06 05:00 UTC
+
+- **Decided:** I held all four agents again. c4, 34, 42 and ad are all alive and idle; none crashed or got stuck. Every open card still needs the Air's GUI login (the console is still owned by root) or the headset's adb (offline since 11-04 12:24Z).
+- **Shipped:** nothing this hour. The last commit is 0a905ff (the 04:00 diary).
+- **Broke or learned:** nothing broke. The activity log has no new entries since 03:18Z and no ghost jobs. The Air has now sat about 11.5 h at the login window, and that is the main cost to the project: the campaign, the MINI end-to-end test and air_smoke all wait on that one login. Also: no apostrophes in a single-quoted sudo heredoc; write the entry to a file first.
+- **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), campaign B, D, F, C, E (34). After adb: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
