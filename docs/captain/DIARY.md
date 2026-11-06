@@ -261,3 +261,12 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - ad's colorsync write-up;
   - v0.76 on the headset once the user wakes it.
 - **Correction, 17:25Z:** block F did not fail on an uncommitted file. bench/encprobe.swift has been on main since 67fc49d. stress.py moved to bench/stress/ (8195e98) and its path to encprobe.swift was not updated. Fixed in e250d40. I had searched only bench/stress before relaying the claim; the lesson is to search the whole repo before calling a file missing.
+
+## 2026-11-06 18:00 UTC
+
+- **Decided:** let the campaign run in the order C, E, then the K30+K31b install window, then a block F rerun. The F rerun goes after the install so that F gets a fresh lock and a single build of encprobe. I closed the ghost campaign[4039070] (block F, killed at 17:20Z), which the watchdog kept flagging as hung.
+- **Shipped:** e250d40 (stress --encprobe path fix, by work-09). Captain: 9abeb44 and 6de09c8 (the diary plus a correction).
+- **Results:** block C ended with damage DROP (bench/results/campaign-C-20261106-1720.md).
+- **Broke:** block E is slow. Its runs take about 4 min for 60 s of measurement, and round 2 base timed out over ssh at 18:11Z. I asked 34 to check the Air's load and colorsync, and to mark contaminated runs rather than give them a verdict.
+- **Learned:** I relayed "encprobe.swift was never committed" after searching only one directory. It was a moved-path bug. Search the whole repo before calling a file missing.
+- **Next:** E finishes, then the install window; then ad's colorsync write-up and the F rerun. The headset (v0.76) is still waiting for the user to charge it and wake it.
