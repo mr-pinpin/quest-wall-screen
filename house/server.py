@@ -548,14 +548,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(v, dict):
             return self.send(400, {'error': 'a JSON object expected'})
         b = (time.time(), self.client_address[0], v)
-        st.beats.append(b)
-        try:
-            tmp = os.path.join(st.root, 'headset-status.json.tmp')
-            with open(tmp, 'w') as f:
-                json.dump(beat_view(b), f, indent=1)
-            os.replace(tmp, os.path.join(st.root, 'headset-status.json'))
-        except OSError:
-            pass   # the in-memory copy still serves GET
+        with st.lock:   # one writer of headset-status.json.tmp at a time (review, work-09)
+            st.beats.append(b)
+            try:
+                tmp = os.path.join(st.root, 'headset-status.json.tmp')
+                with open(tmp, 'w') as f:
+                    json.dump(beat_view(b), f, indent=1)
+                os.replace(tmp, os.path.join(st.root, 'headset-status.json'))
+            except OSError:
+                pass   # the in-memory copy still serves GET
         self.send(200, {'ok': True, 'kept': len(st.beats)})
 
 
