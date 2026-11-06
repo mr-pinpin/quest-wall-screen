@@ -260,3 +260,4 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - the K30/K31b window;
   - ad's colorsync write-up;
   - v0.76 on the headset once the user wakes it.
+- **Correction, 17:25Z:** block F did not fail on an uncommitted file. bench/encprobe.swift has been on main since 67fc49d. stress.py moved to bench/stress/ (8195e98) and its path to encprobe.swift was not updated. Fixed in e250d40. I had searched only bench/stress before relaying the claim; the lesson is to search the whole repo before calling a file missing.
