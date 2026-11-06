@@ -221,3 +221,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing this hour. The last commit is 1671d43 (the 13:00 diary).
 - **Broke or learned:** nothing broke. The activity log hasn't changed since 03:18Z and has no ghost jobs. That makes eleven quiet hours.
 - **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), and the campaign blocks B, D, F, C, E (34). Once adb is back: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
+
+## 2026-11-06 15:00 UTC
+
+- **Decided:** all four agents stay on hold. c4, 34, 42 and ad are alive and idle; none crashed or got stuck. Both blockers are unchanged: the Air's console is still owned by root (at the login window since 11-05 17:45Z, about 21.5 h), and the headset's adb has been offline since 11-04 12:24Z.
+- **Shipped:** nothing this hour. The last commit is 4056689 (the 14:00 diary).
+- **Broke or learned:** nothing broke. The activity log hasn't changed since 03:18Z and has no ghost jobs. That makes twelve quiet hours. The daily diary is due at 20:57 and should summarise this whole blocked day in one entry instead of repeating these hourly lines.
+- **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), and the campaign blocks B, D, F, C, E (34). Once adb is back: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
