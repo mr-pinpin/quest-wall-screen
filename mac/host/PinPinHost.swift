@@ -28,9 +28,11 @@
 // Stale-session sweep (K31b, flag: the file <support>/sweep-stale exists): at start, before adopting or starting
 // anything, the host kills its own plugin binaries left over from a login session that is gone. 2026-11-05 17:45 UTC
 // WindowServer was SIGKILLed; pinpin-displays (started at boot) survived as an orphan, kept :57710 and a stale display
-// list, and the new session's displays never came back. A process is swept only when ALL hold: its path is exactly a
-// plugin spec's exec (never a name match, so no user process), its parent is launchd (ppid 1), and it started before
-// the running WindowServer (which restarts only with a new session). A copy left by a mere host restart started after
+// list, and the new session's displays never came back. A process is swept only when ALL hold: it is a plugin's
+// binary (never a name match, so no user process): its path is exactly a plugin spec's exec inside the user's home
+// (the Host's own tools), or, for a shared binary such as /usr/bin/python3 or /bin/*, it is the very pid in that
+// plugin's pid file (one the Host started); its parent is launchd (ppid 1); and it started before the running
+// WindowServer (which restarts only with a new session). A copy left by a mere host restart started after
 // WindowServer, so it is still adopted as before. Test: bench/host_sweep_test.sh (on the Air, a scratch build).
 import AppKit
 import AVFoundation
@@ -355,22 +357,28 @@ enum Sweep {
     }
     @discardableResult static func run() -> [Int32] {
         guard FileManager.default.fileExists(atPath: support + "/sweep-stale") else { return [] }
-        var execs: [String: String] = [:]  // exact binary path -> plugin name
+        var execs: [String: String] = [:]    // own binary path (inside home) -> plugin name: any process of it
+        var pinned: [Int32: (String, Set<String>)] = [:]  // pid-file pid -> plugin name, its exec paths: that pid only
         for f in (try? FileManager.default.contentsOfDirectory(atPath: pluginDir)) ?? [] where f.hasSuffix(".json") {
             guard let d = FileManager.default.contents(atPath: pluginDir + "/" + f),
                   let spec = try? JSONDecoder().decode(PluginSpec.self, from: d) else { continue }
             let e = expand(spec.exec), name = String(f.dropLast(5))
             // proc_pidpath gives the real path (/tmp is /private/tmp); realpath(3) matches it, while Foundation's
             // resolvingSymlinksInPath strips a leading /private again (found by host_sweep_test.sh)
-            execs[e] = name
-            if let r = realpath(e, nil) { execs[String(cString: r)] = name; free(r) }
+            var paths: Set<String> = [e]
+            if let r = realpath(e, nil) { paths.insert(String(cString: r)); free(r) }
+            if e.hasPrefix(home + "/") || e.hasPrefix(support + "/") { for p in paths { execs[p] = name } }
+            if let s = try? String(contentsOfFile: runDir + "/\(name).pid", encoding: .utf8),
+               let pid = Int32(s.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces) ?? "") { pinned[pid] = (name, paths) }
         }
         let ws = windowServerStart()
         hostLog("sweep: \(Set(execs.values).count) plugin binaries, WindowServer started \(ws)")
-        guard ws > 0, !execs.isEmpty else { return [] }
+        guard ws > 0, !execs.isEmpty || !pinned.isEmpty else { return [] }
         var killed: [Int32] = []
         for pid in allPids() where pid != getpid() {
-            guard let p = path(pid), let name = execs[p], let i = info(pid), i.ppid == 1, stale(i.start, ws) else { continue }
+            guard let p = path(pid) else { continue }
+            let name = execs[p] ?? pinned[pid].flatMap { $0.1.contains(p) ? $0.0 : nil }
+            guard let name, let i = info(pid), i.ppid == 1, stale(i.start, ws) else { continue }
             kill(pid, SIGTERM); usleep(500_000); if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
             hostLog("sweep: killed stale \(name) pid \(pid) \(p) (started \(i.start), before WindowServer \(ws): its session is gone)")
             killed.append(pid)

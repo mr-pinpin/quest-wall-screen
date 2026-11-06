@@ -8,6 +8,9 @@
 #   decoy   same binary NAME at another path, ppid 1, started before   -> kept (never a name match)
 #   fresh   exact plugin path, ppid 1, started after WindowServer      -> kept (a host restart's copy: adopted)
 #   child   exact plugin path, parent alive (not ppid 1), started before -> kept
+#   shared  a plugin whose exec is a shared binary outside home (/bin/sleep, like /usr/bin/python3): a stale orphan of it
+#           is kept (it could be the user's own), unless its pid is the one in the plugin's pid file -> then swept
+# The scratch dir lives under $HOME here (plugin binaries are the user's own tools there).
 # PINPIN_HOST_WS_START stands in for the WindowServer start time; the flag file decides whether anything happens.
 set -e
 cd "$(dirname "$0")/.."
@@ -17,13 +20,16 @@ ssh -o BatchMode=yes pinpin-air 'bash -s' <<'AIR'
 set -e
 cd /tmp/k31-build
 swiftc -O -swift-version 5 PinPinHost.swift -o host-k31 2>&1 | grep -v warning | grep . && exit 1 || true
-T=$(mktemp -d /tmp/k31-sweep.XXXX); S=$T/support; mkdir -p $S/plugins $T/bin $T/elsewhere
+T=$(mktemp -d "$HOME/.k31-sweep.XXXX"); S=$T/support; mkdir -p $S/plugins $S/run $T/bin $T/elsewhere
 # a real binary of our own (copies of /bin/sleep are SIGKILLed by code signing); linker ad-hoc signing survives a cp
 printf '#include <unistd.h>\nint main(void) { sleep(600); return 0; }\n' > $T/fake.c
 cc $T/fake.c -o $T/bin/fakeplugin; cp $T/bin/fakeplugin $T/elsewhere/fakeplugin
 printf '{"exec": "%s"}\n' $T/bin/fakeplugin > $S/plugins/fake.json
+printf '{"exec": "/bin/sleep", "args": ["600"]}\n' > $S/plugins/shared.json
 orphan() { ( "$@" >/dev/null 2>&1 & echo $! > $T/last ) ; cat $T/last; }   # the subshell exits: ppid becomes 1
 STALE=$(orphan $T/bin/fakeplugin); DECOY=$(orphan $T/elsewhere/fakeplugin)
+USERS=$(orphan /bin/sleep 601); SHARED=$(orphan /bin/sleep 602)
+printf '%s\nkey\n' $SHARED > $S/run/shared.pid      # the Host started this one
 $T/bin/fakeplugin & CHILD=$!          # its parent (this shell) stays alive
 sleep 4; WS=$(( $(date +%s) - 1 )); sleep 3
 FRESH=$(orphan $T/bin/fakeplugin)
@@ -39,11 +45,13 @@ touch $S/sweep-stale
 PINPIN_HOST_SUPPORT=$S PINPIN_HOST_WS_START=$WS ./host-k31 --sweep-only > $T/out2 2> $T/log2
 sleep 1
 check "! alive $STALE" "stale orphan at the plugin's exact path: killed"
-check "grep -q \"sweep: killed stale fake pid $STALE /private$T/bin/fakeplugin\" $T/log2" "the kill is logged with pid and real path"
+check "grep -q \"sweep: killed stale fake pid $STALE $T/bin/fakeplugin\" $T/log2" "the kill is logged with pid and real path"
 check "alive $DECOY" "same name at another path: kept (no name match)"
 check "alive $FRESH" "orphan started after WindowServer (a host restart's copy): kept for adoption"
 check "alive $CHILD" "parent alive (not ppid 1): kept"
-check "[ \"\$(cat $T/out2)\" = $STALE ]" "exactly one pid swept"
+check "alive $USERS" "a stale orphan of a shared binary (/bin/sleep) not in a pid file: kept (could be the user's)"
+check "! alive $SHARED && grep -q \"sweep: killed stale shared pid $SHARED /bin/sleep\" $T/log2" "the shared binary's pid-file pid: swept and logged"
+check "[ \"\$(cat $T/out2 | tr ' ' '\\n' | sort | tr '\\n' ' ')\" = \"\$(printf '%s\\n' $STALE $SHARED | sort | tr '\\n' ' ')\" ]" "exactly those two pids swept"
 # 3. unknown WindowServer start: never stale
 PINPIN_HOST_SUPPORT=$S PINPIN_HOST_WS_START=0 ./host-k31 --sweep-only > $T/out3 2> $T/log3 || true
 check "[ -z \"\$(cat $T/out3)\" ] && alive $DECOY && alive $FRESH" "unknown WindowServer start: nothing killed"
@@ -52,7 +60,7 @@ PINPIN_HOST_SUPPORT=$S ./host-k31 --sweep-only > $T/out4 2> $T/log4
 check "grep -Eq 'WindowServer started [1-9][0-9]{9}' $T/log4 && [ -z \"\$(cat $T/out4)\" ] && alive $DECOY && alive $FRESH && alive $CHILD" "real WindowServer start read; this session's processes kept"
 sed 's/^/      log: /' $T/log2
 sed 's/^/      log: /' $T/log4
-kill $DECOY $FRESH $CHILD 2>/dev/null || true
+kill $DECOY $FRESH $CHILD $USERS 2>/dev/null || true; rm -rf "$T"
 echo "host sweep: $fails failures"
 exit $fails
 AIR
