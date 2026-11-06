@@ -1,6 +1,6 @@
 {
- "rev": 101,
- "next": 32,
+ "rev": 103,
+ "next": 33,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -995,15 +995,26 @@
    "links": [],
    "id": "K23",
    "created": "2026-11-04T11:24:58Z",
-   "updated": "2026-11-04T11:24:58Z",
+   "updated": "2026-11-06T18:24:49Z",
    "by": "work-df",
-   "comments": [],
+   "comments": [
+    {
+     "at": "2026-11-06T18:24:49Z",
+     "by": "work-ad",
+     "text": "2026-11-06 work-ad: colorsync resets when the colorsync process restarts (16:20Z restart along with pinpin-displays: 31%/102 req/min, = post-boot). Per-run bracketing 16:59-18:15Z: runs don't move it (43-48% flat), but stress.py creating pool displays 51-56 at 17:21Z pegged it at 96-103% for the rest of the campaign. Driver = display creation into a running colorsync. Proposal to work-df/work-34: create pool, then restart colorsync once (killall colorsyncd colorsync.displayservices, may need sudo, unverified); re-check before each block. Air offline from ~18:18Z, cause unknown."
+    }
+   ],
    "history": [
     {
      "at": "2026-11-04T11:24:58Z",
      "by": "work-df",
      "what": "created",
      "column": "doing"
+    },
+    {
+     "at": "2026-11-06T18:24:49Z",
+     "by": "work-ad",
+     "what": "commented"
     }
    ]
   },
@@ -1272,7 +1283,28 @@
      "column": "backlog"
     }
    ]
+  },
+  {
+   "title": "stress.py --pool-only: create the bench display pool 51-56 without measuring",
+   "details": "Today the pool is created by the first sck stress run, so that run sees colorsync's step-up (one core, K23) partway through. --pool-only makes the creates first; then colorsync_reset, then measure. Under the bench lock, activity START/END, kept-pool rules unchanged (no removes). Small. Asked by work-df 2026-11-06 18:3xZ.",
+   "column": "backlog",
+   "owner": "work-09",
+   "area": "bench",
+   "links": [],
+   "id": "K32",
+   "created": "2026-11-06T18:25:21Z",
+   "updated": "2026-11-06T18:25:21Z",
+   "by": "work-09",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-06T18:25:21Z",
+     "by": "work-09",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
   }
  ],
- "updated": "2026-11-06T16:31:15Z"
+ "updated": "2026-11-06T18:25:21Z"
 }
