@@ -144,3 +144,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - Shipped: HEARTBEAT (headset POSTs its status to the Mini, e05bd16; v0.76 waits for adb); room.sh now writes by=captain (6a10c2e). An agent first misread my revs 31-35 as the headset being online, which I corrected.
 - Lesson: provenance fields must be set by the writer, not copied forward.
 - Closed the ghost prox066[2830336].
+
+## 2026-11-06 04:00 UTC
+
+- **Decided:** no new work handed out. Every open card is blocked on the user: the Air login (no GUI session since 11-05 17:45Z, /dev/console still owned by root) or the headset (adb offline since 11-04 12:24Z). Busywork on a held campaign would only make results that we would throw away.
+- **Shipped:** nothing new this hour. The last commit is f3ddd7d (the 03:00 diary).
+- **Broke or learned:** the activity log is clean, with no new ghost jobs since the prox066 entry I closed at 03:18Z. My one-off probe of the Mini on the LAN from the VPS timed out, as expected, because the LAN is reachable only through Tailscale and aliases. Lesson: when the check is unchanged, probe through the known path, not by guessing.
+- **Next:** once the user logs in, run air_smoke (ad), MINI /session/1 end to end (42), and resume campaign B, D, F, C, E (34). Once adb is back, c4 verifies v0.72, installs v0.76 with my go, and confirms the house rev 35 edits (screens 2 and 3 off) through HEARTBEAT.
