@@ -53,4 +53,9 @@
   and let the Host restart the plugin — `POST http://127.0.0.1:57790/restart?name=<displays-plugin>`
   (clean, host backoff), or replace-the-file-then-pkill-the-child. Same pattern for any Host plugin
   (atlas, assistant): one owner, upgrade = replace binary + Host restart.
+  The old agent plist is parked as `~/Library/LaunchAgents/io.mr-pinpin.displays.plist.disabled`
+  (2026-11-06): a RunAtLoad+KeepAlive copy had started an orphan at boot (ppid 1) that outlived the
+  2026-11-05 17:45Z WindowServer crash and kept listing 8 dead displays. Leave it disabled. After a
+  WindowServer crash or re-login: `kill -TERM` any pinpin-displays whose ppid is not the Host, check
+  exactly one remains with ppid = Host; it re-creates its saved set (displays.json) by itself.
 - Commit as "Mr. PinPin" <miguelemosreverte@gmail.com>; `git pull --rebase --autostash` before pushing.
