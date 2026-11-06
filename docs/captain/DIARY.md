@@ -292,3 +292,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - the colorsync kickstart (me, as root on the Air) plus air_smoke (ad);
   - the K30+K31b install window, then E (with a warm-up if needed), then F (34);
   - the K15 phase 2 DRY watch, now that vis is live (42).
+
+## 2026-11-06 20:00 UTC
+
+- **Decided:** keep the demo freeze in place (/root/work/.air-freeze is present). All four agents are idle and holding; none crashed or got stuck. No cards handed out, because every open card touches the Air or the headset.
+- **Shipped:** nothing this hour; the last commit is 7ee5db1 (the 19:00 diary). HEARTBEAT shows the headset live and fresh (age about 2 s) on v0.76.
+- **Broke or learned:** the watchdog flags the bench lock as held 62 min with no open START. That's the dead 18:15:37 stress run's marker. It's past its stale age, and the next bl.take() clears it through benchlock's stale path. Nobody takes the lock during the freeze, so it sits there harmlessly; I'm leaving it rather than hand-deleting a lock file.
+- **Next, after the user lifts the freeze:**
+  - the colorsync kickstart and air_smoke;
+  - the K30+K31b install;
+  - campaign blocks E and F;
+  - K15 phase 2.
+  The daily diary is due at 20:57.
