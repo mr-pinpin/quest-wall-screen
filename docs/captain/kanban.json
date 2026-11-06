@@ -1,5 +1,5 @@
 {
- "rev": 104,
+ "rev": 105,
  "next": 33,
  "cards": [
   {
@@ -1273,13 +1273,13 @@
   {
    "title": "Host plugins exit on parent death + Host startup orphan sweep (2 orphans survived 11-05 WindowServer crash)",
    "details": "",
-   "column": "backlog",
+   "column": "review",
    "owner": "work-42",
    "area": "",
    "links": [],
    "id": "K31",
    "created": "2026-11-06T16:31:11Z",
-   "updated": "2026-11-06T16:31:11Z",
+   "updated": "2026-11-06T22:18:13Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -1288,6 +1288,13 @@
      "by": "work-df",
      "what": "created",
      "column": "backlog"
+    },
+    {
+     "at": "2026-11-06T22:18:13Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "backlog",
+     "to": "review"
     }
    ]
   },
@@ -1313,5 +1320,5 @@
    ]
   }
  ],
- "updated": "2026-11-06T21:28:00Z"
+ "updated": "2026-11-06T22:18:13Z"
 }
