@@ -58,4 +58,13 @@
   2026-11-05 17:45Z WindowServer crash and kept listing 8 dead displays. Leave it disabled. After a
   WindowServer crash or re-login: `kill -TERM` any pinpin-displays whose ppid is not the Host, check
   exactly one remains with ppid = Host; it re-creates its saved set (displays.json) by itself.
+- **Editing a plugin's JSON spec bounces that plugin within ~3 s** — the Host re-reads the plugins
+  folder and restarts any plugin whose spec (e.g. an `env` var) changed. There is no "edit now, apply
+  on next natural restart": changing the file IS the restart.
+- **The Host adopts its plugins across its OWN restarts** (`build-host.sh` uses `launchctl kickstart -k`,
+  SIGTERM to the Host only; the next Host re-adopts the running children via their pid files), so a
+  plugin at **ppid=1 is normal during a Host rebuild**. NEVER key orphan detection on the parent pid —
+  it would kill+restart every plugin on each rebuild and break adoption. The real orphan test is the
+  **login session**: a process that started before the current WindowServer (which only restarts with a
+  new session) is stale (`PINPIN_ORPHAN_EXIT` guard: pinpin-displays `dw_stale` K30, `parent_watch.py`).
 - Commit as "Mr. PinPin" <miguelemosreverte@gmail.com>; `git pull --rebase --autostash` before pushing.
