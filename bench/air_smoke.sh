@@ -8,6 +8,16 @@ MIN=${1:-25}
 out=$(ssh -o BatchMode=yes pinpin-air "MIN=$MIN bash -s" <<'AIR'
 P="$HOME/Library/Application Support/PinPin Host/plugins"; ID=48  # not 29 or 49: macOS remembers a display identity's wallpaper, and those two kept the still wallpaper that stops the pattern from reaching capture (2026-11-03)
 caffeinate -u -t 60 & CP=$!
+# K30: a stale pinpin-displays (dead displays after a WindowServer crash, or an orphan without its Host) fails here
+# in one request instead of 22 s of "display not found". Older binaries have no /health: skipped.
+if bad=$(curl -s -m5 127.0.0.1:57710/health | python3 -c "import json,sys
+try: h=json.load(sys.stdin)
+except ValueError: sys.exit(1)
+p=[\"dead displays %s\" % h[\"dead\"]] if h.get(\"dead\") else []
+p+=[\"orphan (ppid 1)\"] if h.get(\"orphan\") else []
+print(\", \".join(p)); sys.exit(0 if p else 1)"); then
+  echo "pinpin-displays unhealthy: $bad"; kill $CP 2>/dev/null; exit 0
+fi
 # scratch display pool (AGENTS.md): 48 is created once and never removed; every create/remove raises colorsync's
 # display polling for good (K24). POST /displays always recreates, so only when 48 is missing or another size.
 if ! curl -s -m10 127.0.0.1:57710/displays | python3 -c "import json,sys; sys.exit(0 if any(d[\"screen\"]==$ID and d[\"w\"]==1920 and d[\"h\"]==1200 for d in json.load(sys.stdin)) else 1)"; then
