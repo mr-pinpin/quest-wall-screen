@@ -317,24 +317,38 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 
 # Day 2026-11-06
 
-- **What happened:**
-  - Until 15:58Z the day was idle: about 12 h at the Air's login window and the headset unreachable. I kept the hourly checks cheap and invented no work.
-  - After the user logged in, 4 agents worked in parallel.
-- **What went right:**
-  - We diagnosed the dead virtual displays (a stale list in an orphaned pinpin-displays). Fixed by hand, then for good behind flags: K30 session-watch, K31 orphan guards on the login-session rule, and the K31b Host sweep.
-  - The MINI Claude button passed end to end (K20 done).
-  - K15 video focus: 31 tests plus a campaign guard, and the DRY phase 1 passed.
-  - colorsync is understood: creating displays into a live colorsync pegs a core, and a restart resets it. SIGTERM is deferred by EnableTransactions, so the fix is a kickstart.
-  - v0.76 went on the headset at the user's request and was verified through HEARTBEAT (72 fps, house in sync).
-  - The user showed it to their wife.
-- **What went wrong:**
-  - Two of my own errors, both corrected the same day: the orphan rule keyed on ppid (wrong, since Host adopts its plugins), and calling a moved file "missing" after searching only one directory.
-  - Campaign block E was contaminated by a network outage, and block F was lost to a path bug.
-  - There were two network outages, cause unknown.
-- **Tomorrow:**
-  - colorsync kickstart, then air_smoke;
-  - the K30/K31b install;
-  - the E and F reruns;
-  - the K15 phase 2;
-  - error handling in room.sh status;
-  - and the user's open choices: the big-wall screen and screens 2 and 3.
+**Arc.** 00:00–15:58Z was a dead stretch. The Air sat at the login window after the 11-05 17:45Z WindowServer crash, and the headset's adb was offline. I held the campaign and kept the hourly checks to three tool calls, rather than inventing work whose results would be thrown away. At 15:58Z the user logged in and the four agents ran in parallel until about 19:00Z. Then the user put the headset on to show it to their wife. They asked for v0.76 to be installed while they wore it, then for no further installs, so I froze everything. From 21:18Z the Mini and the Air time out from the VPS: a second network outage today (the first was 18:18–18:36Z).
+
+**Decisions and why.**
+- Gate the campaign on air_smoke, so a broken Air can't produce benchmark numbers.
+- Restart the orphaned pinpin-displays through Host rather than reboot the Air: the user had just logged in, and the displays were already dead.
+- One install window for K30 and K31b after the campaign, so the user's screens blink once and not twice.
+- Every display create happens before a single colorsync reset, because colorsync creeps with each create.
+- Install v0.76 while worn, without prox, only because the user asked explicitly, with a rollback to v0.72 if it failed. Then a full freeze, because they asked.
+- No `kill -9` on a system daemon right before a demo.
+
+**Mistakes and lessons** (fed into captain-lessons.md):
+- I specified orphan detection as "ppid becomes 1". That's wrong: Host adopts plugins across its own restarts. work-09 caught it. The rule is now "the process started before the current WindowServer".
+- I told work-09 that encprobe.swift was "never committed" after searching one directory. It was a moved path. Search the whole repo before calling a file missing.
+- `sudo killall` on colorsync returned rc 0 but changed nothing: EnableTransactions defers SIGTERM. A restart counts only if the pid changed.
+- I couldn't reach adb myself during the demo. The path only works through the Mini (now in memory).
+
+**State per agent.**
+- **work-c4 (headset):** v0.76 is installed and verified through HEARTBEAT (72–73 fps, house in sync at rev 42; the user moved screen 6 themselves). abed50b: room.sh status now treats off screens as correct. K9 and K17 are open.
+- **work-34 / work-09 (bench, geometry, Host):**
+  - Campaign: block C finished with DROP; E is CONTAMINATED (outage); F was lost to a path bug (fixed in e250d40).
+  - K30 (68e7178, 2cf5281, b9a724b) and K31b (2dd12d4, 6d03728) are built and tested but not installed. K32 is filed.
+- **work-42 (assistant, perf):** K20 is done (MINI end to end). K15 has its tests and a campaign guard (9138be1, ebc4016), and DRY phase 1 passed. The orphan guard is live on 2 plugins (7c2f932, flag on).
+- **work-ad (apps, ops, perf):**
+  - air_smoke failed, and that failure gave us the diagnosis. Then it passed at 53.5 fps.
+  - The displays plist is parked (d71f34b).
+  - K23 is solved, and colorsync_reset is built (56ffe05) but unproven.
+  - The shared freeze flag is /root/work/.air-freeze.
+
+**Tomorrow, after the freeze lifts and the network is back:**
+1. colorsync kickstart (me, as root), then ad measures and runs air_smoke.
+2. The K30 + K31b install window (34).
+3. The pool, the reset, then the E and F reruns.
+4. K15 phase 2 on the live vis (42).
+5. room.sh status: handle timeouts (c4).
+6. Open questions for the user: the big-wall screen, and screens 2 and 3 off or on.
