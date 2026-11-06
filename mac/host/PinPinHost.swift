@@ -24,6 +24,14 @@
 //   POST /start|/stop|/restart?name=<plugin>   (stop holds until /start or a host restart; use "enabled": false to keep it off)
 //   POST /stopall        stop every plugin (held until a host restart)
 //   POST /request?perm=<screen|audio|accessibility|input|mic|camera|localnet>   show that permission's prompt
+//
+// Stale-session sweep (K31b, flag: the file <support>/sweep-stale exists): at start, before adopting or starting
+// anything, the host kills its own plugin binaries left over from a login session that is gone. 2026-11-05 17:45 UTC
+// WindowServer was SIGKILLed; pinpin-displays (started at boot) survived as an orphan, kept :57710 and a stale display
+// list, and the new session's displays never came back. A process is swept only when ALL hold: its path is exactly a
+// plugin spec's exec (never a name match, so no user process), its parent is launchd (ppid 1), and it started before
+// the running WindowServer (which restarts only with a new session). A copy left by a mere host restart started after
+// WindowServer, so it is still adopted as before. Test: bench/host_sweep_test.sh (on the Air, a scratch build).
 import AppKit
 import AVFoundation
 import ApplicationServices
@@ -33,7 +41,7 @@ import IOKit.hid
 import Network
 
 let home = FileManager.default.homeDirectoryForCurrentUser.path
-let support = home + "/Library/Application Support/PinPin Host"
+let support = ProcessInfo.processInfo.environment["PINPIN_HOST_SUPPORT"] ?? home + "/Library/Application Support/PinPin Host"  // override: tests only
 let pluginDir = support + "/plugins", runDir = support + "/run", logDir = support + "/logs"
 // Supervision and the control server run on this queue, never on the main thread: AppKit can block the main
 // thread on WindowServer (seen 2026-11-03: a display-timing query hung for minutes after a replayd crash), and
@@ -316,6 +324,63 @@ final class Supervisor {
     func stopAll() { plugins.values.forEach { $0.stop(hold: true) } }
 }
 
+// MARK: - Stale-session sweep (K31b)
+
+enum Sweep {
+    // Start time (epoch s), parent and name of any process, read with sysctl as ps does (proc_pidinfo cannot read a
+    // root-owned process such as WindowServer from a user process: measured on the Air 2026-11-06).
+    static func info(_ pid: Int32) -> (start: Int, ppid: Int32, name: String)? {
+        var kp = kinfo_proc(); var len = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &kp, &len, nil, 0) == 0, len == MemoryLayout<kinfo_proc>.stride else { return nil }
+        let name = withUnsafeBytes(of: kp.kp_proc.p_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return (Int(kp.kp_proc.p_starttime.tv_sec), kp.kp_eproc.e_ppid, name)
+    }
+    static func allPids() -> [Int32] {
+        let n = proc_listallpids(nil, 0); guard n > 0 else { return [] }
+        var pids = [Int32](repeating: 0, count: Int(n) + 64)
+        let got = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size))
+        return pids.prefix(Int(max(0, got))).filter { $0 > 1 }
+    }
+    static func windowServerStart() -> Int {
+        if let s = ProcessInfo.processInfo.environment["PINPIN_HOST_WS_START"], let t = Int(s) { return t }  // tests only
+        for pid in allPids() { if let i = info(pid), i.name == "WindowServer" { return i.start } }
+        return 0
+    }
+    // The same rule as dw_stale in mac/displays_watch.h: unknown times are never stale; 2 s of slack.
+    static func stale(_ procStart: Int, _ wsStart: Int) -> Bool { procStart > 0 && wsStart > 0 && wsStart > procStart + 2 }
+    static func path(_ pid: Int32) -> String? {  // our own user's processes only: others' paths are not readable
+        var buf = [CChar](repeating: 0, count: 4096)
+        return proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : nil
+    }
+    @discardableResult static func run() -> [Int32] {
+        guard FileManager.default.fileExists(atPath: support + "/sweep-stale") else { return [] }
+        var execs: [String: String] = [:]  // exact binary path -> plugin name
+        for f in (try? FileManager.default.contentsOfDirectory(atPath: pluginDir)) ?? [] where f.hasSuffix(".json") {
+            guard let d = FileManager.default.contents(atPath: pluginDir + "/" + f),
+                  let spec = try? JSONDecoder().decode(PluginSpec.self, from: d) else { continue }
+            let e = expand(spec.exec), name = String(f.dropLast(5))
+            // proc_pidpath gives the real path (/tmp is /private/tmp); realpath(3) matches it, while Foundation's
+            // resolvingSymlinksInPath strips a leading /private again (found by host_sweep_test.sh)
+            execs[e] = name
+            if let r = realpath(e, nil) { execs[String(cString: r)] = name; free(r) }
+        }
+        let ws = windowServerStart()
+        hostLog("sweep: \(Set(execs.values).count) plugin binaries, WindowServer started \(ws)")
+        guard ws > 0, !execs.isEmpty else { return [] }
+        var killed: [Int32] = []
+        for pid in allPids() where pid != getpid() {
+            guard let p = path(pid), let name = execs[p], let i = info(pid), i.ppid == 1, stale(i.start, ws) else { continue }
+            kill(pid, SIGTERM); usleep(500_000); if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+            hostLog("sweep: killed stale \(name) pid \(pid) \(p) (started \(i.start), before WindowServer \(ws): its session is gone)")
+            killed.append(pid)
+            let pf = runDir + "/\(name).pid"
+            if let s = try? String(contentsOfFile: pf, encoding: .utf8), s.hasPrefix("\(pid)\n") { try? FileManager.default.removeItem(atPath: pf) }
+        }
+        return killed
+    }
+}
+
 // MARK: - Control server (127.0.0.1:57790)
 
 final class Control {
@@ -385,6 +450,7 @@ final class Core {
         hostLog("PinPin Host \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "") starting")
         work.async { [self] in
             perms.probeLocalNetwork()  // no UI needed; re-run by the menu when it is up
+            Sweep.run()  // before adopting: a stale-session copy must not be adopted (flag sweep-stale)
             control.start(); sup.scan()
             let t = DispatchSource.makeTimerSource(queue: work)
             t.schedule(deadline: .now() + 3, repeating: 3); t.setEventHandler { [weak self] in self?.sup.scan() }; t.resume(); scanTimer = t
@@ -483,6 +549,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openPlugins() { NSWorkspace.shared.open(URL(fileURLWithPath: pluginDir)) }
 }
 
+if CommandLine.arguments.contains("--sweep-only") {  // tests: the sweep alone, no plugins, no control server, no UI
+    for d in [pluginDir, runDir, logDir] { try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true) }
+    print(Sweep.run().map(String.init).joined(separator: " ")); exit(0)
+}
 core.start()  // plugins first; the UI below may block on WindowServer without affecting them
 let app = NSApplication.shared
 let delegate = AppDelegate()
