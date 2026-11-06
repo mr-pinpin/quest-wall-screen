@@ -11,6 +11,10 @@
 //     screen was re-created `maxRecreates` times within `window` seconds and is still missing, re-creating from this
 //     process cannot work (its WindowServer connection is dead): it exits, so its owner (PinPin Host) starts a fresh
 //     one in the live session, which re-creates the saved set and frees :57710.
+//   - a process that started before the running WindowServer belongs to a session that is gone (WindowServer
+//     restarts only with a new session): it exits (pinpin-displays) or is swept (PinPin Host, K31). A plugin that
+//     merely lost its Host parent is NOT stale: Host restarts leave plugins running for the next Host to adopt.
+//     dw_stale is that one rule, shared by both.
 #ifndef DISPLAYS_WATCH_H
 #define DISPLAYS_WATCH_H
 
@@ -61,6 +65,12 @@ static inline int dw_step(dw_entry *e, const unsigned *online, int n, double now
 static inline int dw_session(int n, int *empty, const dw_params *p) {
     if (n > 0) { *empty = 0; return DW_OK; }
     return ++*empty >= p->need ? DW_EXIT : DW_WAIT;
+}
+
+// 1 when a process started at procStart (epoch s) predates the WindowServer started at wsStart: its session is gone.
+// Unknown times (0) are never stale; 2 s of slack for clock granularity.
+static inline int dw_stale(long procStart, long wsStart) {
+    return procStart > 0 && wsStart > 0 && wsStart > procStart + 2;
 }
 
 #endif

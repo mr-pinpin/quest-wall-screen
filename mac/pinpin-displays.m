@@ -32,8 +32,9 @@
 // is turned on or off without a restart; rules in displays_watch.h, which sits next to this file): every 10 s the helper compares its displays with the online display list. A display gone
 // for 3 checks (WindowServer restarted, 2026-11-05 17:45 UTC) is re-created from its saved size, at most once per
 // 5 min per screen (K24: no churn); when re-creating cannot work (no online display at all, or re-creates that do not
-// stick) it exits so PinPin Host starts a fresh helper in the live session. It also exits when its Host parent dies,
-// so an orphan never keeps :57710 and a stale list. GET /displays reports "online" per display (flag or not), and
+// stick) it exits so PinPin Host starts a fresh helper in the live session. It also exits when it started before the
+// running WindowServer (its login session is gone), so an orphan never keeps :57710 and a stale list. Losing the Host
+// parent alone is not a reason: a Host restart leaves its plugins running for the next Host to adopt. GET /displays reports "online" per display (flag or not), and
 // GET /health the watch's state.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
@@ -43,6 +44,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <libproc.h>
+#include <sys/sysctl.h>
 #include "displays_watch.h"
 
 @interface CGVirtualDisplayDescriptor : NSObject
@@ -74,7 +77,7 @@ static void checkDisplays(void);
 static BOOL watchOn;                 // flag session-watch
 static dw_entry watch[65];           // by screen id
 static int emptyChecks, recreatedTotal;
-static pid_t startParent;
+static long myStart;
 
 // A small solid dark-grey PNG, written once; macOS scales it to fill the display.
 static NSURL *stillImage(void) {
@@ -171,10 +174,27 @@ static NSString *listJSON(void) {
 }
 // Session watch, every 10 s on the main queue (flag session-watch). Exits rather than guess when this process can no
 // longer reach the session: its owner (PinPin Host) restarts it from displays.json in the live one.
+// Start time (epoch s) and name of any process, 0 if unknown. sysctl, as ps reads them: proc_pidinfo cannot read a
+// root-owned process (WindowServer) from a user process (measured on the Air 2026-11-06: 0).
+static long procStart(pid_t pid, char *name, size_t nn) {
+    struct kinfo_proc kp; size_t len = sizeof kp; int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+    if (sysctl(mib, 4, &kp, &len, NULL, 0) != 0 || len != sizeof kp) return 0;
+    if (name) { strncpy(name, kp.kp_proc.p_comm, nn - 1); name[nn - 1] = 0; }
+    return (long)kp.kp_proc.p_starttime.tv_sec;
+}
+static long windowServerStart(void) {
+    pid_t pids[4096]; int n = proc_listallpids(pids, sizeof pids);
+    for (int i = 0; i < n; i++) {
+        char name[64] = {0}; long t = procStart(pids[i], name, sizeof name);
+        if (strcmp(name, "WindowServer") == 0) return t;
+    }
+    return 0;
+}
 static void checkDisplays(void) {
     watchOn = [[NSFileManager defaultManager] fileExistsAtPath:[dataDir stringByAppendingPathComponent:@"session-watch"]];
     if (!watchOn) { emptyChecks = 0; for (int i = 0; i < 65; i++) watch[i].missing = 0; return; }  // off: count nothing
-    if (startParent > 1 && getppid() != startParent) { NSLog(@"session watch: Host parent %d gone, exiting", startParent); exit(0); }
+    long ws = windowServerStart();
+    if (dw_stale(myStart, ws)) { NSLog(@"session watch: started %ld, before the running WindowServer (%ld): its session is gone, exiting", myStart, ws); exit(6); }
     if (CGDisplayIsAsleep(CGMainDisplayID())) return;  // a sleeping Mac is not a dead session: count nothing
     CGDirectDisplayID on[64]; int n = onlineList(on, 64);
     if (dw_session(n, &emptyChecks, &DW_DEFAULT) == DW_EXIT) { NSLog(@"session watch: no online display (%d) for %d checks, exiting", n, DW_DEFAULT.need); exit(3); }
@@ -196,7 +216,8 @@ static NSString *healthJSON(void) {
     NSMutableArray *dead = [NSMutableArray array];
     for (NSNumber *k in displays) if (!dw_online(displays[k].displayID, on, n)) [dead addObject:k];
     NSDictionary *h = @{@"watch": @(watchOn), @"online": @(n), @"dead": dead, @"recreated": @(recreatedTotal),
-                        @"parent": @(getppid()), @"orphan": @(getppid() == 1)};
+                        @"parent": @(getppid()), @"orphan": @(getppid() == 1),
+                        @"staleSession": @(dw_stale(myStart, windowServerStart()))};
     return [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:h options:0 error:nil] encoding:NSUTF8StringEncoding];
 }
 static int param(NSString *q, NSString *key) {
@@ -359,16 +380,8 @@ int main(void) {
         dispatch_resume(usrc);
 
         watchOn = [[NSFileManager defaultManager] fileExistsAtPath:[dir stringByAppendingPathComponent:@"session-watch"]];
-        startParent = getppid();  // 1 = started by launchd by hand: no parent to follow
-        NSLog(@"session watch %@ at start (parent %d; the flag is read on every 10 s tick)", watchOn ? @"on" : @"off", startParent);
-        if (startParent > 1) {  // exit with the Host at once, when the flag is on (the 10 s check also catches a missed event)
-            dispatch_source_t ps = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)startParent, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
-            dispatch_source_set_event_handler(ps, ^{
-                if (![[NSFileManager defaultManager] fileExistsAtPath:[dataDir stringByAppendingPathComponent:@"session-watch"]]) return;
-                NSLog(@"session watch: Host parent %d exited, exiting", startParent); exit(0);
-            });
-            dispatch_resume(ps);
-        }
+        myStart = procStart(getpid(), NULL, 0);
+        NSLog(@"session watch %@ at start (started %ld, WindowServer %ld; the flag is read on every 10 s tick)", watchOn ? @"on" : @"off", myStart, windowServerStart());
         dispatch_source_t tm = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
         dispatch_source_set_timer(tm, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), 10 * NSEC_PER_SEC, NSEC_PER_SEC);
         dispatch_source_set_event_handler(tm, ^{ checkDisplays(); });

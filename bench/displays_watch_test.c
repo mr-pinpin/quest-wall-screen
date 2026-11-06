@@ -63,6 +63,14 @@ int main(void) {
     CHECK(dw_session(0, &empty, P) == DW_EXIT, "empty need times: exit");
     CHECK(dw_session(1, &empty, P) == DW_OK && empty == 0, "back: reset");
 
+    // dw_stale: the 2026-11-05 orphan started at boot, WindowServer restarted at 17:45 -> stale; a plugin a Host
+    // restart left running started after WindowServer -> not stale (it is adopted, never killed)
+    long boot = 1793700000, ws = 1793732715;
+    CHECK(dw_stale(boot, ws), "started before the running WindowServer: stale");
+    CHECK(!dw_stale(ws + 3600, ws), "started in this session (adoptable after a Host restart): not stale");
+    CHECK(!dw_stale(ws + 1, ws) && !dw_stale(ws - 1, ws), "within 2 s: not stale");
+    CHECK(!dw_stale(0, ws) && !dw_stale(boot, 0), "unknown times: never stale");
+
     printf("displays_watch: %d failures\n", fails);
     return fails ? 1 : 0;
 }
