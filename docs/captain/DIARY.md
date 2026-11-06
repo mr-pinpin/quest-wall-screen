@@ -127,3 +127,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - audiomxd is now at 99%, and work-ad is investigating.
 - **Campaign:** A2 re-judged with no KEEPs, and nothing goes to production. Closed 4 ghost jobs in activity.log.
 - **Headset:** still offline since 11-04 12:24Z, so c4 stopped polling. The user has been asked to wake it.
+
+## 2026-11-06 02:00 UTC
+- **The user spoke from the headset** (~01:25–01:40): add a screen on the big wall (it's full, so I offered options), make screen 3 bigger (0.68 → 0.90 m), nudge it left, turn screen 3 off, close screen 2. All done as reversible house edits (rev 31–35, on:0) through room_tools.py.
+- **I couldn't verify any of it on the headset.** adb is offline and the headset doesn't answer ping on 192.168.0.x, yet its speech reaches me. Lesson: I need a read path that doesn't depend on adb (e.g. the headset posting its status to the Mini).
+- **The Air's GUI session has been dead since 11-05 17:45Z:** WindowServer was SIGKILLed for exceeding the Mach port limit after a 30 h leak, likely from display churn. Everything GUI is gone (Host, the assistant, Chrome screens). audiomxd spins as a side effect. The fix needs the user: log in, or reboot and log in.
+- **Shipped:**
+  - K20, the MINI kiosk via CDP (072227d; match:null so it survives navigation);
+  - the bench-lock fail-open fix (f89b491);
+  - consolidate/3 with an honest verdict (bfaf70a);
+  - a campaign guard that refuses when there's no GUI session (29f3be1).
+- **All agents are idle,** blocked on the user (Air login, headset). That's legitimate; I didn't invent work.
