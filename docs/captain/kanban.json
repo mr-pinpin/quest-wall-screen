@@ -1,6 +1,6 @@
 {
- "rev": 97,
- "next": 30,
+ "rev": 98,
+ "next": 31,
  "cards": [
   {
    "title": "Select + draw primitives",
@@ -1216,7 +1216,28 @@
      "note": "k5-walltool ddd9475 v0.75: lines around corners, clean walls, w-w-d id fix, SETCAT entry, never stuck (4000-step fuzz)"
     }
    ]
+  },
+  {
+   "title": "pinpin-displays: survive WindowServer restart (drop stale list, re-create pool, exit with Host)",
+   "details": "",
+   "column": "backlog",
+   "owner": "work-34",
+   "area": "",
+   "links": [],
+   "id": "K30",
+   "created": "2026-11-06T16:20:03Z",
+   "updated": "2026-11-06T16:20:03Z",
+   "by": "work-df",
+   "comments": [],
+   "history": [
+    {
+     "at": "2026-11-06T16:20:03Z",
+     "by": "work-df",
+     "what": "created",
+     "column": "backlog"
+    }
+   ]
   }
  ],
- "updated": "2026-11-04T13:10:06Z"
+ "updated": "2026-11-06T16:20:03Z"
 }
