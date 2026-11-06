@@ -42,7 +42,9 @@ def watch_parent(poll_s=3.0, enabled=None, on_orphan=None,
             time.sleep(poll_s)
             ppid = _getppid()
             if _orphaned(start_ppid, ppid):
-                msg = "parent_watch: Host parent gone (ppid %d -> %d) -> exiting" % (start_ppid, ppid)
+                # distinctive, greppable line so a Host sweep / telemetry can tell a self-exit from a
+                # crash (symmetric with pinpin-displays' "session watch: Host parent <pid> ..."):
+                msg = "parent_watch: Host parent %d gone, exiting (ppid now %d)" % (start_ppid, ppid)
                 if on_orphan is not None:
                     try:
                         on_orphan(msg)
