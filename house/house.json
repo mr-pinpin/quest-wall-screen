@@ -23,9 +23,9 @@
  },
  "nextScreenId": 8,
  "plan": {
-  "algo": "consolidate/2",
-  "src": "17cffc0707d8fde740541619402bbb7e0f3e081b7b568b40ceb8e49b395758ad",
-  "rev": 31,
+  "algo": "consolidate/3",
+  "src": "f622e388c6a456851c6168df1b039b97c98cac14c534a83a2bfc7bf30e6d619c",
+  "rev": 36,
   "axesDeg": 16.83,
   "floorY": -1.422,
   "frames": [],
@@ -559,8 +559,10 @@
    }
   ],
   "score": {
-   "verdict": "satisfactory",
-   "reasons": [],
+   "verdict": "not yet",
+   "reasons": [
+    "44 depth wall(s) predate the frame record (pre-v0.65): rescan with v0.65+"
+   ],
    "duplicates": {
     "raw": 0,
     "plan": 0
@@ -581,9 +583,9 @@
    "axesShare": 0.873,
    "frameSuspect": 44
   },
-  "updated": "2026-11-06T01:21:01Z"
+  "updated": "2026-11-06T18:47:36Z"
  },
- "rev": 35,
+ "rev": 36,
  "rooms": [
   {
    "anchors": [
@@ -643,7 +645,7 @@
  "schema": 1,
  "screens": [
   {
-   "h": 1.5,
+   "h": 1.35000002,
    "id": 1,
    "on": 1,
    "role": "main",
@@ -721,9 +723,9 @@
     "screen": 6
    },
    "w": 0.96816498,
-   "wall": "w-w-d12ed9",
-   "x": -0.649471998,
-   "y": 0.402929991
+   "wall": "w-851ff933",
+   "x": 0.0462836064,
+   "y": 0.749247253
   },
   {
    "h": 0.639295995,
@@ -735,16 +737,17 @@
     "screen": 7
    },
    "w": 1.02286994,
-   "wall": "w-w-d59bcc",
+   "wall": "w-d59bcc9",
    "x": 0.0335636996,
    "y": 0.414640009
   }
  ],
+ "selected": [],
  "settings": {
   "locked": false
  },
  "shapes": [],
- "updated": "2026-11-06T01:22:40Z",
+ "updated": "2026-11-06T18:47:36Z",
  "walls": [
   {
    "h": 2.50954533,
@@ -2242,6 +2245,5 @@
    "source": "scene",
    "w": 1.1500001
   }
- ],
- "selected": []
+ ]
 }
