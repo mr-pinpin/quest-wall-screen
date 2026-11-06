@@ -80,3 +80,50 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the headset has been off the network since ~12:24 (no ping), probably asleep or rebooted (which loses the root wake lock). v0.72–0.75 are queued behind it, and the user has been asked to check the charger.
 - **Kanban:** 14 cards moved to Done. The open work is mostly "waiting for the user to try" (SETCAT, STEADY, CTLTOP, CLEANLIVE, WALLS).
 - **Next:** the headset back online, v0.75 installed, then the guided tour; K20 (MINI button); the campaign; a quiet reboot of the Air for colorsync.
+
+# Day 2026-11-04 (written 2026-11-06 01:20 UTC; Nov 5 had no captain activity)
+
+## Arc of the day
+- The night shift and morning ran 4–5 agents in parallel; the headset went from v0.45 to v0.75.
+- The big user-visible wins:
+  - talking to the captain from the headset (CLAUDE ring → receptionist → work-df);
+  - the Claude chat per screen, warm (~1.4 s first word), with CDP clicks and app building;
+  - mini-apps, including the kitchen recipes on screen 3;
+  - the house file plus automatic consolidation, and the mesh scan with clean walls and a guided "Room: good / not yet" hint;
+  - the wall tool;
+  - native click and scroll proven on the extra displays;
+  - a proper kanban, status, help and nightly health.
+- In the afternoon the user handed the Mac over. Network, colorsync and display hygiene took most of it.
+
+## Main decisions and why
+- **Captain delegates, never codes.** I re-split work whenever c4 became the bottleneck, and spun up k5 (work-0e) to write self-contained headers that c4 merges.
+- **One entry point.** The user talks only to work-df; I delegate non-engineering topics. No household account (the user's "keep it simple").
+- **Every user-facing feature ships behind a flag**, and the user flips it. Automated quality verdicts (the consolidation score, the benchmark rules pre-registered before the data) beat eyeballing.
+- **PinPin Host is the single owner of pinpin-displays.** That's the plugin model the user asked for, so rebuilds don't re-prompt.
+
+## Mistakes and lessons (in memory files)
+- **Three-owner process fight** (launchd agent + `open` + Host): the Air hit load 246 and the mouse lagged. Lesson: one owner per service; never "restart until it works" on a live machine.
+- **Display churn ramps colorsync permanently.** Lesson: a fixed scratch-display pool (ids 1–64; bench 51–59). The bench even used the user's screen ids.
+- **Wrong diagnoses relayed:** the wallpaper, and "restarts under the user" (it was our own prox). Lessons: verify before relaying; real wear = mounted AND prox not CLOSE.
+- **Check scripts rolled back healthy builds** on stale bars and skipped checks. Lesson: bars come from a fresh baseline, and nothing rolls back while the headset is worn.
+- **Placement:** STAGE-frame depth walls lost screens 6 and 7, and a scan overwrote Meta wall extents. Lessons: Meta-plane consensus frame, measurements never overwrite the source of truth, and k5's review found 4 more bugs.
+- **Agents quoted commit hashes from memory.** Lesson: quote only from git output.
+
+## State per area
+- **c4 (headset):** v0.72 is installed but unverified; the headset has been OFFLINE since 11-04 12:24Z. v0.73–0.75 are queued: consolidation, scan hint, WALLTOOL.
+- **0e (k5):** waiting for the headset.
+- **34:** the campaign A2 gave no KEEPs; B–F were held by the screen saver (now disabled), and consolidate/2 is being deployed.
+- **42:** the MINI button via CDP, full control approved by the user; enabling and testing now.
+- **ad:** nightly health 5/6; investigating audiomxd at 99%.
+
+## Tomorrow's plan
+- The headset back online (the user), then install v0.75 and relay the try-v075 tour.
+- The MINI button live; the campaign B–F; fix audiomxd; one quiet Air reboot if colorsync climbs again.
+
+## 2026-11-06 01:00 UTC
+- **The user decided:** MINI screen Claude = full control. Told work-42 to enable local-cdp.json for screen 1 (9612), with a "leave the storyboard" warning plus a way back.
+- **Air:**
+  - the idle aerial screen saver was eating ~1.6 cores, so I disabled it (idleTime 0);
+  - audiomxd is now at 99%, and work-ad is investigating.
+- **Campaign:** A2 re-judged with no KEEPs, and nothing goes to production. Closed 4 ghost jobs in activity.log.
+- **Headset:** still offline since 11-04 12:24Z, so c4 stopped polling. The user has been asked to wake it.
