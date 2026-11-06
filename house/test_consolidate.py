@@ -201,6 +201,8 @@ class Real(unittest.TestCase):
         self.assertTrue(all(why.get(i, '').startswith('frame-suspect') for i in depth))
         self.assertTrue(pl['walls'] and all(w['src'] != 'depth' for w in pl['walls']))
         self.assertIsNone(pl['score']['explained'])
+        self.assertEqual(pl['score']['verdict'], 'not yet')  # consolidate/3: unverified space blocks the verdict
+        self.assertTrue(any('rescan with v0.65+' in r for r in pl['score']['reasons']), pl['score']['reasons'])
         self.assertEqual(C.consolidate(with_frames(d))['score']['frameSuspect'], 0)
 
     def test_depth_dump_meets_meta(self):

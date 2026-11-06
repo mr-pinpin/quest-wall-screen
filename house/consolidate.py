@@ -6,6 +6,7 @@ house's "plan" layer; GET /house/plan.svg?layer=clean draws it.
   0. Frame record (consolidate/2). A depth wall committed without a "frame" field predates v0.65, whose SCAN
      records the frame it solved (Meta's planes, else anchors): such a wall may sit in a frame that jumped between
      sessions (STAGE moved ~3.6 m on 2026-11-04), so it is frame-suspect: kept in the raw layer, left out of the plan.
+     (consolidate/3) Any frame-suspect wall blocks the verdict: the space it saw is unverified, not absent.
   1. Frame hygiene. Each SCAN commits its surfaces in the room frame as solved at that moment. A commit (one batch:
      fit.updated) whose floor sits off the house floor (Meta's, else the biggest batch's) is moved onto it when the
      offset is small (<= yShiftMax: anchor drift) and dropped as another frame when it is large; a batch rotated
@@ -32,7 +33,7 @@ import hashlib
 import json
 import math
 
-ALGO = 'consolidate/2'
+ALGO = 'consolidate/3'
 PARAMS = {
     'snapDeg': 7.0, 'mergeOff': 0.05, 'mergeDeg': 3.0, 'mergeGap': 0.10, 'minLen': 0.4, 'minConf': 0.4,
     'stackOff': 0.35, 'stackOverlap': 0.5, 'stackKeep': 0.25, 'cornerReach': 0.7, 'overshoot': 0.3,
@@ -856,6 +857,9 @@ def consolidate(doc, params=None):
     bad = [b for b in batches if b['status'].startswith('dropped')]
     if bad:
         ok = False; reasons.append(f'{len(bad)} scan commit(s) in another frame: ' + '; '.join(f'{b["batch"]}: {b["status"]}' for b in bad))
+    suspect = sum(1 for d in dropped if d['why'].startswith('frame-suspect'))
+    if suspect:  # consolidate/3: a room seen only by old scans would otherwise vanish from a "satisfactory" plan
+        ok = False; reasons.append(f'{suspect} depth wall(s) predate the frame record (pre-v0.65): rescan with v0.65+')
     for w in plan_walls:
         del w['_s']
     score = {'verdict': 'satisfactory' if ok else 'not yet', 'reasons': reasons,
@@ -863,7 +867,7 @@ def consolidate(doc, params=None):
              'closure': r3(min((r['closure'] for r in plan_rooms), default=0.0)),
              'sceneFit': scene_fit, 'explained': r3(explained) if explained is not None else None,
              'walls': {'raw': len(raw_vert), 'plan': len(plan_walls)}, 'axesShare': r3(share),
-             'frameSuspect': sum(1 for d in dropped if d['why'].startswith('frame-suspect'))}
+             'frameSuspect': suspect}
     return {'algo': ALGO, 'src': src_hash(doc), 'rev': doc.get('rev'), 'axesDeg': round(math.degrees(th), 2),
             'floorY': r3(ref_floor) if ref_floor is not None else None, 'frames': batches,
             'walls': plan_walls, 'rooms': plan_rooms, 'dropped': dropped, 'score': score}
