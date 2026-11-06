@@ -5,6 +5,19 @@
 # is woken for the test (caffeinate -u): with it asleep, virtual displays drop out of ScreenCaptureKit.
 #   bash bench/air_smoke.sh [MIN]      # exit 0 = pass; prints the fps samples
 MIN=${1:-25}
+# colorsync gate (K23, off unless set): fail when colorsync uses more than GATE% of a core, since a pegged colorsync
+# skews every measurement after it (fix: bench/colorsync_reset.sh). On: COLORSYNC_GATE=60, or the number in the flag
+# file bench/air_smoke.colorsync-gate.
+B=$(cd "$(dirname "$0")" && pwd)
+GATE=${COLORSYNC_GATE:-$(cat "$B/air_smoke.colorsync-gate" 2>/dev/null)}
+if [ -n "$GATE" ]; then
+  cs=$(ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air "$(python3 "$B/colorsync.py" remote 10)" 2>/dev/null | python3 "$B/colorsync.py" over "$GATE")
+  case $? in
+    0) echo "SMOKE FAIL: colorsync at ${cs}% of a core > ${GATE}% (run bench/colorsync_reset.sh, then smoke again)"; exit 1;;
+    1) echo "colorsync ${cs}% <= ${GATE}%: ok";;
+    *) echo "colorsync unreadable: gate skipped";;
+  esac
+fi
 out=$(ssh -o BatchMode=yes pinpin-air "MIN=$MIN bash -s" <<'AIR'
 P="$HOME/Library/Application Support/PinPin Host/plugins"; ID=48  # not 29 or 49: macOS remembers a display identity's wallpaper, and those two kept the still wallpaper that stops the pattern from reaching capture (2026-11-03)
 caffeinate -u -t 60 & CP=$!
