@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reset the Air's colorsync load (K23/K24): restart colorsyncd + colorsync.displayservices (launchd respawns both),
+# Reset the Air's colorsync load (K23/K24): launchctl kickstart -k colorsyncd + colorsync.displayservices,
 # which drops the polling every display create left behind (2026-11-06: 100% -> ~31% of a core). Run it AFTER every
 # virtual-display create and before measuring; runs themselves do not raise it, so between blocks use --if-above 40.
 # The caller holds the bench lock (EXCLUSIVE: a campaign's window); this script takes none. Nothing visible changes.
@@ -8,7 +8,8 @@
 #     --if-above N     measure first; restart only when above N% (default: always restart)
 #     --until-below M  after the restart, re-check (4 x 30 s) until below M% (default 50)
 # Exit: 0 below M (or no restart needed), 1 still at/above M, 2 Air unreachable/unreadable,
-#       3 the restart needs root: prints the one command for work-df's root path (agents never type a password).
+#       3 the restart needs root: prints the one command for work-df's root path (agents never type a password),
+#       4 the restart ran but the colorsync pids did not change.
 # Logs START/END to the shared bench/activity.log (as stress.py) as $PINPIN_WHO (default: apps).
 cd "$(dirname "$0")/.."
 ABOVE=; BELOW=50
@@ -20,6 +21,7 @@ SHARED=/root/work/quest-wall-screen/bench/activity.log
 LOG=${COLORSYNC_LOG:-$SHARED}  # the tests point it elsewhere
 note() { echo "$(date -u +%FT%TZ) $WHO colorsync_reset[$$] $*" >> "$LOG"; echo "$*"; }
 SAMPLER=$(python3 bench/colorsync.py remote 10)
+KICK='launchctl kickstart -k system/com.apple.colorsyncd && launchctl kickstart -k system/com.apple.colorsync.displayservices'
 measure() { ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air "$SAMPLER" 2>/dev/null | python3 bench/colorsync.py pct; }
 
 p0=$(measure) || { note "NOTE Air unreachable or colorsync unreadable: nothing done"; exit 2; }
@@ -27,12 +29,22 @@ if [ -n "$ABOVE" ] && python3 -c "import sys; sys.exit(0 if $p0 <= $ABOVE else 1
   note "NOTE colorsync ${p0}% <= ${ABOVE}%: no restart needed"; exit 0
 fi
 note "START restart colorsync (was ${p0}% of a core)"
-err=$(ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air 'killall colorsyncd colorsync.displayservices' 2>&1)
+# Both are on-demand launchd daemons with EnableTransactions: they defer SIGTERM while XPC requests are open, so
+# killall (TERM) leaves them running (work-df, 2026-11-06 18:45Z: rc 0, same pids). launchctl kickstart -k restarts
+# the job itself; the next display-info request finds the fresh process. Root only: agents never sudo on the Air.
+pids() { ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air 'pgrep -d, -f "colorsyncd|colorsync.displayservices"' 2>/dev/null; }
+before=$(pids)
+err=$(ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air "$KICK" 2>&1)
 if [ $? -ne 0 ]; then
-  if echo "$err" | grep -qiE 'not permitted|permission'; then
-    note "END needs root on the Air: ask work-df to run: sudo killall colorsyncd colorsync.displayservices"; exit 3
+  if echo "$err" | grep -qiE 'not permitted|permission|privilege|root'; then
+    note "END needs root on the Air: ask work-df to run: sudo sh -c '$KICK'"; exit 3
   fi
   note "END restart failed: ${err:0:160}"; exit 2
+fi
+sleep ${COLORSYNC_WAIT:-3}
+after=$(pids)
+if [ -n "$before" ] && [ "$before" = "$after" ]; then
+  note "END restart had no effect: same pids ($before)"; exit 4
 fi
 p=?
 for i in 1 2 3 4; do  # COLORSYNC_WAIT: the tests shorten the waits

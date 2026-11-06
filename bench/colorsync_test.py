@@ -47,16 +47,17 @@ check('colorsync 45% <= 60%: ok' in r.stdout and 'SMOKE FAIL: median' in r.stdou
 r = smoke('T 0\n 0:00.00\nT 10\n 0:10.00\n', '')
 check('colorsync' not in r.stdout, f'gate off: {r.stdout!r}')
 # colorsync_reset.sh with a stand-in ssh: SAMPLES is a list of samples (one per measure), KILL the killall result
-def reset(args, samples, kill_err=''):
+def reset(args, samples, kill_err='', same_pids=''):
     d = tempfile.mkdtemp()
     with open(os.path.join(d, 'ssh'), 'w') as f:
         f.write('#!/bin/bash\nn=$(cat "$D/n" 2>/dev/null || echo 0)\n'
-                'case "$*" in *killall*) [ -n "$KILL" ] && { echo "$KILL" >&2; exit 1; }; touch "$D/killed"; exit 0;; '
-                '*colorsync*) python3 -c "import json,os,sys; print(json.loads(os.environ[\'SAMPLES\'])[$n])"; '
-                'echo $((n+1)) > "$D/n";; esac\n')
+                'case "$*" in *kickstart*) [ -n "$KILL" ] && { echo "$KILL" >&2; exit 1; }; touch "$D/killed"; exit 0;; '
+                '*"ps -o time="*) python3 -c "import json,os,sys; print(json.loads(os.environ[\'SAMPLES\'])[$n])"; '
+                'echo $((n+1)) > "$D/n";; '
+                '*pgrep*) [ -e "$D/killed" ] && [ -z "$SAMEPIDS" ] && echo 20,21 || echo 10,11; exit 0;; esac\n')
     os.chmod(os.path.join(d, 'ssh'), 0o755)
     import json
-    env = dict(os.environ, PATH=d + ':' + os.environ['PATH'], D=d, SAMPLES=json.dumps(samples), KILL=kill_err,
+    env = dict(os.environ, PATH=d + ':' + os.environ['PATH'], D=d, SAMPLES=json.dumps(samples), KILL=kill_err, SAMEPIDS=same_pids,
                COLORSYNC_LOG=os.path.join(d, 'activity.log'), COLORSYNC_WAIT='0', PINPIN_WHO='test')
     r = subprocess.run(['bash', str(pathlib.Path(cs.__file__).parent / 'colorsync_reset.sh'), *args], env=env,
                        capture_output=True, text=True, timeout=60)
@@ -69,8 +70,10 @@ r, killed, log = reset(['--if-above', '40'], [cool])
 check(r.returncode == 0 and not killed and 'no restart needed' in r.stdout, f'if-above, cool: {r.stdout!r}')
 r, killed, log = reset(['--if-above', '40'], [warm, hot, hot, hot, hot])
 check(r.returncode == 1 and killed and 'still >= 50%' in r.stdout, f'stays hot: {r.stdout!r}')
-r, killed, log = reset([], [hot], 'killall: Operation not permitted')
-check(r.returncode == 3 and 'sudo killall colorsyncd colorsync.displayservices' in r.stdout, f'needs root: {r.stdout!r}')
+r, killed, log = reset([], [hot], 'Could not kickstart service: 1: Operation not permitted')
+check(r.returncode == 3 and 'launchctl kickstart -k system/com.apple.colorsyncd' in r.stdout and 'sudo' in r.stdout, f'needs root: {r.stdout!r}')
+r, killed, log = reset([], [hot], '', 'same')
+check(r.returncode == 4 and 'same pids' in r.stdout, f'TERM ignored, pids unchanged: {r.stdout!r}')
 r, killed, log = reset([], [''])
 check(r.returncode == 2 and not killed, f'unreachable: {r.stdout!r}')
 print('colorsync: all checks passed' if not fails else f'colorsync: {fails} failed')
