@@ -352,6 +352,7 @@ def busy(force, sim=False):
     if own == '' and not hold_says_unworn() and headset_worn(): return 'someone is wearing the headset'  # a live hold probes itself
     net = network_change()
     if net: return f'the bench lock is held ({net})'  # worded as a held lock so every retry loop waits it out
+    if no_gui(): return 'the bench lock is held (the Air has no GUI session: login window)'  # loops wait for a login
     over = air_overloaded(load_max=START_LOAD)
     if over: return f'the bench lock is held (the Air is busy: {over})'  # the user's Mac first; loops wait
     return ''
@@ -422,21 +423,21 @@ def _stamp(t):
 BENCH_PROCS = re.compile(r'^(pinpin-|encprobe|stresspattern|python3?$|sshd|WindowServer$|replayd$|ps$)')
 # Known steady background, recorded in 'background' but not contamination: colorsync.displayservices has run at ~55-62%
 # since the display churn (K24) and stays there until the Air reboots. It is constant across both arms of a pair, so
-# excluding every pair for it would leave no verdicts at all. audiomxd likewise: one core pegged at 100% (load ~1.1) for
-# 7+ hours from 2026-11-05 17:51 UTC, likely the laptop Sunshine's audio tap (work-df). Both are re-judgeable:
-# campaign.py reads the stored strings, so taking a name out of here and re-running --runs restores the exclusion.
-STEADY_BG = re.compile(r'^(colorsync|audiomxd$)')
+# excluding every pair for it would leave no verdicts at all. (audiomxd at 100% overnight 2026-11-05/06 was not
+# background: it spun because the GUI session was dead, see no_gui; it counts as contamination again.)
+STEADY_BG = re.compile(r'^colorsync')
 
 
 def air_load():
     try:
-        out = air('sysctl -n vm.loadavg; ps -Arco pcpu,comm | head -6', timeout=20)
-        lines = out.strip().splitlines(); load = [float(x) for x in lines[0].strip('{} ').split()[:3]]
+        out = air('stat -f %Su /dev/console; sysctl -n vm.loadavg; ps -Arco pcpu,comm | head -6', timeout=20)
+        lines = out.strip().splitlines(); console = lines.pop(0).strip()
+        load = [float(x) for x in lines[0].strip('{} ').split()[:3]]
         top = []
         for l in lines[2:]:
             parts = l.strip().split(None, 1)
             if len(parts) == 2: top.append([float(parts[0]), parts[1]])
-        return {'load1': load[0], 'load5': load[1], 'top': top[:3], 'topAll': top}
+        return {'load1': load[0], 'load5': load[1], 'top': top[:3], 'topAll': top, 'console': console}
     except Exception as ex:
         return {'error': str(ex)[:100]}
 
@@ -445,6 +446,14 @@ def air_load():
 # STANDDOWN_S, load1 is above MID_LOAD or WindowServer is MID_WS points above its level once our own test
 # displays were up (they are expected load).
 START_LOAD, MID_LOAD, MID_WS, STANDDOWN_S = 4.0, 6.0, 60.0, 30
+
+
+def no_gui():
+    # 2026-11-05 17:45 UTC: WindowServer was SIGKILLed (a Mach-port leak) and the Air sat at the login window all night,
+    # with audiomxd spinning as a side effect; runs then measure nothing like real use (work-df). /dev/console is owned
+    # by root at the login window and by the user in a session. An unreachable Air is busy()'s other checks' business.
+    try: return air('stat -f %Su /dev/console', timeout=20).strip() == 'root'
+    except Exception: return False
 
 
 def ws_cpu(smp):
@@ -467,6 +476,7 @@ def contamination(samples):
     for when, smp in samples.items():
         if 'load1' not in smp: continue
         if smp['load1'] > 4: why.append(f'{when}: load {smp["load1"]}')
+        if smp.get('console') == 'root': why.append(f'{when}: no GUI session (login window)')
         why += [f'{when}: {c} {cpu:.0f}%' for cpu, c in smp.get('topAll', [])
                 if cpu > 50 and not BENCH_PROCS.match(c) and not STEADY_BG.match(c)]
     return '; '.join(why)
