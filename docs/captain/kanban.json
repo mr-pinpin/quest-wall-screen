@@ -1,5 +1,5 @@
 {
- "rev": 103,
+ "rev": 104,
  "next": 33,
  "cards": [
   {
@@ -1245,13 +1245,13 @@
   {
    "title": "pinpin-displays: survive WindowServer restart (drop stale list, re-create pool, exit with Host)",
    "details": "",
-   "column": "backlog",
+   "column": "review",
    "owner": "work-34",
    "area": "",
    "links": [],
    "id": "K30",
    "created": "2026-11-06T16:20:03Z",
-   "updated": "2026-11-06T16:20:03Z",
+   "updated": "2026-11-06T21:28:00Z",
    "by": "work-df",
    "comments": [],
    "history": [
@@ -1260,6 +1260,13 @@
      "by": "work-df",
      "what": "created",
      "column": "backlog"
+    },
+    {
+     "at": "2026-11-06T21:28:00Z",
+     "by": "work-df",
+     "what": "moved",
+     "from": "backlog",
+     "to": "review"
     }
    ]
   },
@@ -1306,5 +1313,5 @@
    ]
   }
  ],
- "updated": "2026-11-06T18:25:21Z"
+ "updated": "2026-11-06T21:28:00Z"
 }
