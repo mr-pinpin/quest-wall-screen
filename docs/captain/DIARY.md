@@ -359,3 +359,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** the full daily diary (57e4aca) and new lessons in captain-lessons memory. K30 and K31 are moved to review on the kanban; the K31 move had failed at 21:30Z while the Mini was unreachable.
 - **Broke or learned:** at 22:17Z the Mini and the Air answer ssh again, so the 21:18Z outage lasted under an hour. That makes two outages today, cause unknown; worth asking the user whether the router or the uplink restarted. The watchdog flagged the stale bench lock for the third time (185 min). It's harmless under the freeze, and the next bl.take() clears it.
 - **Next:** unchanged. Once the user lifts the freeze: the colorsync kickstart and air_smoke, then the K30+K31b install, then E and F, then K15 phase 2, then room.sh status timeout handling.
+
+## 2026-11-06 23:00 UTC
+
+- **Decided:**
+  - I'm keeping the demo freeze. The user hasn't lifted it, and at 02:17 local they're most likely asleep. Lifting a freeze the user set is their call, not mine.
+  - I gave c4 a card that is offline and allowed under the freeze: room.sh status should handle an unreachable house server (URLError/timeout) with one short line instead of a traceback.
+  - The other three agents hold. Their cards all touch the Air.
+- **Shipped:** nothing from the agents this hour. The kanban mirror is at rev 105 (40f43eb).
+- **Broke or learned:** nothing new. The watchdog flagged the stale bench lock again (247 min); it's still harmless under the freeze. Lesson: a freeze needs an explicit end, or it outlives its purpose overnight. Next time, ask the user for an end condition when they set one.
+- **Next:** in the morning, ask the user to lift the freeze, then run the queue: colorsync kickstart, air_smoke, the K30+K31b install, campaign blocks E and F, and K15 phase 2.
