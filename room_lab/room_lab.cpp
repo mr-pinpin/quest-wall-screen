@@ -586,8 +586,7 @@ struct App {
         {"PANELTEX", "PANEL", "DRAW THIS PANEL AS ONE IMAGE"}, {"DICTQ", "EXPERIMENTAL", "MIC WAITS FOR YOUR PAUSE AND QUEUES"},
         {"SETCAT", "PANEL", "SETTINGS IN CATEGORIES"}, {"RECKEEP", "EXPERIMENTAL", "CLAUDE CHAT SURVIVES RESTARTS"},
         {"MESHBATCH", "EXPERIMENTAL", "ROOM MESH IN A FEW DRAWS"}, {"BEZELFEW", "BEZEL", "FEWER PIECES FOR THE AMBI FRAME UNDER VT"},
-        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}, {"CLEANLIVE", "EXPERIMENTAL", "CLEAN WALLS LIVE WHILE SCANNING"},
-        {"HEARTBEAT", "MEMORY", "SEND STATUS TO THE HOUSE EVERY 10 S"}};
+        {"MARKS", "SCREENS", "LABELS AND ARROWS THE ASSISTANT DRAWS"}, {"CLEANLIVE", "EXPERIMENTAL", "CLEAN WALLS LIVE WHILE SCANNING"}};
     // SAVESET (default on): every toggle above is kept in settings.json and restored at start. RESUME (default on):
     // the last source pressed (MINI / LAPTOP) is started again at start, instead of an empty main panel.
     bool saveSet = true, resumeOn = true; std::string lastSource, pendingResume; bool resumeDone = false;
@@ -5183,7 +5182,8 @@ void main(){
         heartbeatTick(j.str());
     }
 
-    // ---- HEARTBEAT (room_lab/heartbeat.h, default on, read-only telemetry; work-df 2026-11-06): every 10 s the compact
+    // ---- HEARTBEAT (room_lab/heartbeat.h, default on, read-only telemetry; work-df 2026-11-06; not in the SETTINGS menu,
+    // whose PANELTEX panel is full at 55 items: off via settings.json "HEARTBEAT": false): every 10 s the compact
     // status goes to the house server (POST /headset/status) on a worker thread, so room.sh and /status can read what
     // the headset shows without adb. files/heartbeat-hosts overrides the targets; files/heartbeat-token is sent if present.
     heartbeat::Sender hb; std::atomic<bool> hbBusy{false}; long hbSeq = 0; double hbAt = -1e9; std::mutex hbLock;

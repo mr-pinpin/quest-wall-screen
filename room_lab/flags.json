@@ -900,10 +900,10 @@
       "default": true,
       "state": "on",
       "category": "experimental",
-      "reason": "work-df (2026-11-06): adb and ping to the headset were gone while its reception worked, so house edits (revs 31-35) could not be verified. Every 10 s the app POSTs a compact status (version, fps, battery, house rev applied, every screen's on/wall/x/y/w/h/source, last errors and events; under 2 KB) to the house server's POST /headset/status (room_lab/heartbeat.h, house/server.py); room.sh status and /status read it back. Read-only telemetry: nothing is read back or applied. files/heartbeat-hosts overrides the targets, files/heartbeat-token is sent as X-Headset-Token. On because work-df asked for it.",
+      "reason": "work-df (2026-11-06): adb and ping to the headset were gone while its reception worked, so house edits (revs 31-35) could not be verified. Every 10 s the app POSTs a compact status (version, fps, battery, house rev applied, every screen's on/wall/x/y/w/h/source, last errors and events; under 2 KB) to the house server's POST /headset/status (room_lab/heartbeat.h, house/server.py); room.sh status and /status read it back. Read-only telemetry: nothing is read back or applied. files/heartbeat-hosts overrides the targets, files/heartbeat-token is sent as X-Headset-Token. Not in the SETTINGS menu (the PANELTEX panel is full at 55 items, bench/panel_texture_test.cpp); off via settings.json \"HEARTBEAT\": false. On because work-df asked for it.",
       "evidence": [
         {
-          "commit": "pending"
+          "commit": "16d1f66"
         }
       ]
     }
