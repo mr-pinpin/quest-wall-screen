@@ -172,3 +172,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing this hour. The last commit is 5b2d2ef (the 06:00 diary).
 - **Broke or learned:** nothing broke. The activity log has no entries since 03:18Z and no ghost jobs. Four quiet hours in a row: the user is most likely asleep, and the right move is to stay cheap and ready, not to start work that needs the Air or the headset.
 - **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), campaign B, D, F, C, E (34). After adb: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
+
+## 2026-11-06 08:00 UTC
+
+- **Decided:** I held all four agents (c4, 34, 42, ad: alive, idle, none crashed or stuck). The blockers are unchanged: the Air's console is still owned by root (the login window, since 11-05 17:45Z, now about 14.5 h), and the headset's adb has been offline since 11-04 12:24Z.
+- **Shipped:** nothing this hour. The last commit is 4877ecd (the 07:00 diary).
+- **Broke or learned:** nothing broke. The activity log has no entries since 03:18Z and no ghost jobs. Five quiet hours in a row. When the user is back, the first ask is the one login: it unblocks three of the four agents at once.
+- **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), campaign B, D, F, C, E (34). After adb: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
