@@ -9,12 +9,15 @@
 #     --until-below M  after the restart, re-check (4 x 30 s) until below M% (default 50)
 # Exit: 0 below M (or no restart needed), 1 still at/above M, 2 Air unreachable/unreadable,
 #       3 the restart needs root: prints the one command for work-df's root path (agents never type a password).
-# Logs START/END to bench/activity.log as $PINPIN_WHO (default: apps).
+# Logs START/END to the shared bench/activity.log (as stress.py) as $PINPIN_WHO (default: apps).
 cd "$(dirname "$0")/.."
 ABOVE=; BELOW=50
 while [ $# -gt 0 ]; do case $1 in --if-above) ABOVE=$2; shift 2;; --until-below) BELOW=$2; shift 2;; *) sed -n 2,12p "$0"; exit 2;; esac; done
 WHO=${PINPIN_WHO:-apps}
-LOG=${COLORSYNC_LOG:-bench/activity.log}  # the tests point it elsewhere
+# the shared log, as stress.py (_SHARED_LOG): the watchdog and /status read that one, not a worktree's copy
+SHARED=/root/work/quest-wall-screen/bench/activity.log
+[ -d "${SHARED%/*}" ] || SHARED=bench/activity.log
+LOG=${COLORSYNC_LOG:-$SHARED}  # the tests point it elsewhere
 note() { echo "$(date -u +%FT%TZ) $WHO colorsync_reset[$$] $*" >> "$LOG"; echo "$*"; }
 SAMPLER=$(python3 bench/colorsync.py remote 10)
 measure() { ssh -o BatchMode=yes -o ConnectTimeout=10 pinpin-air "$SAMPLER" 2>/dev/null | python3 bench/colorsync.py pct; }
