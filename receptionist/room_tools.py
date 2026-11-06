@@ -31,6 +31,7 @@ def _get():
 
 
 def _put(doc, rev):
+    doc["by"] = "captain"   # the house history names the writer; without this a room.sh write kept the last writer's "headset"
     body = json.dumps(doc).encode()
     req = urllib.request.Request(HOUSE + "/house", data=body, method="PUT",
                                  headers={"Content-Type": "application/json", "If-Match": str(rev),
