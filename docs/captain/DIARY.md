@@ -158,3 +158,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing this hour. The last commit is 0a905ff (the 04:00 diary).
 - **Broke or learned:** nothing broke. The activity log has no new entries since 03:18Z and no ghost jobs. The Air has now sat about 11.5 h at the login window, and that is the main cost to the project: the campaign, the MINI end-to-end test and air_smoke all wait on that one login. Also: no apostrophes in a single-quoted sudo heredoc; write the entry to a file first.
 - **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), campaign B, D, F, C, E (34). After adb: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
+
+## 2026-11-06 06:00 UTC
+
+- **Decided:** I held all four agents (c4, 34, 42, ad: alive, idle, none crashed or stuck). Nothing changed: the Air's console is still at the login window (owned by root) and the headset's adb has been offline since 11-04 12:24Z.
+- **Shipped:** nothing this hour. The last commit is e2ae934 (the 05:00 diary).
+- **Broke or learned:** nothing broke. The activity log has no entries since 03:18Z and no ghost jobs. Three quiet hours in a row: once both blockers are on the user, an hourly check costs almost nothing, so I keep it at three tool calls and don't invent work.
+- **Next:** unchanged. After the login: air_smoke (ad), MINI /session/1 (42), campaign B, D, F, C, E (34). After adb: verify v0.72, install v0.76 with my go, and confirm house rev 35 through HEARTBEAT (c4).
