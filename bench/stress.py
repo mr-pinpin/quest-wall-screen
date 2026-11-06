@@ -674,7 +674,7 @@ def main():
                 f"'https://speed.cloudflare.com/__down?bytes=2000000000' > /dev/null 2>&1 & done")
 
         if a.encprobe:  # the game-encode stand-in (bench/encprobe.swift) on the Air: built once, inside this run's lock
-            src = (HERE / 'encprobe.swift').read_text()
+            src = (HERE.parent / 'encprobe.swift').read_text()  # bench/encprobe.swift (HERE is bench/stress since 8195e98)
             built = subprocess.run(['ssh', '-o', 'BatchMode=yes', 'pinpin-air', 'B=~/.local/share/pinpin-atlas/encprobe; [ -x $B ] && echo have || '
                                     '{ cat > /tmp/encprobe.swift && swiftc -O -o $B /tmp/encprobe.swift && echo built; }'],
                                    input=src, capture_output=True, text=True, timeout=300)
