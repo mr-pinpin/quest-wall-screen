@@ -138,3 +138,9 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - consolidate/3 with an honest verdict (bfaf70a);
   - a campaign guard that refuses when there's no GUI session (29f3be1).
 - **All agents are idle,** blocked on the user (Air login, headset). That's legitimate; I didn't invent work.
+
+## 2026-11-06 03:00 UTC
+- Quiet hour, everyone blocked on the user (the Air at the login window since 11-05 17:45Z, the headset adb offline). Nothing invented.
+- Shipped: HEARTBEAT (headset POSTs its status to the Mini, e05bd16; v0.76 waits for adb); room.sh now writes by=captain (6a10c2e). An agent first misread my revs 31-35 as the headset being online, which I corrected.
+- Lesson: provenance fields must be set by the writer, not copied forward.
+- Closed the ghost prox066[2830336].
