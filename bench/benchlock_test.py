@@ -100,6 +100,17 @@ check(bl.try_exclusive('e-hb', 'bench', 60).startswith('busy shared'), 'a shared
 pr.wait(timeout=30); bl.withdraw('e-hb')
 check(bl.try_exclusive('e-hb2', 'bench', 60) == 'taken', 'exclusive after the long shared command ended'); bl.release('exclusive:e-hb2')
 
+# fail closed (2026-11-06): when counting the other side's markers fails (here: wc missing, as a refused fork would
+# be), a request must read the lock as busy, not as free
+sh = bl.take('shared', 'apps', 60, 5)
+shim = tempfile.mkdtemp(prefix='benchlock-shim-'); open(os.path.join(shim, 'wc'), 'w').write('#!/bin/sh\nexit 1\n')
+os.chmod(os.path.join(shim, 'wc'), 0o755); path0 = os.environ['PATH']; os.environ['PATH'] = shim + ':' + path0
+r1 = bl.try_exclusive('x-fc', 'bench', 60); r2 = bl.try_shared('s-fc', 'late', 60)
+os.environ['PATH'] = path0; bl.withdraw('x-fc'); bl.release(sh); bl.release('shared:s-fc')
+check(r1 != 'taken', f'exclusive with a failing holder count: busy, not taken ({r1})')
+check(r2 != 'taken', f'shared with a failing intent count: busy, not taken ({r2})')
+check(bl.try_exclusive('x-fc2', 'bench', 60) == 'taken', 'and the lock works again once counting works'); bl.release('exclusive:x-fc2')
+
 # randomised: 6 workers, mixed modes; an exclusive hold never overlaps any other hold
 events = []; lk = threading.Lock()
 

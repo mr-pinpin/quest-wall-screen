@@ -58,7 +58,12 @@ xheld() {
   if [ $(( now - m )) -gt %(stale)d ]; then mv $L $L.stale-$now-$$; return 1; fi
   return 0
 }
-live() { ls -A "$1" 2>/dev/null | grep -v "^$2\$" | wc -l | tr -d ' '; }
+# fail closed: a count that fails (a fork refused under memory pressure, an unreadable dir) reads as busy, never as 0.
+# Before 2026-11-06 it read as 0, so an exclusive could get in beside a shared holder (benchlock_test's one overlap).
+live() {
+  local n; n=$(set -o pipefail; ls -A "$1" 2>/dev/null | { grep -v "^$2\$" || [ $? -eq 1 ]; } | wc -l) || n=x; n=${n//[[:space:]]/}
+  case "$n" in ''|*[!0-9]*) echo 999 ;; *) echo "$n" ;; esac
+}
 '''
 
 
