@@ -68,8 +68,9 @@ def compare(beat, doc, tol=0.01):
     out = {}
     for hs in doc.get("screens", []):
         sid = hs.get("id"); got = seen.get(sid)
-        if got is None:
-            out[sid] = {"ok": False, "diff": {"missing": "not reported by the headset"}}
+        if got is None:   # the app drops screens that are off, so an off screen it does not report is right
+            off = not hs.get("on", 1)
+            out[sid] = {"ok": off, "diff": {} if off else {"missing": "not reported by the headset"}}
             continue
         diff = {}
         if int(bool(hs.get("on", 1))) != int(bool(got.get("on", 1))):

@@ -185,7 +185,8 @@ def test_heartbeat_compare():
     c = rt.compare(beat, doc)
     check("screen 1 within 1 cm: ok", c[1]["ok"])
     check("screen 3 still on and 1.05 m: both reported", not c[3]["ok"] and c[3]["diff"]["on"] == [0, 1] and c[3]["diff"]["w"] == [0.9, 1.05])
-    check("screen 4 not reported", not c[4]["ok"] and "missing" in c[4]["diff"])
+    check("screen 4 (on) not reported", not c[4]["ok"] and "missing" in c[4]["diff"])
+    check("an off screen not reported is right", rt.compare({"screens": []}, {"screens": [{"id": 2, "on": 0}]})[2]["ok"])
     beat["screens"][1].update(on=0, w=0.9)
     check("screen 3 applied: ok", rt.compare(beat, doc)[3]["ok"])
 
