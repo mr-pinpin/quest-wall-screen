@@ -63,6 +63,7 @@ run "wall tool around the room: chains of walls, hints in every state, undo alwa
 run "flag registry matches the code (room_lab/flags.json, bench/flags_check.py)" python3 bench/flags_check.py
 run "flag registry loader (room_lab/flags.h)" bash -c "g++ -std=c++17 -Wall -I room_lab bench/flags_test.cpp -o $T/flags && $T/flags room_lab/flags.json"
 run "house file: schema, migration, sync server (house/test_house.py)" python3 house/test_house.py
+run "pinpin-displays session watch rules (mac/displays_watch.h, K30)" bash -c "cc -std=c11 -Wall -Wextra -I mac bench/displays_watch_test.c -o $T/dw && $T/dw"
 run "house consolidation: synthetic noisy flat, house rev 25, a real dump vs Meta (house/test_consolidate.py)" python3 house/test_consolidate.py
 run "real wall-facing depth dump -> wallfit -> consolidation: the fitted wall within 2 cm of Meta's" bash -c "g++ -std=c++17 -O2 -I room_lab bench/wallfit_replay.cpp -o $T/wfh && (ulimit -v 1500000; timeout 60 $T/wfh house/fixtures/depth-72504684 --house $T/dump.json >/dev/null) && python3 -c 'import json,sys; sys.path.insert(0,\"house\"); import consolidate as C; f=C.consolidate(json.load(open(sys.argv[1])))[\"score\"][\"sceneFit\"]; print(f); sys.exit(0 if f[\"pairs\"] and f[\"median_m\"] <= 0.02 else 1)' $T/dump.json"
 run "bench lock modes: shared / exclusive, writer priority, expiry (bench/benchlock_test.py)" python3 bench/benchlock_test.py

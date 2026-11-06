@@ -22,6 +22,8 @@ cat > "$A/Contents/Info.plist" <<PL
 <key>LSUIElement</key><true/>
 </dict></plist>
 PL
+# pinpin-displays.m includes displays_watch.h (K30 session watch): copy both into src/
+[ -f "$HOME/.local/share/pinpin-displays/src/displays_watch.h" ] || { echo "src/displays_watch.h missing: copy mac/displays_watch.h next to the .m"; exit 1; }
 clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework Foundation -framework AppKit -framework CoreGraphics -framework ApplicationServices -framework ImageIO \
   "$HOME/.local/share/pinpin-displays/src/pinpin-displays.m" -o "$A/Contents/MacOS/pinpin-displays"
 codesign -f -s - "$A"

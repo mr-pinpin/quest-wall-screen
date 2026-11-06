@@ -27,6 +27,14 @@
 // creates gets a plain dark image as its desktop picture. macOS's aerial (video) wallpapers animate every "idle"
 // virtual desktop, so a screen nobody touches still costs a full capture and encode on every frame (work-09,
 // 2026-11-03: 1-2% identical frames). The user's own displays are never touched.
+//
+// Session watch (flag: the file ~/.local/share/pinpin-displays/session-watch exists; rules in displays_watch.h, which
+// sits next to this file): every 10 s the helper compares its displays with the online display list. A display gone
+// for 3 checks (WindowServer restarted, 2026-11-05 17:45 UTC) is re-created from its saved size, at most once per
+// 5 min per screen (K24: no churn); when re-creating cannot work (no online display at all, or re-creates that do not
+// stick) it exits so PinPin Host starts a fresh helper in the live session. It also exits when its Host parent dies,
+// so an orphan never keeps :57710 and a stale list. GET /displays reports "online" per display (flag or not), and
+// GET /health the watch's state.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -34,6 +42,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
+#include "displays_watch.h"
 
 @interface CGVirtualDisplayDescriptor : NSObject
 @property(retain, nonatomic) dispatch_queue_t queue;
@@ -60,6 +70,11 @@ static const int kPort = 57710, kMousePort = 57711;
 static NSMutableDictionary<NSNumber *, CGVirtualDisplay *> *displays;
 static NSMutableDictionary<NSNumber *, NSArray<NSNumber *> *> *sizes;  // points w, h, scale
 static NSString *statePath, *dataDir;
+static void checkDisplays(void);
+static BOOL watchOn;                 // flag session-watch
+static dw_entry watch[65];           // by screen id
+static int emptyChecks, recreatedTotal;
+static pid_t startParent;
 
 // A small solid dark-grey PNG, written once; macOS scales it to fill the display.
 static NSURL *stillImage(void) {
@@ -104,7 +119,15 @@ static CGDirectDisplayID create(int sid, unsigned w, unsigned h, unsigned scale)
     d.maxPixelsWide = w * scale; d.maxPixelsHigh = h * scale;
     d.sizeInMillimeters = CGSizeMake(w * 0.25, h * 0.25);  // ~100 points per inch: macOS picks sensible text sizes
     d.vendorID = 0x5050; d.productID = 0x5300 + sid; d.serialNum = 0x1000 + sid;
-    d.terminationHandler = ^(id a, id b) { NSLog(@"display for screen %d terminated", sid); };
+    // Terminated (WindowServer gone, 2026-11-05 17:45 UTC): with the watch on, check now instead of listing it as alive.
+    // A resize also terminates the old display; the check then finds the new one online and does nothing.
+    d.terminationHandler = ^(id a, id b) {
+        NSLog(@"display for screen %d terminated", sid);
+        if (watchOn) dispatch_async(dispatch_get_main_queue(), ^{
+            if (watch[sid].missing < DW_DEFAULT.need - 1) watch[sid].missing = DW_DEFAULT.need - 1;
+            checkDisplays();
+        });
+    };
     CGVirtualDisplay *v = [[CGVirtualDisplay alloc] initWithDescriptor:d];
     if (!v) { NSLog(@"create failed for screen %d", sid); return 0; }
     CGVirtualDisplaySettings *s = [CGVirtualDisplaySettings new];
@@ -127,16 +150,52 @@ static CGDirectDisplayID create(int sid, unsigned w, unsigned h, unsigned scale)
         if (all) CFRelease(all);
     }
     displays[@(sid)] = v; sizes[@(sid)] = @[@(w), @(h), @(scale)];
+    watch[sid].sid = sid; watch[sid].did = v.displayID; watch[sid].missing = 0;  // re-create history is kept
     NSLog(@"screen %d -> display %u (%ux%u points @%ux)", sid, v.displayID, w, h, scale);
     stillWallpaper(v.displayID, sid);
     return v.displayID;
 }
+// The online displays (the built-in included); -1 when the call fails (no WindowServer connection).
+static int onlineList(CGDirectDisplayID *ids, uint32_t max) {
+    uint32_t n = 0;
+    return CGGetOnlineDisplayList(max, ids, &n) == kCGErrorSuccess ? (int)n : -1;
+}
 static NSString *listJSON(void) {
     NSMutableArray *a = [NSMutableArray array];
+    CGDirectDisplayID on[64]; int n = onlineList(on, 64);
     for (NSNumber *k in [displays.allKeys sortedArrayUsingSelector:@selector(compare:)])
         [a addObject:@{@"screen": k, @"display": @(displays[k].displayID), @"w": @([sizes[k][0] intValue] * [sizes[k][2] intValue]),
-                       @"h": @([sizes[k][1] intValue] * [sizes[k][2] intValue]), @"scale": sizes[k][2]}];
+                       @"h": @([sizes[k][1] intValue] * [sizes[k][2] intValue]), @"scale": sizes[k][2],
+                       @"online": @(dw_online(displays[k].displayID, on, n))}];
     return [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:a options:0 error:nil] encoding:NSUTF8StringEncoding];
+}
+// Session watch, every 10 s on the main queue (flag session-watch). Exits rather than guess when this process can no
+// longer reach the session: its owner (PinPin Host) restarts it from displays.json in the live one.
+static void checkDisplays(void) {
+    if (startParent > 1 && getppid() != startParent) { NSLog(@"session watch: Host parent %d gone, exiting", startParent); exit(0); }
+    if (CGDisplayIsAsleep(CGMainDisplayID())) return;  // a sleeping Mac is not a dead session: count nothing
+    CGDirectDisplayID on[64]; int n = onlineList(on, 64);
+    if (dw_session(n, &emptyChecks, &DW_DEFAULT) == DW_EXIT) { NSLog(@"session watch: no online display (%d) for %d checks, exiting", n, DW_DEFAULT.need); exit(3); }
+    if (n <= 0) return;
+    for (NSNumber *k in displays.allKeys.copy) {
+        int sid = k.intValue, r = dw_step(&watch[sid], on, n, [NSDate date].timeIntervalSince1970, &DW_DEFAULT);
+        if (r == DW_EXIT) { NSLog(@"session watch: screen %d re-created %d times and still missing, exiting", sid, watch[sid].nRecreated); exit(4); }
+        if (r == DW_RECREATE) {
+            NSArray *z = sizes[k]; unsigned old = watch[sid].did;
+            CGDirectDisplayID did = create(sid, [z[0] unsignedIntValue], [z[1] unsignedIntValue], [z[2] unsignedIntValue]);
+            if (!did) { NSLog(@"session watch: re-creating screen %d failed, exiting", sid); exit(5); }  // displays.json still has it
+            recreatedTotal++;
+            NSLog(@"session watch: screen %d display %u was gone, re-created as %u", sid, old, did);
+        }
+    }
+}
+static NSString *healthJSON(void) {
+    CGDirectDisplayID on[64]; int n = onlineList(on, 64);
+    NSMutableArray *dead = [NSMutableArray array];
+    for (NSNumber *k in displays) if (!dw_online(displays[k].displayID, on, n)) [dead addObject:k];
+    NSDictionary *h = @{@"watch": @(watchOn), @"online": @(n), @"dead": dead, @"recreated": @(recreatedTotal),
+                        @"parent": @(getppid()), @"orphan": @(getppid() == 1)};
+    return [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:h options:0 error:nil] encoding:NSUTF8StringEncoding];
 }
 static int param(NSString *q, NSString *key) {
     for (NSString *kv in [q componentsSeparatedByString:@"&"]) {
@@ -180,6 +239,7 @@ static NSString *handle(NSString *method, NSString *target, int *code) {
     NSString *path = parts[0], *q = parts.count > 1 ? parts[1] : @"";
     *code = 200;
     if ([method isEqualToString:@"GET"] && [path isEqualToString:@"/displays"]) return listJSON();
+    if ([method isEqualToString:@"GET"] && [path isEqualToString:@"/health"]) return healthJSON();
     if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/displays"]) {
         int sid = param(q, @"id"), w = param(q, @"w"), h = param(q, @"h"), sc = param(q, @"scale");
         if (sc < 1) sc = 2;
@@ -190,6 +250,7 @@ static NSString *handle(NSString *method, NSString *target, int *code) {
     if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/remove"]) {
         int sid = param(q, @"id");
         [displays removeObjectForKey:@(sid)]; [sizes removeObjectForKey:@(sid)]; save();
+        if (sid >= 1 && sid <= 64) memset(&watch[sid], 0, sizeof watch[sid]);
         NSLog(@"screen %d removed", sid); return listJSON();
     }
     if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/place"]) return place(paramS(q, @"app") ?: @"", param(q, @"screen"), code);
@@ -294,6 +355,21 @@ int main(void) {
             buf[n] = 0; mouse(buf);
         });
         dispatch_resume(usrc);
+
+        watchOn = [[NSFileManager defaultManager] fileExistsAtPath:[dir stringByAppendingPathComponent:@"session-watch"]];
+        startParent = getppid();  // 1 = started by launchd by hand: no parent to follow
+        NSLog(@"session watch %@ (parent %d)", watchOn ? @"on" : @"off", startParent);
+        if (watchOn) {
+            if (startParent > 1) {  // exit with the Host, at once (the 10 s check also catches a missed event)
+                dispatch_source_t ps = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)startParent, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+                dispatch_source_set_event_handler(ps, ^{ NSLog(@"session watch: Host parent %d exited, exiting", startParent); exit(0); });
+                dispatch_resume(ps);
+            }
+            dispatch_source_t tm = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            dispatch_source_set_timer(tm, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), 10 * NSEC_PER_SEC, NSEC_PER_SEC);
+            dispatch_source_set_event_handler(tm, ^{ checkDisplays(); });
+            dispatch_resume(tm);
+        }
         [[NSRunLoop mainRunLoop] run];
     }
     return 0;
