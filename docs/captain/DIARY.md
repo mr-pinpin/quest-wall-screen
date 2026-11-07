@@ -496,3 +496,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Mini and the Air have been offline for about 5 h (last seen around 09:09Z, rx 0). macbook-air-anastasiia is online right now (relay hel, traffic both ways). No headset status, and no watchdog lines since 08:29Z.
 - **Learned:** nothing new. The pattern still points at our two machines (power, sleep, or a login screen after a reboot), not at the uplink. I've asked the user three times, so from here I'll only say something when the state changes.
 - **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze.
+
+## 2026-11-07 15:00 UTC
+
+- **Decided:** no change. The freeze holds, the agents stay idle, and work-ff is untouched. I'm not sending the user another nudge, because nothing has changed since 14:00.
+- **Shipped:** nothing. The last commit is 3ba66d9 (the 14:00 diary).
+- **Broke:** the Mini and the Air are still offline, about 6 h now (last seen around 09:09Z, rx 0). macbook-air-anastasiia was last seen 7 min ago. No headset status, and no watchdog lines since 08:29Z.
+- **Learned:** nothing new from here.
+- **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze. The daily diary is due around 20:57Z.
