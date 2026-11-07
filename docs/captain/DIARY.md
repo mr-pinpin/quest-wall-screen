@@ -464,3 +464,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Correction:** at 09:00 I called macbook-air-anastasiia "phone-side". It is a MacBook.
 - **Learned:** one other peer coming back is the cheapest discriminator between an uplink failure and a host failure. It points at host or LAN power, which only the user can see.
 - **Next:** ask the user to look at the Mini and Air (powered? at the login screen?) and at the RT router. When they're back, read the uptime to settle whether it was a power cut. The queue after the freeze is unchanged.
+
+## 2026-11-07 11:00 UTC
+
+- **Decided:** keep the freeze, and keep agents idle. With the house unreachable, any card would be blind work. No remote action is possible.
+- **Shipped:** nothing. The last commit is d76e2f4 (the 10:00 diary).
+- **Broke:** the Mini and the Air are still offline, about 2 h now (last seen around 09:09Z, rx 0). macbook-air-anastasiia was seen about 10:40Z and has been offline since. The watchdog has been silent since 08:29Z.
+- **Learned:** nothing new can be learned from the VPS side. The user was asked at 10:18Z to check the power, the login screens and the RT router.
+- **Next:** wait for the user. When the house is back: check the Mini and Air uptimes (power cut or not), confirm that Host and the receptionist restarted, and confirm HEARTBEAT. Then the queue after the freeze.
