@@ -556,3 +556,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline 10 h. The watchdog reported the stale lock at 1487 min.
 - **Learned:** if ANECompilerService is still pegged once the freeze lifts, add it to the air_smoke idle gate next to colorsync. A stray core of system load would skew every benchmark.
 - **Next:** wait for the user on the RT router and the Mini. The daily diary is due around 20:57Z.
+
+## 2026-11-07 20:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is d70f3dd (the 19:00 diary).
+- **Observed:**
+  - My read-only ssh to the Air timed out after 15 s this hour.
+  - Tailscale still lists the Air as active and direct, and its byte counters are climbing (tx is up about 135 MB in the hour). So this looks like one of the known VPS-to-peer TCP stalls with the link up, not the Air going down. I did not retry in a loop.
+  - The Mini has been offline 11 h. The watchdog reported the stale lock at 1547 min.
+- **Learned:** stalls hit the Air even on the 192.168.1.x network, without the Mini's exit node in the path. That weakens the theory that the Mini's exit node saturated the uplink, so the stall cause is still open.
+- **Next:** the daily diary at about 20:57Z. Waiting for the user on the RT router and the Mini.
