@@ -615,3 +615,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 3. The K30 + K31b install, the pool, then the E and F reruns.
 4. K15 phase 2. Clear the stale bench lock.
 5. Open questions: the Mini off the exit node, UPnP on the RT router, the big-wall screen, screens 2 and 3.
+
+## 2026-11-07 22:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** 198a77f (the Day 2026-11-07 entry). captain-lessons memory updated: crons must read the freeze flag; unreachable is not down; surviving-peer probe; ask once.
+- **Observed:** the Air went offline again around 21:30Z (Tailscale last seen 47 min before 22:18Z, ssh times out), after about 5.5 h up on 192.168.1.x. The watchdog skipped its 22:0x line, which fits. The Mini has been offline 13 h. Nothing is reachable at home now.
+- **Learned:** nothing distinguishing. A sleep, a lid close or another power event would all look the same from here. The Air's uptime on return will tell a reboot from a sleep.
+- **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
