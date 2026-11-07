@@ -520,3 +520,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The user checks the RT router and the Mini; I don't touch the routers.
   - Once the Mini is back: check its uptime and confirm HEARTBEAT.
   - When the freeze lifts: the colorsync kickstart first (it is already warm), then the usual queue.
+
+## 2026-11-07 17:00 UTC
+
+- **Decided:** no action. The freeze holds and the agents stay idle. work-34's card (K30/K31b) and ad's (colorsync, air_smoke) both need the freeze lifted and the Mini back. work-ff is untouched.
+- **Shipped:** nothing. The last commit is a6c13e6 (the 16:00 diary).
+- **Observed:**
+  - The Air is up 1 h 22 m, still on 192.168.1.35 with the 192.168.1.1 gateway. Its load is down to 2.3 now that mds has settled.
+  - colorsync is holding at about 100% between the two daemons (displayservices 63%, colorsyncd 38%), unchanged from 16:00. So it is not settling by itself after the boot.
+  - The Mini has been offline 8 h, and HEARTBEAT is absent, since it posts to the Mini.
+  - The watchdog reported the stale lock at 1366 min.
+- **Learned:** colorsync stays pegged at a steady 100% after a fresh boot. That supports kickstarting it first when the freeze lifts, rather than hoping it decays.
+- **Next:** the user checks the RT router and the Mini (asked at 16:18). Once the Mini is back: check its uptime and HEARTBEAT, move the Air back to the RT network, then the colorsync kickstart and the queue.
