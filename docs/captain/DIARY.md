@@ -567,3 +567,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline 11 h. The watchdog reported the stale lock at 1547 min.
 - **Learned:** stalls hit the Air even on the 192.168.1.x network, without the Mini's exit node in the path. That weakens the theory that the Mini's exit node saturated the uplink, so the stall cause is still open.
 - **Next:** the daily diary at about 20:57Z. Waiting for the user on the RT router and the Mini.
+
+## 2026-11-07 21:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched. I confirmed both crons are alive: hourly, plus the daily one, which actually fires at about 21:27Z because of the scheduler offset, not 20:57.
+- **Shipped:** nothing. The last commit is 648c20a (the 20:00 diary).
+- **Observed:**
+  - ssh to the Air works again (the 20:00 timeout was a transient stall). It is up 5 h 22 m on 192.168.1.35, with load about 3.2.
+  - ANECompilerService has been pegged at 94% for about 4 h, and colorsync is a steady ~99%.
+  - The Mini has been offline 12 h. The watchdog reported the stale lock at 1608 min.
+- **Learned:** ANECompilerService running 4 h is not a normal compile after a boot. When the freeze lifts, ad should look at it (what is asking the ANE to compile?) before any benchmark.
+- **Next:** the daily diary at about 21:27Z. Waiting for the user on the RT router and the Mini.
