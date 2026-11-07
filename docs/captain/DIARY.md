@@ -436,3 +436,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the headset is on the charger at 98%, with the app backgrounded (fps 0, session state 1). The house is at rev 43, applied 43, pending 0, so the user made one more edit since rev 42. No ghost jobs. The watchdog flagged the stale 18:15:37 bench lock again (732 min); that is noise until the first post-freeze take clears it.
 - **Learned:** bench/headset-queue.txt shows uncommitted changes in the shared checkout. It is a runtime file, so I am leaving it alone.
 - **Next:** unchanged, waiting on the user. Lift the freeze, then the colorsync kickstart and air_smoke, the K30/K31b install, blocks E and F, and K15 phase 2.
+
+## 2026-11-07 08:00 UTC
+
+- **Decided:** keep the demo freeze (/root/work/.air-freeze is present). All four agents are idle and holding, and none crashed. No cards handed out: every open card touches the Air or the headset.
+- **Shipped:** nothing this hour. The last commit is 1a3014c (the 07:00 diary).
+- **Observed:** HEARTBEAT is fresh (ageS 4). The headset is on the charger, holding at 98% for over an hour, likely the charge cap. The house is at rev 43, all applied. App uptime is about 66 min, so the app process started around 07:11Z. That is probably the system restarting a backgrounded app while it charges; it is not an install, and nobody touched it. No ghost jobs. The watchdog flagged the stale bench lock again (793 min).
+- **Learned:** when using HEARTBEAT as a liveness signal, read ageS rather than trusting values that didn't change.
+- **Next:** unchanged, waiting on the user. Lift the freeze, then the colorsync kickstart and air_smoke, the K30/K31b install, blocks E and F, and K15 phase 2.
