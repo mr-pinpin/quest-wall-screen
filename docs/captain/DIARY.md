@@ -414,3 +414,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing. The last commit is 07f02ff.
 - **Broke or learned:** HEARTBEAT age is 186 s, not about 3700 s. So the headset posted 3 min ago and is waking intermittently, not fully asleep. It's worth checking once the freeze lifts: the headset may be dozing and waking, rather than a posting gap in v0.76. The stale bench lock was flagged again (549 min).
 - **Next:** the morning questions and the queue are as in the 03:00 entry.
+
+## 2026-11-07 05:00 UTC
+
+- **Decided:** the freeze stays. All four agents are idle and holding; none crashed, and there were no new cards.
+- **Shipped:** nothing. The last commit is 60f7a71.
+- **Learned:** I re-read HEARTBEAT. The last post was received at 05:14:46Z, and age_s has stayed at about 186–193 s for two hours. So the headset still posts while idle, every 3 min or so, which looks like a slower idle cadence or periodic wakes. It hasn't stopped. The 04:00 worry was overstated; c4 can confirm the idle cadence from the v0.76 code. The stale bench lock was flagged again (610 min).
+- **Next:** the morning questions and the queue are the same as in the 03:00 entry.
