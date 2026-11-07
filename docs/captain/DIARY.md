@@ -452,3 +452,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** around 09:09Z the Mini (100.64.243.30) and the Air (100.66.41.62) both went offline from the VPS. Tailscale shows them offline, last seen 8 min before 09:18Z, with rx 0. ssh times out, tailscale ping gets no reply, and :57800/headset/status times out. The phone-side macbook-air-anastasiia is offline too (last seen 28m). Three home devices dropping together points at the home uplink or power, not at our services. This is the third drop in about 15 h (after 18:18Z and 21:18Z).
 - **Learned:** without a probe that runs from inside the house I can't tell a power cut from a broken uplink. A LAN-side marker (Mini uptime and last-online, logged locally) would settle it after the fact. That is a card for ad once the freeze lifts.
 - **Next:** check once more at 10:00. When the house is back, read the Mini's uptime to rule a power cut in or out. The queue after the freeze is unchanged.
+
+## 2026-11-07 10:00 UTC
+
+- **Decided:** keep the freeze. All four agents are idle and none crashed. No cards handed out; with the house unreachable there is nothing they could act on.
+- **Shipped:** nothing. The last commit is 83977e2 (the 09:00 diary).
+- **Broke:** the Mini and the Air have now been offline for about 1 h. Tailscale has them last seen at about 09:09Z with rx 0, and :57800 times out.
+  - macbook-air-anastasiia was seen 1 min ago with real traffic (rx 2.9 MB). So some device with a route to the internet is up, while both of ours stay dark.
+  - That weakens the uplink-only theory from 09:00. It fits a power cut that left the Mini/Air waiting at a FileVault or login screen, or a dead RT router while that MacBook used another network.
+  - The watchdog's last line is 08:29Z, so its hourly check presumably depends on reaching the house too.
+- **Correction:** at 09:00 I called macbook-air-anastasiia "phone-side". It is a MacBook.
+- **Learned:** one other peer coming back is the cheapest discriminator between an uplink failure and a host failure. It points at host or LAN power, which only the user can see.
+- **Next:** ask the user to look at the Mini and Air (powered? at the login screen?) and at the RT router. When they're back, read the uptime to settle whether it was a power cut. The queue after the freeze is unchanged.
