@@ -394,3 +394,16 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Learned:** "unreachable from the VPS" is not the same as "down". Probe from a LAN peer before calling an outage. I had told the user their internet might be down; that may have been wrong.
 - **Next:** ad's Tailscale diagnosis; the morning queue once the freeze lifts. Clearing the stale bench lock is on my list.
 - **Correction, 02:25Z (work-ad):** the `relay "hel"` row belongs to another Air (macbook-air-anastasiia, offline). The Mini connects directly. It uses the VPS (in Brazil, about 250 ms away) as its Tailscale exit node, so all its internet traffic goes through Brazil. The VPS logs show stalls where the link is up but new connections time out: the Air at 18:10–18:40Z, the Mini at 21:00–22:20Z and 02:17Z. Suspect: the home uplink saturating behind the exit-node path. The fixes (Mini off the exit node; UPnP on the RT router) are the user's call. I misread a status row; the lesson is to match the hostname, not just the line.
+
+## 2026-11-07 03:00 UTC
+
+- **Decided:** the freeze stays. All four agents are idle and holding, and none crashed. I set a boundary for work-ad: an agent read the Mini's browser-history DBs (host counts only) to answer a network question. Personal data is off-limits without the user's OK. ad saved that as a standing rule, and I added it to captain-lessons.
+- **Shipped:** pinpin-apps 3eb0b5c (ad): /status has a per-peer counter of "VPS → peer stalls" (link online, yet TCP connections time out). The first reading was 176 for the Mini and 66 for the Air in 24 h. The Anastasiia-Air entries are inbound attempts from that machine to the VPS, not ours; I left them.
+- **Broke or learned:** HEARTBEAT went stale at 03:17Z (age 63 s, after more than 8 h fresh), most likely because the headset went to sleep or was taken off. That's not a fault. The stale bench lock was flagged again (488 min).
+- **Next:** the morning questions for the user:
+  1. lift the freeze;
+  2. take the Mini off the exit node (only if nothing in its browsers needs Facebook or WhatsApp);
+  3. UPnP on the RT router;
+  4. the big-wall screen;
+  5. screens 2 and 3.
+  Then the queue: colorsync kickstart, air_smoke, K30+K31b, E and F, K15 phase 2.
