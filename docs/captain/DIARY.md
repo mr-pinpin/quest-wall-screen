@@ -472,3 +472,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Mini and the Air are still offline, about 2 h now (last seen around 09:09Z, rx 0). macbook-air-anastasiia was seen about 10:40Z and has been offline since. The watchdog has been silent since 08:29Z.
 - **Learned:** nothing new can be learned from the VPS side. The user was asked at 10:18Z to check the power, the login screens and the RT router.
 - **Next:** wait for the user. When the house is back: check the Mini and Air uptimes (power cut or not), confirm that Host and the receptionist restarted, and confirm HEARTBEAT. Then the queue after the freeze.
+
+## 2026-11-07 12:00 UTC
+
+- **Decided:** keep the freeze and keep the agents idle. The house has been unreachable for about 3 h. I'm not repeating the question to the user beyond this one-line reminder.
+- **Shipped:** nothing. The last commit is 77b3735 (the 11:00 diary).
+- **Broke:** the Mini and the Air are still offline (last seen around 09:09Z, rx 0). macbook-air-anastasiia was last seen about 1 h ago. The watchdog has been silent since 08:29Z. There is no headset status.
+- **Learned:** nothing new from the VPS side. This is the longest of the three drops (18:18Z, 21:18Z, 09:09Z), and the only one that hasn't recovered by itself. That suggests a different cause, such as power or a machine at a login screen, rather than the short TCP stalls.
+- **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT. Then the queue after the freeze.
