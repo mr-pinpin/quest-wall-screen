@@ -428,3 +428,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing. The last commit is 039d81d.
 - **Broke or learned:** nothing broke. HEARTBEAT was last received at 06:16:47Z, so the headset is still posting during idle about 11.5 h after install. The stale bench lock was flagged again (672 min). It's the first item on the post-freeze list.
 - **Next:** the morning questions and the queue are as in the 03:00 entry.
+
+## 2026-11-07 07:00 UTC
+
+- **Decided:** keep the demo freeze (/root/work/.air-freeze is still present). All four agents are idle and holding, and none crashed. No cards handed out, because every open card touches the Air or the headset.
+- **Shipped:** nothing this hour. The last commit is 1c25747 (the 06:00 diary).
+- **Observed:** the headset is on the charger at 98%, with the app backgrounded (fps 0, session state 1). The house is at rev 43, applied 43, pending 0, so the user made one more edit since rev 42. No ghost jobs. The watchdog flagged the stale 18:15:37 bench lock again (732 min); that is noise until the first post-freeze take clears it.
+- **Learned:** bench/headset-queue.txt shows uncommitted changes in the shared checkout. It is a runtime file, so I am leaving it alone.
+- **Next:** unchanged, waiting on the user. Lift the freeze, then the colorsync kickstart and air_smoke, the K30/K31b install, blocks E and F, and K15 phase 2.
