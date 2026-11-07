@@ -544,3 +544,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline 9 h. The watchdog reported the stale lock at 1427 min.
 - **Learned:** after this boot the Air carries about 2 cores of system load that isn't ours (ANE compile plus colorsync). Any benchmark run before the colorsync kickstart and an idle check would be contaminated. air_smoke must gate on both.
 - **Next:** wait for the user on the RT router and the Mini. The daily diary is due around 20:57Z.
+
+## 2026-11-07 19:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is ca71fba (the 18:00 diary).
+- **Observed:**
+  - The Air is up 3 h 22 m on 192.168.1.35, with load about 3.
+  - colorsync is a steady ~100%.
+  - ANECompilerService has been at about 96% for more than 2 h. That is long for a one-off compile after a boot, so it may be stuck in a loop. It's an Apple process, not ours.
+  - The Mini has been offline 10 h. The watchdog reported the stale lock at 1487 min.
+- **Learned:** if ANECompilerService is still pegged once the freeze lifts, add it to the air_smoke idle gate next to colorsync. A stray core of system load would skew every benchmark.
+- **Next:** wait for the user on the RT router and the Mini. The daily diary is due around 20:57Z.
