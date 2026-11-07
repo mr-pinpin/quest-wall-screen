@@ -4,10 +4,20 @@
 # reverts the house + releases the lock; this also kills warm procs after. Skips if the user is using the assistant
 # or the Air is busy, so it never disrupts the user. Disable by removing the crontab line.
 set -u
-REPO=/root/work/quest-wall-screen
+REPO="${REPO:-/root/work/quest-wall-screen}"
 NIGHTLY="$REPO/bench/results/assistant-eval-nightly.md"
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10"
+AIR_FREEZE="${AIR_FREEZE:-/root/work/.air-freeze}"   # coordinator's laptop freeze (e.g. a demo); same path work-ad's collector uses
 log(){ printf '%s work-42 nightly-eval[cron] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$REPO/bench/activity.log"; }
+
+# FREEZE: if the coordinator has frozen the laptop (/root/work/.air-freeze), do NOTHING that touches the Air or
+# Mini — not even the read-only skip probes below. Same contract as work-ad's status_collect.py and nightly suite:
+# note why and exit cleanly. This check is first so a frozen run never ssh's anywhere. (work-df, 2026-11-06)
+if [ -e "$AIR_FREEZE" ]; then
+  why=$(head -c 160 "$AIR_FREEZE" 2>/dev/null | tr '\n' ' ')
+  log "NOTE SKIP: air-freeze present${why:+ ($why)} — no Air/Mini actions this run"
+  exit 0
+fi
 
 # don't disrupt the user: skip if the assistant was used in the last 30 min
 if [ -n "$($SSH pinpin-air 'find ~/.local/share/pinpin-assistant/screens -name session.json -mmin -30 2>/dev/null | head -1' 2>/dev/null)" ]; then
