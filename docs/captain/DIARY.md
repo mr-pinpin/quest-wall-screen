@@ -504,3 +504,19 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Mini and the Air are still offline, about 6 h now (last seen around 09:09Z, rx 0). macbook-air-anastasiia was last seen 7 min ago. No headset status, and no watchdog lines since 08:29Z.
 - **Learned:** nothing new from here.
 - **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze. The daily diary is due around 20:57Z.
+
+## 2026-11-07 16:00 UTC
+
+- **Decided:** I looked at the Air (read only) and changed nothing. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Observed:**
+  - The Air came back. It booted at 15:56Z (kern.boottime), with WindowServer at 15:56:11Z. Host pid 873 is up after the reboot.
+  - The 7 h gap ends in a cold boot, which fits a power cut or a forced restart rather than an uplink drop.
+  - The Air is now on 192.168.1.35 with gateway 192.168.1.1, not the RT LAN 192.168.0.x where it normally lives. It cannot ping the Mini at 192.168.0.50.
+  - The Mini is still offline in Tailscale (7 h).
+  - The watchdog came back at 16:01Z, reporting the stale lock at 1306 min.
+  - The Air's load is about 15: mds at 94%, plus colorsync.displayservices at 62% and colorsyncd at 38% right after the displays were re-created.
+- **Learned:** this all points at the RT router or its LAN being down. The Air fell back to the 192.168.1.x network (likely the ZyXEL's), and the Mini, on the RT LAN, has no path out. colorsync starts warm after a boot (100% between the two daemons), which fits the creep model: display creates into a running colorsync.
+- **Next:**
+  - The user checks the RT router and the Mini; I don't touch the routers.
+  - Once the Mini is back: check its uptime and confirm HEARTBEAT.
+  - When the freeze lifts: the colorsync kickstart first (it is already warm), then the usual queue.
