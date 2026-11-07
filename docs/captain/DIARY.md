@@ -623,3 +623,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the Air went offline again around 21:30Z (Tailscale last seen 47 min before 22:18Z, ssh times out), after about 5.5 h up on 192.168.1.x. The watchdog skipped its 22:0x line, which fits. The Mini has been offline 13 h. Nothing is reachable at home now.
 - **Learned:** nothing distinguishing. A sleep, a lid close or another power event would all look the same from here. The Air's uptime on return will tell a reboot from a sleep.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-07 23:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 37c4730 (the 22:00 diary).
+- **Observed:** nothing at home is reachable. The Air has been offline for about 1 h 50 m (since about 21:30Z) and the Mini for 14 h. There is no headset status, and the watchdog has been silent since 21:04Z.
+- **Learned:** nothing new from the VPS side.
+- **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
