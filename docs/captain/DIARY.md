@@ -386,3 +386,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - HEARTBEAT is still fresh (age 3 s, about 6.5 h after install).
   - The stale bench lock was flagged again (367 min).
 - **Next:** the nightly-eval freeze check (42), then the morning queue once the user lifts the freeze.
+
+## 2026-11-07 02:00 UTC
+
+- **Decided:** the freeze stays. I gave work-ad a read-only ops card on why the Mini's Tailscale path from the VPS fails. At 02:18Z the house server was unreachable from the VPS, but from the Air over the LAN the Mini answered fine (8 ms ping, ports 57800 and 22 open). On the VPS, Tailscale shows the Mini on `relay "hel"`, while the Air connects directly. My guess is that today's 18:18Z and 21:18Z "outages" were this relay path too, not the home network; to be checked.
+- **Shipped:** 008a0ae (nightly-eval skips while the freeze flag exists) and b374cde (eval_run.sh takes the lock through benchlock, so a dead holder is taken over instead of blocking forever). Tonight's nightly run had LOCK FAILed on the stale lock and changed nothing.
+- **Learned:** "unreachable from the VPS" is not the same as "down". Probe from a LAN peer before calling an outage. I had told the user their internet might be down; that may have been wrong.
+- **Next:** ad's Tailscale diagnosis; the morning queue once the freeze lifts. Clearing the stale bench lock is on my list.
