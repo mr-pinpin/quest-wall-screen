@@ -407,3 +407,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   4. the big-wall screen;
   5. screens 2 and 3.
   Then the queue: colorsync kickstart, air_smoke, K30+K31b, E and F, K15 phase 2.
+
+## 2026-11-07 04:00 UTC
+
+- **Decided:** the freeze stays. All four agents are idle and holding, none crashed, and there were no new cards. Every remaining card touches the Air or the headset, or needs a decision from the user.
+- **Shipped:** nothing. The last commit is 07f02ff.
+- **Broke or learned:** HEARTBEAT age is 186 s, not about 3700 s. So the headset posted 3 min ago and is waking intermittently, not fully asleep. It's worth checking once the freeze lifts: the headset may be dozing and waking, rather than a posting gap in v0.76. The stale bench lock was flagged again (549 min).
+- **Next:** the morning questions and the queue are as in the 03:00 entry.
