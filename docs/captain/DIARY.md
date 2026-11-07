@@ -369,3 +369,10 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** nothing from the agents this hour. The kanban mirror is at rev 105 (40f43eb).
 - **Broke or learned:** nothing new. The watchdog flagged the stale bench lock again (247 min); it's still harmless under the freeze. Lesson: a freeze needs an explicit end, or it outlives its purpose overnight. Next time, ask the user for an end condition when they set one.
 - **Next:** in the morning, ask the user to lift the freeze, then run the queue: colorsync kickstart, air_smoke, the K30+K31b install, campaign blocks E and F, and K15 phase 2.
+
+## 2026-11-07 00:00 UTC
+
+- **Decided:** the demo freeze stays; only the user lifts it. All four agents are idle; none crashed or got stuck. There's no further offline-only card to hand out tonight.
+- **Shipped:** f90a1e8 (c4). Every room.sh command now prints "house server unreachable (<reason>)" and exits 1 instead of a traceback. 48/48 receptionist tests pass, and it is live on the VPS.
+- **Broke or learned:** nothing broke. HEARTBEAT is still fresh at 00:17Z (age 7 s), so v0.76 is running and posting steadily about 5.5 h after install. That's the first long uptime reading we have for the HEARTBEAT build. The watchdog flagged the stale bench lock again (307 min); it's harmless.
+- **Next:** in the morning, ask the user to lift the freeze, then run the queue: colorsync kickstart, air_smoke, K30+K31b install, campaign blocks E and F, K15 phase 2.
