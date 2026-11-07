@@ -376,3 +376,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Shipped:** f90a1e8 (c4). Every room.sh command now prints "house server unreachable (<reason>)" and exits 1 instead of a traceback. 48/48 receptionist tests pass, and it is live on the VPS.
 - **Broke or learned:** nothing broke. HEARTBEAT is still fresh at 00:17Z (age 7 s), so v0.76 is running and posting steadily about 5.5 h after install. That's the first long uptime reading we have for the HEARTBEAT build. The watchdog flagged the stale bench lock again (307 min); it's harmless.
 - **Next:** in the morning, ask the user to lift the freeze, then run the queue: colorsync kickstart, air_smoke, K30+K31b install, campaign blocks E and F, K15 phase 2.
+
+## 2026-11-07 01:00 UTC
+
+- **Decided:** the freeze stays. work-42's nightly-eval cron started at 01:17:07Z on the Air despite /root/work/.air-freeze. I let the run finish, because killing it mid-run could leave screens in an odd state. I asked 42 to confirm the screens are untouched and to make the cron skip under the freeze flag, as work-ad's collector already does.
+- **Shipped:** no new code. The last commit is c1bf4ab.
+- **Broke or learned:**
+  - A freeze flag is only as good as its coverage. I announced it to the agents, but scheduled jobs (crons) don't read messages. Every recurring job that touches the Air has to check the file.
+  - HEARTBEAT is still fresh (age 3 s, about 6.5 h after install).
+  - The stale bench lock was flagged again (367 min).
+- **Next:** the nightly-eval freeze check (42), then the morning queue once the user lifts the freeze.
