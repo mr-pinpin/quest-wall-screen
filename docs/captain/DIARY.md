@@ -532,3 +532,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog reported the stale lock at 1366 min.
 - **Learned:** colorsync stays pegged at a steady 100% after a fresh boot. That supports kickstarting it first when the freeze lifts, rather than hoping it decays.
 - **Next:** the user checks the RT router and the Mini (asked at 16:18). Once the Mini is back: check its uptime and HEARTBEAT, move the Air back to the RT network, then the colorsync kickstart and the queue.
+
+## 2026-11-07 18:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched. Nothing has changed that the user needs to hear beyond the 16:18 request.
+- **Shipped:** nothing. The last commit is 1fe3225 (the 17:00 diary).
+- **Observed:**
+  - The Air is up 2 h 22 m, still on 192.168.1.35, with load about 3.
+  - colorsync is a steady ~100% (61% + 38%).
+  - ANECompilerService has sat at about 96% for over an hour. That is presumably macOS compiling Neural Engine models after the boot. It's not ours, and I'm leaving it alone.
+  - The Mini has been offline 9 h. The watchdog reported the stale lock at 1427 min.
+- **Learned:** after this boot the Air carries about 2 cores of system load that isn't ours (ANE compile plus colorsync). Any benchmark run before the colorsync kickstart and an idle check would be contaminated. air_smoke must gate on both.
+- **Next:** wait for the user on the RT router and the Mini. The daily diary is due around 20:57Z.
