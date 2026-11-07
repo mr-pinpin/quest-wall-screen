@@ -3,7 +3,8 @@
 # suite, then ALWAYS revert the house to real, remove display 60, release the lock.
 set -u
 SPEC="$HOME/Library/Application Support/PinPin Host/plugins/assistant.json"
-L=$HOME/.local/share/pinpin-bench.lock
+BL="${BENCHLOCK:-/tmp/benchlock.py}"             # benchlock.py, shipped next to assistant_eval.py by nightly-eval.sh
+export BENCHLOCK_LOCAL="$HOME/.local/share"      # act on the Air's own lock dir directly (no ssh back to self)
 
 setbase() {  # $1 = base url or "" to remove
   python3 - "$SPEC" "$1" <<'PY'
@@ -19,12 +20,12 @@ json.dump(d, open(p, "w"))
 PY
 }
 
-taken=
-for i in $(seq 1 18); do
-  if mkdir "$L" 2>/dev/null; then echo "work-42 eval" > "$L/owner"; taken=1; echo "LOCK taken ($i)"; break; fi
-  echo "held by $(cat "$L/owner" 2>/dev/null) — retry $i"; sleep 12
-done
-[ -n "$taken" ] || { echo "LOCK FAIL"; exit 9; }
+# Take the bench lock EXCLUSIVE via benchlock.py, NOT raw `mkdir`: benchlock moves aside a lock left by a CRASHED
+# holder (older than STALE_S, 30 min) instead of failing forever on it, writes its own owner file, and on release
+# only ever frees OUR lock. --wait 240 s lets a legitimate live holder finish; --max 1800 s caps our own hold.
+[ -f "$BL" ] || { echo "LOCK FAIL: benchlock.py not at $BL"; exit 9; }
+TOK=$(python3 "$BL" take exclusive --who "work-42 eval" --max 1800 --wait 240) || { echo "LOCK FAIL (${TOK:-timed out waiting for a live holder})"; exit 9; }
+echo "LOCK taken ($TOK)"
 
 CAFF=
 cleanup() {
@@ -36,7 +37,7 @@ cleanup() {
   curl -s -m8 -X POST "http://192.168.0.50:57830/api/screens/60/app" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d '{"app":null}' >/dev/null 2>&1
   # fixed-pool rule (K24): never POST /remove (ramps colorsync); the app-unassign above clears content
-  [ -d "$L" ] && mv "$L" "$L.done-$(date +%s)"
+  [ -n "${TOK:-}" ] && python3 "$BL" release "$TOK" 2>/dev/null   # frees only our own lock (benchlock checks $L/id)
   echo "CLEANUP: house reverted to real ($(curl -s -m4 http://127.0.0.1:57840/health >/dev/null 2>&1 && echo up)), display 60 removed, lock released"
 }
 trap cleanup EXIT
