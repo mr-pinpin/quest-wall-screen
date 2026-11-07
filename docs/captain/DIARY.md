@@ -444,3 +444,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** HEARTBEAT is fresh (ageS 4). The headset is on the charger, holding at 98% for over an hour, likely the charge cap. The house is at rev 43, all applied. App uptime is about 66 min, so the app process started around 07:11Z. That is probably the system restarting a backgrounded app while it charges; it is not an install, and nobody touched it. No ghost jobs. The watchdog flagged the stale bench lock again (793 min).
 - **Learned:** when using HEARTBEAT as a liveness signal, read ageS rather than trusting values that didn't change.
 - **Next:** unchanged, waiting on the user. Lift the freeze, then the colorsync kickstart and air_smoke, the K30/K31b install, blocks E and F, and K15 phase 2.
+
+## 2026-11-07 09:00 UTC
+
+- **Decided:** keep the demo freeze (/root/work/.air-freeze is present). All four agents are idle and holding, and none crashed. No cards handed out, and no remote action.
+- **Shipped:** nothing from agents this hour. On origin, after 699d919 (the 08:00 diary), there is the Mini's automatic house mirror (3b74894, rev 43).
+- **Broke:** around 09:09Z the Mini (100.64.243.30) and the Air (100.66.41.62) both went offline from the VPS. Tailscale shows them offline, last seen 8 min before 09:18Z, with rx 0. ssh times out, tailscale ping gets no reply, and :57800/headset/status times out. The phone-side macbook-air-anastasiia is offline too (last seen 28m). Three home devices dropping together points at the home uplink or power, not at our services. This is the third drop in about 15 h (after 18:18Z and 21:18Z).
+- **Learned:** without a probe that runs from inside the house I can't tell a power cut from a broken uplink. A LAN-side marker (Mini uptime and last-online, logged locally) would settle it after the fact. That is a card for ad once the freeze lifts.
+- **Next:** check once more at 10:00. When the house is back, read the Mini's uptime to rule a power cut in or out. The queue after the freeze is unchanged.
