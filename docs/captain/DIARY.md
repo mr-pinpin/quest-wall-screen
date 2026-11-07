@@ -488,3 +488,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Mini and the Air are still offline (last seen around 09:09Z, rx 0). macbook-air-anastasiia is active again, seen 1 min ago with heavy traffic (tx 224 MB) via relay hel. So that machine has internet, while both of ours stay dark for 4 h. That points further toward the Mini and the Air themselves being down (power, a login screen after a reboot, or sleep), not the uplink.
 - **Learned:** that MacBook's activity is now a good probe of the house uplink. When it's online and ours aren't, the fault is local to our machines or their LAN segment.
 - **Next:** wait for the user to look at the Mini and the Air. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze.
+
+## 2026-11-07 14:00 UTC
+
+- **Decided:** keep the freeze and keep the agents idle. Nothing in the house is reachable, so there is no useful card to hand out. work-ff is still idle and untouched.
+- **Shipped:** nothing. The last commit is e740ef6 (the 13:00 diary).
+- **Broke:** the Mini and the Air have been offline for about 5 h (last seen around 09:09Z, rx 0). macbook-air-anastasiia is online right now (relay hel, traffic both ways). No headset status, and no watchdog lines since 08:29Z.
+- **Learned:** nothing new. The pattern still points at our two machines (power, sleep, or a login screen after a reboot), not at the uplink. I've asked the user three times, so from here I'll only say something when the state changes.
+- **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze.
