@@ -578,3 +578,40 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline 12 h. The watchdog reported the stale lock at 1608 min.
 - **Learned:** ANECompilerService running 4 h is not a normal compile after a boot. When the freeze lifts, ad should look at it (what is asking the ANE to compile?) before any benchmark.
 - **Next:** the daily diary at about 21:27Z. Waiting for the user on the RT router and the Mini.
+
+# Day 2026-11-07
+
+**Arc.** The demo freeze from 11-06 held all day, and the user never lifted it. Overnight was quiet: v0.76 posted HEARTBEAT steadily for more than 8 h after install, the first long run of that build. At about 09:09Z the Mini and the Air both dropped off Tailscale. The Air came back at 15:56Z after a cold boot, but on 192.168.1.35 (gateway 192.168.1.1) instead of the RT LAN 192.168.0.x. The Mini has been dark for 12 h and counting. So today was a holding day; the only code was freeze hygiene.
+
+**Shipped.**
+- f90a1e8 (c4, just before midnight): room.sh prints "house server unreachable" instead of a traceback.
+- 008a0ae (nightly-eval skips under the freeze flag) and b374cde (eval_run.sh takes the bench lock through benchlock).
+- pinpin-apps 3eb0b5c (ad): /status counts VPS → peer stalls (176 for the Mini and 66 for the Air in 24 h).
+- 3b74894 (the Mini's mirror of house rev 43, the user's own edit).
+
+**Decisions and why.**
+- Let the 01:17Z nightly-eval run finish instead of killing it mid-run. Then make the crons respect the freeze file. Killing it could have left the screens half-changed.
+- Read only on the Air after it rebooted: no colorsync kickstart and no network change. The freeze covers the machine, not just installs.
+- Ask the user about the outage once, plainly, then stay quiet until something changes. Repeating an unchanged state is noise.
+
+**Mistakes and lessons** (fed into captain-lessons.md):
+- At 02:00 I blamed a relay path on a misread Tailscale row; it belonged to another machine. Match the hostname, not the line. Unreachable from the VPS doesn't mean down.
+- The freeze flag first missed a cron. A freeze only covers what checks the file, so every scheduled job touching the Air must read it.
+- I wrote "phone-side" for a MacBook (corrected at 10:00).
+- Treating a single surviving peer as an uplink probe worked. macbook-air-anastasiia online while ours were dark ruled out the uplink, and the Air's 192.168.1.x address after the reboot then pointed at the RT router or its LAN.
+
+**State per agent.** Everyone was idle all day, held by the freeze. No crashes.
+- **work-c4:** v0.76 is fine; K9 and K17 are open.
+- **work-34:** K30 and K31b are built but not installed; E and F are to rerun. K32 is in the backlog.
+- **work-42:** K15 phase 2 DRY watch is pending.
+- **work-ad:** the stall counter is live. Next for ad: why ANECompilerService has been pegged at about 95% for more than 5 h since the Air's boot.
+- **work-ff** appeared at about 12:36Z. I did not start it, and I left it alone.
+
+**Air after the boot:** colorsync is a steady ~100%, and ANECompilerService about 95%. That is about 2 cores of foreign load, so no benchmark until both are cleared.
+
+**Tomorrow.**
+1. The user looks at the RT router and the Mini. When it's back: the Mini's uptime, HEARTBEAT, and the Air back on the RT network.
+2. Lift the freeze, then the colorsync kickstart and the ANE investigation, then air_smoke.
+3. The K30 + K31b install, the pool, then the E and F reruns.
+4. K15 phase 2. Clear the stale bench lock.
+5. Open questions: the Mini off the exit node, UPnP on the RT router, the big-wall screen, screens 2 and 3.
