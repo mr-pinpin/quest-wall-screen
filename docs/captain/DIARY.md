@@ -480,3 +480,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Mini and the Air are still offline (last seen around 09:09Z, rx 0). macbook-air-anastasiia was last seen about 1 h ago. The watchdog has been silent since 08:29Z. There is no headset status.
 - **Learned:** nothing new from the VPS side. This is the longest of the three drops (18:18Z, 21:18Z, 09:09Z), and the only one that hasn't recovered by itself. That suggests a different cause, such as power or a machine at a login screen, rather than the short TCP stalls.
 - **Next:** wait for the user. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT. Then the queue after the freeze.
+
+## 2026-11-07 13:00 UTC
+
+- **Decided:** keep the freeze and keep the agents idle. The house has been unreachable for about 4 h. A new session, work-ff, appeared about 41 min ago and is idle. I did not start it, and I'm leaving it alone, because it may be the user's own.
+- **Shipped:** nothing. The last commit is 1b7b1ee (the 12:00 diary).
+- **Broke:** the Mini and the Air are still offline (last seen around 09:09Z, rx 0). macbook-air-anastasiia is active again, seen 1 min ago with heavy traffic (tx 224 MB) via relay hel. So that machine has internet, while both of ours stay dark for 4 h. That points further toward the Mini and the Air themselves being down (power, a login screen after a reboot, or sleep), not the uplink.
+- **Learned:** that MacBook's activity is now a good probe of the house uplink. When it's online and ours aren't, the fault is local to our machines or their LAN segment.
+- **Next:** wait for the user to look at the Mini and the Air. On return: check the uptimes, the Host and receptionist pids, and HEARTBEAT, then the queue after the freeze.
