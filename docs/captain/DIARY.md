@@ -753,3 +753,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the home uplink is still up: macbook-air-anastasiia is connected directly from 136.169.211.98. The Mini has been offline about 29 h and the Air about 16 h 50 m. No new log lines.
 - **Learned:** nothing new. The user was told at 13:18Z that the house has internet and only our two machines are dark.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-08 15:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 9dd9c3d (the 14:00 diary).
+- **Observed:** the home uplink is still up (macbook-air-anastasiia connected directly from 136.169.211.98). The Mini has been offline about 30 h and the Air about 17 h 50 m. No new log lines.
+- **Learned:** nothing new.
+- **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
