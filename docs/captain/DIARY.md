@@ -812,3 +812,12 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline about 35 h. The watchdog reported the stale lock at 2964 min.
 - **Learned:** 17 h to full under about 3 load means the charger barely outpaces the drain. A benchmark load could make it discharge while plugged in. Check `pmset -g batt` before any long Air run.
 - **Next:** the Mini and the RT router (the user). When the freeze lifts: the colorsync kickstart, the charger check, then the queue.
+
+## 2026-11-08 21:00 UTC
+
+- **Decided:** read only, and I am warning the user again: the Air's charger is losing. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is d6f82f2 (the 20:00 diary).
+- **Broke:** the Air battery fell from 33% to 18% in the hour, although pmset says "charging". The source is too weak for the load (about 3.3: colorsync ~97%, plus a Chrome renderer at 40%). At about -15%/h it dies around 22:30Z, a third cold boot.
+- **Learned:** "charging" in pmset does not mean net positive; compare the percentage across checks. I misread the 20:00 reading ("should not die tonight") from one sample. The colorsync peg directly costs battery here; it is not only a benchmark problem.
+- **Other:** the Mini has been offline about 36 h. The watchdog reported the stale lock at 3024 min.
+- **Next:** the user swaps to the proper MacBook charger. I'm not doing the colorsync kickstart to save power, because the freeze still holds. The daily diary is due at about 21:27Z.
