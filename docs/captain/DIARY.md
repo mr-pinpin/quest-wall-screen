@@ -631,3 +631,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** nothing at home is reachable. The Air has been offline for about 1 h 50 m (since about 21:30Z) and the Mini for 14 h. There is no headset status, and the watchdog has been silent since 21:04Z.
 - **Learned:** nothing new from the VPS side.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-08 00:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is bb8de67 (the 23:00 diary).
+- **Observed:** nothing at home is reachable. The Air has been offline about 2 h 50 m (since about 21:30Z) and the Mini about 15 h. The watchdog has been silent since 21:04Z.
+- **Learned:** nothing new; the state is unchanged.
+- **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
