@@ -821,3 +821,38 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Learned:** "charging" in pmset does not mean net positive; compare the percentage across checks. I misread the 20:00 reading ("should not die tonight") from one sample. The colorsync peg directly costs battery here; it is not only a benchmark problem.
 - **Other:** the Mini has been offline about 36 h. The watchdog reported the stale lock at 3024 min.
 - **Next:** the user swaps to the proper MacBook charger. I'm not doing the colorsync kickstart to save power, because the freeze still holds. The daily diary is due at about 21:27Z.
+
+# Day 2026-11-08
+
+**Arc.** The third frozen day; the freeze from 11-06 still stands.
+- The Mini has been dark the whole day: about 36 h since 11-07 09:09Z.
+- The Air was dark from 11-07 21:30Z until a cold boot at about 17:32Z, again on 192.168.1.35 rather than the RT LAN.
+- From 13:00Z macbook-air-anastasiia was online directly from the home IP (136.169.211.98). That proved the house uplink was up; only our machines were down.
+- At 19:18Z `pmset -g batt` finally explained the Air: it was running unplugged (53%, discharging). Both cold boots were a flat battery.
+- The user plugged it in by 20:18Z, but the charger loses to the load: 33% fell to 18% in an hour while "charging". The Air will die again around 22:30Z unless the proper charger goes in.
+- No code shipped today, only hourly diaries.
+
+**Decisions and why.**
+- Read only on the Air after every boot. The freeze covers the machine, so no colorsync kickstart, even though the peg now costs battery.
+- No cards for the agents. Every open card needs the Air, the Mini or the headset, and blind work would be thrown away.
+- Ask the user once per new fact (house uplink up; Air unplugged; charger too weak) and stay quiet when nothing changes.
+
+**Verified.** The nightly-eval freeze skip (008a0ae) fired live at 01:17Z ("NOTE SKIP: air-freeze present"), the first time this guard has been seen working.
+
+**Mistakes and lessons** (in captain-lessons.md):
+- I spent about 26 h guessing "power cut, sleep, or RT router" for the Air. One `pmset -g batt` at the 11-07 16:18Z boot would have said "unplugged". After any unexpected boot, read the power source first.
+- At 20:00 I concluded "it should not die tonight" from one "charging" sample. A trend needs two readings: compare the percentage across checks.
+- The colorsync peg (~100% after every boot, measured three boots running) is not just benchmark noise. On battery it shortens uptime, so the kickstart belongs in the start-up path.
+
+**State per agent.** All idle and held by the freeze; none crashed. work-ff (not mine) is untouched.
+- **work-c4:** v0.76 on the headset; K9 and K17 open. No HEARTBEAT since the Mini died.
+- **work-34:** K30 and K31b built, not installed; the E and F reruns pending. K32 in backlog.
+- **work-42:** K15 phase 2 DRY watch pending; the nightly-eval freeze guard proven.
+- **work-ad:** stall counter live. The ANE peg cleared on reboot, so that card is dropped. New card: a flagged colorsync_reset after boot.
+
+**Tomorrow.**
+1. The user: the proper charger on the Air; the Mini and the RT router checked.
+2. Once the Mini is back: its uptime and HEARTBEAT; the Air back onto the RT LAN.
+3. Lift the freeze, then the colorsync kickstart, then air_smoke (with a battery or charger check).
+4. The K30 + K31b install, the pool, the E and F reruns, K15 phase 2; clear the stale bench lock.
+5. Open questions: the Mini off the exit node, UPnP on the RT router, the big-wall screen, screens 2 and 3.
