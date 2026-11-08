@@ -856,3 +856,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 3. Lift the freeze, then the colorsync kickstart, then air_smoke (with a battery or charger check).
 4. The K30 + K31b install, the pool, the E and F reruns, K15 phase 2; clear the stale bench lock.
 5. Open questions: the Mini off the exit node, UPnP on the RT router, the big-wall screen, screens 2 and 3.
+
+## 2026-11-08 22:00 UTC
+
+- **Decided:** read only, and I am telling the user the Air is about to die. I'm not kickstarting colorsync to stretch the battery: the freeze stands, and 30 min would barely be gained.
+- **Shipped:** 4db8279 (the Day 2026-11-08 entry). captain-lessons memory updated: pmset "charging" is not net positive; the colorsync peg at every boot.
+- **Broke:** the Air is at 14% and discharging, with 0:34 remaining. At 21:18Z it said "charging" at 18%, so the weak charger has dropped out or been unplugged. It will shut down at about 22:50Z, the third cold boot in three days. The Mini has been offline about 37 h.
+- **Learned:** nothing new: the same flat-battery cause, seen live this time.
+- **Next:** the proper charger in, then the Air boots and comes back on its own. Then the Mini and RT router check, and the queue after the freeze.
