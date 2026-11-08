@@ -791,3 +791,12 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline about 33 h.
 - **Learned:** two cold boots in two days, each after hours dark. The Air is losing power: battery run-down, or shut down by hand. colorsync pegs at boot every time, so the kickstart has to become part of the start-up path, not a one-off.
 - **Next:** wait for the user on the Mini and the RT router. When the freeze lifts: the colorsync kickstart, and a card for ad to run colorsync_reset automatically after boot (behind a flag).
+
+## 2026-11-08 19:00 UTC
+
+- **Decided:** read only on the Air, and I am telling the user to plug it in. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 06494f5 (the 18:00 diary).
+- **Found:** `pmset -g batt` on the Air shows InternalBattery 53%, discharging, 1:26 remaining. The Air is running on battery. That explains both the 21:30Z dropout yesterday and the two cold boots: the battery runs flat, then someone powers it back on, still unplugged. At this rate it dies again around 20:45Z.
+- **Learned:** yesterday I blamed "power cut or sleep". I should have run `pmset -g batt` at 16:18Z yesterday when it first came back; one cheap command would have saved a day. It goes into the check: after any unexpected boot, read the power source first.
+- **Other:** colorsync is ~99% again, and a Chrome renderer is at 38%. The Mini has been offline about 34 h; the watchdog is back (stale lock 2903 min).
+- **Next:** the user plugs in the Air charger and checks the Mini and the RT router. Then the queue after the freeze.
