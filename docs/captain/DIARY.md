@@ -864,3 +864,12 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Broke:** the Air is at 14% and discharging, with 0:34 remaining. At 21:18Z it said "charging" at 18%, so the weak charger has dropped out or been unplugged. It will shut down at about 22:50Z, the third cold boot in three days. The Mini has been offline about 37 h.
 - **Learned:** nothing new: the same flat-battery cause, seen live this time.
 - **Next:** the proper charger in, then the Air boots and comes back on its own. Then the Mini and RT router check, and the queue after the freeze.
+
+## 2026-11-08 23:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 960efdc (the 22:00 diary).
+- **Fixed by the user:** the Air went from 14% discharging (22:18Z) to 57% charging, 1:31 to full. That is a proper charger: about +43% in under an hour. Uptime is 5 h 46 m, so it did not die; it was saved before the 22:50Z cutoff.
+- **Observed:** mediaanalysisd at 92% and colorsync at ~100% (load about 4.3). The Mini has been offline about 38 h. The watchdog reported the stale lock at 3145 min.
+- **Learned:** the 21:18Z warning, with a concrete deadline and action ("proper charger by 22:30"), got acted on within the hour. Specific asks work.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, then the queue.
