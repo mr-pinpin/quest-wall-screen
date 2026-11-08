@@ -777,3 +777,17 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the home uplink is up (macbook-air-anastasiia connected directly). The Mini has been offline about 32 h and the Air about 19 h 50 m. No new log lines.
 - **Learned:** nothing new.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-08 18:00 UTC
+
+- **Decided:** I looked at the Air (read only) and changed nothing. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 015d8ff (the 17:00 diary).
+- **Observed:**
+  - The Air came back from a cold boot at about 17:32Z (up 46 min at 18:18Z). So its 21:30Z dropout yesterday ended in a reboot, not a wake: it was off or out of power.
+  - It is again on 192.168.1.35, not the RT LAN.
+  - ANECompilerService is no longer in the top 3, so yesterday's 4-h ANE peg did not survive the reboot.
+  - colorsync is again a steady ~99% (61% + 38%) right after boot.
+  - The watchdog is back (17:38Z, stale lock at 2842 min).
+  - The Mini has been offline about 33 h.
+- **Learned:** two cold boots in two days, each after hours dark. The Air is losing power: battery run-down, or shut down by hand. colorsync pegs at boot every time, so the kickstart has to become part of the start-up path, not a one-off.
+- **Next:** wait for the user on the Mini and the RT router. When the freeze lifts: the colorsync kickstart, and a card for ad to run colorsync_reset automatically after boot (behind a flag).
