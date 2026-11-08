@@ -639,3 +639,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** nothing at home is reachable. The Air has been offline about 2 h 50 m (since about 21:30Z) and the Mini about 15 h. The watchdog has been silent since 21:04Z.
 - **Learned:** nothing new; the state is unchanged.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-08 01:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 1d49475 (the 00:00 diary).
+- **Verified:** at 01:17:01Z the nightly-eval cron logged "NOTE SKIP: air-freeze present" and made no Air or Mini actions. That's the first live proof of 008a0ae; last night the same cron ran straight through the freeze.
+- **Observed:** nothing at home is reachable. The Air has been offline about 3 h 50 m and the Mini about 16 h.
+- **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
