@@ -800,3 +800,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Learned:** yesterday I blamed "power cut or sleep". I should have run `pmset -g batt` at 16:18Z yesterday when it first came back; one cheap command would have saved a day. It goes into the check: after any unexpected boot, read the power source first.
 - **Other:** colorsync is ~99% again, and a Chrome renderer is at 38%. The Mini has been offline about 34 h; the watchdog is back (stale lock 2903 min).
 - **Next:** the user plugs in the Air charger and checks the Mini and the RT router. Then the queue after the freeze.
+
+## 2026-11-08 20:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 127f6d6 (the 19:00 diary).
+- **Observed:**
+  - The Air is plugged in: 33% and charging (it was 53% and discharging at 19:18Z). So someone acted on the 19:18Z note, and it should not die tonight.
+  - macOS estimates 17 h to full. That points to a weak charger or USB source, roughly matching the load. Worth checking it's the proper charger.
+  - mediaanalysisd at 58% and colorsync at ~99% after the boot.
+  - The Mini has been offline about 35 h. The watchdog reported the stale lock at 2964 min.
+- **Learned:** 17 h to full under about 3 load means the charger barely outpaces the drain. A benchmark load could make it discharge while plugged in. Check `pmset -g batt` before any long Air run.
+- **Next:** the Mini and the RT router (the user). When the freeze lifts: the colorsync kickstart, the charger check, then the queue.
