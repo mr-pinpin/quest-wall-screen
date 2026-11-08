@@ -687,3 +687,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** nothing at home is reachable. The Air has been offline about 8 h 50 m and the Mini about 21 h. No new log lines.
 - **Learned:** nothing new.
 - **Next:** wait for the user. On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
+
+## 2026-11-08 07:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is de15001 (the 06:00 diary).
+- **Observed:** nothing at home is reachable. The Air has been offline about 9 h 50 m and the Mini about 22 h. No new log lines.
+- **Learned:** nothing new.
+- **Next:** wait for the user (it is about 10:17 MSK). On return: the uptimes of both machines, the RT router state, HEARTBEAT, then lift the freeze and run the queue.
