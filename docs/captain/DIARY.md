@@ -1077,3 +1077,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The first ssh hung at 15 s on the new path and the retry worked: a slow first connection, not a fault.
   - The watchdog came back at 18:55Z (4359 min), which fits the Air returning; its silence was the Air gate, not drift. The Mini is still "2d ago" (about 58 h). There are no ghost jobs to close.
 - **Next:** the daily diary at ~21:27Z, with a pmset reading.
+
+## 2026-11-09 20:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. One short reminder to the user, because the battery deadline is now under 2 h.
+- **Shipped:** nothing this hour; the last commit is 1856d42 (the 19:00 diary).
+- **Broke or learned:**
+  - **The Air is still unplugged:** 41% to 25% in an hour (16%/h), with 1:43 left, so it goes flat around 22:00Z. It's still away from home (77.40.62.77, 192.168.0.14), and load is up to 2.6.
+  - A Python 3.9 process showed 24.6% CPU in one sample. By the follow-up it had dropped out, and the only Pythons left are the long-lived apps_runner, the hf-ssh relay and pinpin_assistant (all up 1 d 2 h, near 0%). So it was a transient burst, most likely the assistant. I'm not chasing it during the freeze.
+  - The watchdog is back on its hourly line (19:58Z, 4422 min). The Mini is still "2d ago" (about 59 h). There are no ghost jobs to close.
+- **Next:** the daily diary at ~21:27Z. If the Air is dark by then, the pmset readings at 14:18, 19:18 and 20:18Z already explain why.
