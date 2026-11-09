@@ -1066,3 +1066,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini is still "last seen 2d ago" (about 57 h). The probe macbook-air-anastasiia is active, so the uplink works.
   - The watchdog has been silent since 14:47, which still lines up with the Air being dark. There are no ghost jobs to close.
 - **Next:** unchanged. pmset and uptime first when the Air is back; the daily diary is at ~21:27Z.
+
+## 2026-11-09 19:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. I'm sending the user one line about the Air's battery, because it has a deadline about 2.5 h away.
+- **Shipped:** nothing this hour; the last commit is e84da48 (the 18:00 diary).
+- **Broke or learned:**
+  - **The Air is back without a reboot** (up 1 d 1 h 46 m), so the 15:50Z drop was sleep or a move, not a flat battery. It now reaches us from a different public IP, 77.40.62.77 (home is 136.169.211.98), with LAN address 192.168.0.14, so it's on another network away from home. I won't assume that's the RT LAN: the subnet only looks familiar.
+  - **Battery is at 41%, discharging, 2:36 left** (it was 100% at 14:18Z), so it goes flat around 21:50Z. colorsync is still burning about one core (61% + 38%) and accounts for most of the drain. This is the case for putting the kickstart in the start-up path once the freeze lifts.
+  - The first ssh hung at 15 s on the new path and the retry worked: a slow first connection, not a fault.
+  - The watchdog came back at 18:55Z (4359 min), which fits the Air returning; its silence was the Air gate, not drift. The Mini is still "2d ago" (about 58 h). There are no ghost jobs to close.
+- **Next:** the daily diary at ~21:27Z, with a pmset reading.
