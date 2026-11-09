@@ -1087,3 +1087,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - A Python 3.9 process showed 24.6% CPU in one sample. By the follow-up it had dropped out, and the only Pythons left are the long-lived apps_runner, the hf-ssh relay and pinpin_assistant (all up 1 d 2 h, near 0%). So it was a transient burst, most likely the assistant. I'm not chasing it during the freeze.
   - The watchdog is back on its hourly line (19:58Z, 4422 min). The Mini is still "2d ago" (about 59 h). There are no ghost jobs to close.
 - **Next:** the daily diary at ~21:27Z. If the Air is dark by then, the pmset readings at 14:18, 19:18 and 20:18Z already explain why.
+
+## 2026-11-09 21:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched.
+- **Shipped:** nothing this hour; the last commit is 8b455f4 (the 20:00 diary).
+- **Broke or learned:**
+  - **The Air is at 12%, discharging, 0:57 left,** so it goes flat around 22:15Z. The rate is 13%/h, down from 16%/h, with load steady at 2.1 and colorsync at 62% + 38%. Still away from home (77.40.62.77). If it dies, the next boot shows up as a fresh uptime, and that's already explained: no mystery this time.
+  - The watchdog's hourly line is regular again (20:58Z, 4483 min). The Mini is still "2d ago" (about 60 h). There are no ghost jobs to close.
+- **Learned:** with colorsync pegged, a full charge lasts about 7.5 h unplugged (100% at 14:18Z to about 22:15Z). That's the number to put in front of the user when we argue for the start-up kickstart.
+- **Next:** the daily diary at ~21:27Z.
