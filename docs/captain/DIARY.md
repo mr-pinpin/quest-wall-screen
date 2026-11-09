@@ -912,3 +912,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the Air is charged at 100%, up 9 h 46 m. ANECompilerService is at 98%, about 3 h pegged so far this boot, plus colorsync at ~100%. The Mini has been offline about 42 h. The watchdog reported the stale lock at 3386 min.
 - **Learned:** nothing new.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate in air_smoke, then the queue.
+
+## 2026-11-09 04:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 8dcae5c (the 03:00 diary).
+- **Observed:**
+  - ANECompilerService has gone quiet, after about 3–4 h pegged following its start around 00:30–01:00Z. With mds and mediaanalysisd also done, the Air's only foreign load is now colorsync at ~100% (62% + 38%). The third process is replayd at 4%.
+  - The Air is at 100%, up 10 h 46 m.
+  - The Mini has been offline about 43 h. The watchdog reported the stale lock at 3447 min.
+- **Learned:** the system work after a boot (mds, then mediaanalysisd, then the ANE compile) takes about 10 h to settle on this Air. colorsync never settles by itself. So the idle gate is worth it, and colorsync needs the kickstart.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, then air_smoke, then the queue.
