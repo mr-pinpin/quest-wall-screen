@@ -940,3 +940,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the Air is at load 2.0, with only colorsync at ~99%; mds and mediaanalysisd are quiet again. It is at 100% charge, up 12 h 46 m. The Mini has been offline about 45 h. The watchdog reported the stale lock at 3567 min.
 - **Learned:** nothing new. Per 05:00, I'm not calling this settled from one sample.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the sustained idle gate, then the queue.
+
+## 2026-11-09 07:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is c97396c (the 06:00 diary).
+- **Observed:** the Air is at load 1.3, with colorsync at ~100% and PinPin Host at 7.5%. It has been quiet for two checks in a row now. It is at 100% charge, up 13 h 46 m. The Mini has been offline about 46 h. The watchdog reported the stale lock at 3627 min.
+- **Learned:** nothing new. With the post-boot work done, colorsync is now nearly all of the Air's idle load, so the kickstart alone should bring it close to clean.
+- **Next:** the Mini and RT router check (the user, morning in Moscow now). When the freeze lifts: the colorsync kickstart, air_smoke, then the queue.
