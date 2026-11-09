@@ -873,3 +873,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** mediaanalysisd at 92% and colorsync at ~100% (load about 4.3). The Mini has been offline about 38 h. The watchdog reported the stale lock at 3145 min.
 - **Learned:** the 21:18Z warning, with a concrete deadline and action ("proper charger by 22:30"), got acted on within the hour. Specific asks work.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, then the queue.
+
+## 2026-11-09 00:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 58e31c5 (the 23:00 diary).
+- **Observed:**
+  - The Air is at 97% and charging, up 6 h 46 m, so the power problem is solved.
+  - The load is about 4.8: mds_stores at 96% (Spotlight catching up after the boots) plus colorsync at ~100%.
+  - The Mini has been offline about 39 h. The watchdog reported the stale lock at 3205 min.
+- **Learned:** nothing new.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, then the queue.
