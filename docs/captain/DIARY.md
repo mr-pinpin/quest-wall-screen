@@ -1097,3 +1097,37 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog's hourly line is regular again (20:58Z, 4483 min). The Mini is still "2d ago" (about 60 h). There are no ghost jobs to close.
 - **Learned:** with colorsync pegged, a full charge lasts about 7.5 h unplugged (100% at 14:18Z to about 22:15Z). That's the number to put in front of the user when we argue for the start-up kickstart.
 - **Next:** the daily diary at ~21:27Z.
+
+# Day 2026-11-09
+
+**Arc.** The fourth day of the demo freeze (/root/work/.air-freeze, set 11-06 at 19:00Z), and nothing shipped except the 22 hourly diary commits (4d3519c through 3a670c4). The kanban hasn't moved since rev 105 (11-06 22:18Z), and LOG.md last changed on 11-04. The Mini was dark all day ("last seen 2d ago", about 60 h by 21:00Z), so the house server, HEARTBEAT and adb were all out of reach. The Air told the day's story:
+- 00:00–14:18Z: plugged in at home, at 100% from 01:18Z.
+- About 15:00Z: unplugged.
+- About 15:50Z: dark, without rebooting.
+- 18:55Z: back from a different public IP (77.40.62.77, LAN 192.168.0.14), so it had been moved off the home network.
+- 21:18Z: draining at 12% with 0:57 left, flat around 22:15Z.
+
+**Decisions and why.**
+- Kept every agent idle and handed out no cards. Every open card (K30/K31b install, the E and F reruns, K15 phase 2, the colorsync kickstart) touches the Air or the headset, and the user froze both.
+- Told the user only when something changed and had a deadline: the Air unplugged at 15:00Z, at 41% at 19:00Z, at 25% at 20:00Z, at 12% at 21:00Z. Otherwise one line saying nothing needed them, and I didn't repeat the Mini request each hour.
+- Didn't chase a Python burst (24.6%) on the Air during the freeze; a second sample showed only the long-lived runner, relay and assistant near 0%.
+
+**Mistakes and lessons** (fed into captain-lessons.md):
+- **04:00Z:** "post-boot work settled in ~10 h". mds and mediaanalysisd were back at 05:00Z. One quiet sample isn't settled, so air_smoke's idle gate needs a sustained quiet window.
+- **12:00Z:** I called the probe's "last seen 17m ago" a stale field after three identical readings. At 13:00Z it moved. More likely the peer wakes at an interval that lines up with my :17 checks. A fixed-cadence check can alias a periodic signal, so identical readings need a second explanation ruled out before calling a field stale.
+- **16:00Z:** I correctly refused to guess between a flat battery and sleep, and uptime at 19:00Z settled it (no reboot). Uptime plus pmset tells "slept or moved" from "died".
+- The watchdog went silent from 14:47 to 18:55Z, exactly while the Air was dark. A silent watchdog means an unreachable Air, not a dead watchdog (its pid was alive).
+
+**Learned:** with colorsync pegged at one core, a full charge lasts about 7.5 h unplugged (100% at 14:18Z to about 22:15Z). That's the concrete case for the start-up kickstart.
+
+**State per agent** (all idle, none crashed; work-ff untouched):
+- **work-c4 (headset):** v0.76 is on the headset (unverified since the Mini went dark); K9 and K17 are open.
+- **work-34 / work-09 (bench, geometry, Host):** K30 and K31b are built and not installed; K32 is in the backlog; E and F reruns are pending; the stale bench lock from 11-06 18:15:37 is still there (4483 min).
+- **work-42 (assistant, perf):** K15 phase 2 DRY waits on the freeze lift and a live vis.
+- **work-ad (apps, ops, perf):** air_smoke with a sustained idle gate, a battery check and a flagged colorsync_reset at boot are queued.
+
+**Tomorrow:**
+1. When the Air comes back after dying, run pmset and uptime first (a fresh boot is expected and already explained).
+2. The user checks the Mini and the RT router.
+3. On the freeze lift: the colorsync kickstart (me), air_smoke (ad), the K30+K31b install (34), the E and F reruns, K15 phase 2 DRY (42), and clearing the stale lock.
+4. Open questions for the user: the big-wall screen, screens 2 and 3, and UPnP.
