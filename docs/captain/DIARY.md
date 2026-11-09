@@ -904,3 +904,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the Air is charged at 100%, up 8 h 46 m. ANECompilerService is still at 88%, plus colorsync at ~96% (load 2.7). The Mini has been offline about 41 h. The watchdog reported the stale lock at 3326 min.
 - **Learned:** nothing new.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate in air_smoke, then the queue.
+
+## 2026-11-09 03:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 4805130 (the 02:00 diary).
+- **Observed:** the Air is charged at 100%, up 9 h 46 m. ANECompilerService is at 98%, about 3 h pegged so far this boot, plus colorsync at ~100%. The Mini has been offline about 42 h. The watchdog reported the stale lock at 3386 min.
+- **Learned:** nothing new.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate in air_smoke, then the queue.
