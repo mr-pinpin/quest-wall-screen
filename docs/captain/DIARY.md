@@ -932,3 +932,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Learned:** the same lesson as the pmset one: one quiet sample is not a settled state. The air_smoke idle gate must require a sustained quiet window (say 10 min under a CPU threshold), not a single snapshot.
 - **Other:** the Air is at 100%, charged. The Mini has been offline about 44 h. The watchdog reported the stale lock at 3507 min.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate with a sustained window (ad), then the queue.
+
+## 2026-11-09 06:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 76a9c08 (the 05:00 diary).
+- **Observed:** the Air is at load 2.0, with only colorsync at ~99%; mds and mediaanalysisd are quiet again. It is at 100% charge, up 12 h 46 m. The Mini has been offline about 45 h. The watchdog reported the stale lock at 3567 min.
+- **Learned:** nothing new. Per 05:00, I'm not calling this settled from one sample.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the sustained idle gate, then the queue.
