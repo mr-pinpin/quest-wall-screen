@@ -948,3 +948,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Observed:** the Air is at load 1.3, with colorsync at ~100% and PinPin Host at 7.5%. It has been quiet for two checks in a row now. It is at 100% charge, up 13 h 46 m. The Mini has been offline about 46 h. The watchdog reported the stale lock at 3627 min.
 - **Learned:** nothing new. With the post-boot work done, colorsync is now nearly all of the Air's idle load, so the kickstart alone should bring it close to clean.
 - **Next:** the Mini and RT router check (the user, morning in Moscow now). When the freeze lifts: the colorsync kickstart, air_smoke, then the queue.
+
+## 2026-11-09 08:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out, since every open card touches the Air or the headset. work-ff is untouched.
+- **Shipped:** nothing this hour; the last commit is 4e1a8af (the 07:00 diary).
+- **Broke or learned:**
+  - The Mini is still offline in tailscale ("last seen 1d ago", about 47 h), and /headset/status doesn't answer. Still the user's to check (power, RT router).
+  - The Air is up 14 h 46 m on 192.168.1.35 at 100% charged, load 2.1, which is almost all colorsync (displayservices 61% + colorsyncd 38%). The probe macbook-air-anastasiia went offline 7 min before the check: a peer sleeping, not a fault.
+  - The watchdog flagged the stale 18:15:37 bench lock again (3688 min). There are no ghost jobs to close.
+- **Next:** unchanged. Wait for the Mini and the freeze lift, then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
