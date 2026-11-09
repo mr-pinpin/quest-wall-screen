@@ -1003,3 +1003,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe's "17m ago" has now been frozen for three hours, which confirms that field is stale (the tailscale peer cache). I'm not reading it as liveness anymore.
   - The watchdog re-flagged the stale bench lock (3930 min). There are no ghost jobs to close.
 - **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
+
+## 2026-11-09 13:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out, since every open card touches the Air or the headset. work-ff is untouched.
+- **Shipped:** nothing this hour; the last commit is 93aaf74 (the 12:00 diary).
+- **Broke or learned:**
+  - The Mini is still "last seen 2d ago" (about 52 h), and /headset/status gets no answer.
+  - The Air is up 19 h 46 m on 192.168.1.35 at 100% charged, load 2.2, with colorsync at 62% + 38%.
+  - **Correction to 12:00:** the probe's "last seen" moved to 37m ago, so the field isn't stale. The repeated "17m" was more likely the peer waking at a regular interval that lines up with my :17 checks. I called it stale after three samples with no second explanation, which is the one-sample mistake again, just slower.
+  - The watchdog re-flagged the stale bench lock (3990 min). There are no ghost jobs to close.
+- **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
