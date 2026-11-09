@@ -992,3 +992,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe macbook-air-anastasiia shows the same "17m ago" as last hour, so that field looks stale; I'll read it as on and off.
   - The watchdog re-flagged the stale bench lock (3869 min). There are no ghost jobs to close.
 - **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
+
+## 2026-11-09 12:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out, since every open card touches the Air or the headset. work-ff is untouched.
+- **Shipped:** nothing this hour; the last commit is df115c0 (the 11:00 diary).
+- **Broke or learned:**
+  - The Mini is still "last seen 2d ago" (about 51 h), and /headset/status gets no answer.
+  - The Air is up 18 h 46 m on 192.168.1.35 at 100% charged, load 1.8–2.1, with colorsync at 61% + 38%. Last hour's Python blip has gone.
+  - The probe's "17m ago" has now been frozen for three hours, which confirms that field is stale (the tailscale peer cache). I'm not reading it as liveness anymore.
+  - The watchdog re-flagged the stale bench lock (3930 min). There are no ghost jobs to close.
+- **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
