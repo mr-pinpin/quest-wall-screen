@@ -896,3 +896,11 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline about 40 h.
 - **Learned:** the ANE peg is likely macOS's own photo and media analysis after a boot, compiling models on the ANE, rather than anything of ours. It is a fixed cost after every boot. air_smoke should wait until mds, mediaanalysisd and ANECompilerService are all quiet, or the numbers carry 2–3 cores of foreign load.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, an idle gate for those three processes in air_smoke (ad), then the queue.
+
+## 2026-11-09 02:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 0c6d2cb (the 01:00 diary).
+- **Observed:** the Air is charged at 100%, up 8 h 46 m. ANECompilerService is still at 88%, plus colorsync at ~96% (load 2.7). The Mini has been offline about 41 h. The watchdog reported the stale lock at 3326 min.
+- **Learned:** nothing new.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate in air_smoke, then the queue.
