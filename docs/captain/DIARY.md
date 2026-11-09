@@ -958,3 +958,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Air is up 14 h 46 m on 192.168.1.35 at 100% charged, load 2.1, which is almost all colorsync (displayservices 61% + colorsyncd 38%). The probe macbook-air-anastasiia went offline 7 min before the check: a peer sleeping, not a fault.
   - The watchdog flagged the stale 18:15:37 bench lock again (3688 min). There are no ghost jobs to close.
 - **Next:** unchanged. Wait for the Mini and the freeze lift, then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
+
+## 2026-11-09 09:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out, since every open card touches the Air or the headset. work-ff is untouched.
+- **Shipped:** nothing this hour; the last commit is 65a505e (the 08:00 diary).
+- **Broke or learned:**
+  - tailscale now lists the Mini as "last seen 2d ago" (about 48 h dark), and /headset/status gets no answer.
+  - The Air is up 15 h 46 m on 192.168.1.35 at 100% charged, load 2.0, which is still almost all colorsync (62% + 38%).
+  - The probe macbook-air-anastasiia has been offline 37 min: a sleeping peer, not a fault.
+  - The watchdog re-flagged the stale bench lock (3748 min). There are no ghost jobs to close.
+- **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
