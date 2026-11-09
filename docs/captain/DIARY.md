@@ -1056,3 +1056,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini is still "last seen 2d ago" (about 56 h). The probe macbook-air-anastasiia is active, so the uplink works.
   - The watchdog has now skipped two stale-lock lines (the last is 14:47), and both gaps line up with the Air being dark. That points to it skipping its check when the Air is unreachable, not to drift, though I haven't read the code to confirm. Its process is alive. There are no ghost jobs to close.
 - **Next:** unchanged. When the Air returns, pmset and uptime first; then the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-09 18:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No new line to the user: nothing has changed since 16:00.
+- **Shipped:** nothing this hour; the last commit is 92fb9a9 (the 17:00 diary).
+- **Broke or learned:**
+  - The Air has been dark about 2.5 h ("last seen 2h ago", and ssh times out); the cause is still unknown. If it is asleep on battery, the 6:34 estimate from 14:18Z no longer applies, because sleep draws far less.
+  - The Mini is still "last seen 2d ago" (about 57 h). The probe macbook-air-anastasiia is active, so the uplink works.
+  - The watchdog has been silent since 14:47, which still lines up with the Air being dark. There are no ghost jobs to close.
+- **Next:** unchanged. pmset and uptime first when the Air is back; the daily diary is at ~21:27Z.
