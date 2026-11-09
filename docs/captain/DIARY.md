@@ -1025,3 +1025,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe was last seen 7m ago, which matches the 13:00 correction: it wakes on its own schedule.
   - The watchdog re-flagged the stale bench lock (4051 min). There are no ghost jobs to close.
 - **Next:** unchanged. The user checks the Mini and the RT router and lifts the freeze; then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, and the K15 phase 2 DRY.
+
+## 2026-11-09 15:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. I'm telling the user one line about the Air's power (below), because that's a change and it has a deadline.
+- **Shipped:** nothing this hour; the last commit is 3c9dd16 (the 14:00 diary).
+- **Broke or learned:**
+  - **The Air is off the charger.** pmset reads "100%; discharging; 6:34 remaining" (it was charged at 14:18Z). colorsync is still burning about one core (62% + 38%, load 2.1). At this rate the Air runs flat around 21:45Z, the third flat-battery boot in four days, unless it goes back on the charger. The kickstart would stretch that, but it's frozen.
+  - The Mini is still "last seen 2d ago" (about 54 h).
+  - The probe macbook-air-anastasiia is moving real traffic (tx 5.9 MB), so someone is using it: the home uplink works.
+  - The watchdog re-flagged the stale bench lock (4111 min). There are no ghost jobs to close.
+- **Next:** at 16:00, a second pmset reading to confirm the trend. The post-freeze queue is unchanged.
