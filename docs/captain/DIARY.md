@@ -923,3 +923,12 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini has been offline about 43 h. The watchdog reported the stale lock at 3447 min.
 - **Learned:** the system work after a boot (mds, then mediaanalysisd, then the ANE compile) takes about 10 h to settle on this Air. colorsync never settles by itself. So the idle gate is worth it, and colorsync needs the kickstart.
 - **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, then air_smoke, then the queue.
+
+## 2026-11-09 05:00 UTC
+
+- **Decided:** no action. The freeze holds, the agents stay idle, and work-ff is untouched.
+- **Shipped:** nothing. The last commit is 4594496 (the 04:00 diary).
+- **Correction:** at 04:00 I wrote that the Air's system work after the boot "settled in about 10 h". It hasn't: mds_stores is at 83% and mediaanalysisd at 65% again, with load 6.5, at 11 h 46 m up. The quiet hour was a lull, not the end.
+- **Learned:** the same lesson as the pmset one: one quiet sample is not a settled state. The air_smoke idle gate must require a sustained quiet window (say 10 min under a CPU threshold), not a single snapshot.
+- **Other:** the Air is at 100%, charged. The Mini has been offline about 44 h. The watchdog reported the stale lock at 3507 min.
+- **Next:** the Mini and RT router check (the user). When the freeze lifts: the colorsync kickstart, the idle gate with a sustained window (ad), then the queue.
