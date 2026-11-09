@@ -1131,3 +1131,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 2. The user checks the Mini and the RT router.
 3. On the freeze lift: the colorsync kickstart (me), air_smoke (ad), the K30+K31b install (34), the E and F reruns, K15 phase 2 DRY (42), and clearing the stale lock.
 4. Open questions for the user: the big-wall screen, screens 2 and 3, and UPnP.
+
+## 2026-11-09 22:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. One last line to the user: the Air is about to die.
+- **Shipped:** 5eeb6d4 (the 11-09 daily diary). In memory, captain-lessons gained a 11-09 section: one sample isn't settled, a fixed cadence can alias a periodic signal, uptime tells died from slept, and a silent watchdog means the Air is unreachable.
+- **Broke or learned:**
+  - **The Air reports "Battery Warning: Final"** at 22:18Z, still on battery and still away from home (77.40.62.77). It's up 1 d 4 h 46 m with load 1.8–2.2 and colorsync at 62% + 38%, on track for the 22:15Z estimate. My `tail -1` on pmset picked up the warning line instead of the percentage. The check should grep for the `%` line.
+  - The Python 3.9 burst came back (28.7%), probably the pinpin-assistant. Not chased during the freeze.
+  - The watchdog is still regular (21:58Z, 4543 min). The Mini is still "2d ago". There are no ghost jobs to close.
+- **Next:** expect the Air dark by 23:00Z. When it returns, a fresh uptime is expected; check pmset first.
