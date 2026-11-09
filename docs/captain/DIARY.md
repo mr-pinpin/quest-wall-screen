@@ -1141,3 +1141,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Python 3.9 burst came back (28.7%), probably the pinpin-assistant. Not chased during the freeze.
   - The watchdog is still regular (21:58Z, 4543 min). The Mini is still "2d ago". There are no ghost jobs to close.
 - **Next:** expect the Air dark by 23:00Z. When it returns, a fresh uptime is expected; check pmset first.
+
+## 2026-11-09 23:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No new line to the user: the Air going dark was predicted and reported at 22:00.
+- **Shipped:** nothing this hour; the last commit is 82fbc71 (the 22:00 diary).
+- **Broke or learned:**
+  - **The Air went dark around 22:38Z** ("last seen 39m ago", and ssh times out), 23 min after the 22:15Z estimate and 20 min after "Battery Warning: Final". Almost certainly a flat battery, but I'll confirm with uptime when it returns rather than assume.
+  - The Mini is still "2d ago" (about 62 h). The probe macbook-air-anastasiia was seen 7m ago.
+  - The watchdog has gone silent again (last line 21:58Z), which fits the Air being unreachable. There are no ghost jobs to close.
+- **Next:** when the Air returns, uptime and pmset first. A fresh boot means colorsync is pegged again and the post-boot mds, mediaanalysisd and ANE waves restart. The post-freeze queue is unchanged.
