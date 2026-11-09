@@ -1036,3 +1036,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe macbook-air-anastasiia is moving real traffic (tx 5.9 MB), so someone is using it: the home uplink works.
   - The watchdog re-flagged the stale bench lock (4111 min). There are no ghost jobs to close.
 - **Next:** at 16:00, a second pmset reading to confirm the trend. The post-freeze queue is unchanged.
+
+## 2026-11-09 16:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. I won't send the user another line about the Air: I already asked at 15:00, and the next change worth reporting is it coming back.
+- **Shipped:** nothing this hour; the last commit is 37448a1 (the 15:00 diary).
+- **Broke or learned:**
+  - **The Air went dark around 15:50Z** (tailscale shows "last seen 27m ago", and ssh times out). That's six hours before my 21:45Z battery estimate, so it's probably not a flat battery. The likelier causes are lid-close sleep after unplugging, or the Air being carried somewhere. I can't tell which without pmset, so I'm not calling a cause.
+  - The Mini is still "last seen 2d ago" (about 55 h). The probe macbook-air-anastasiia is active (1m ago), so the uplink works.
+  - The watchdog (pid 1887348, alive for 5 d 18 h) skipped its ~15:47 stale-lock line; the last one is 14:47. I haven't checked whether it skips when the Air is unreachable or whether it's just drift. It's harmless either way. There are no ghost jobs to close.
+- **Next:** when the Air returns, run `pmset -g batt` and uptime first: a fresh boot means it went flat, an old uptime means it slept. The post-freeze queue is unchanged.
