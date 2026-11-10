@@ -1304,3 +1304,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe macbook-air-anastasiia is direct from the home IP with real traffic (tx 124 MB), so the home uplink is fine. The Mini's problem is local.
   - The Air is still dark ("last seen 15h ago"). The watchdog is silent. There are no ghost jobs to close.
 - **Next:** the same checks at 15:00. If the Mini reappears, test the service ports first, not the tailscale state.
+
+## 2026-11-10 15:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed since 14:00.
+- **Shipped:** nothing this hour; the last commit is 22d06ef (the 14:00 diary).
+- **Broke or learned:**
+  - The Mini is dark again ("last seen 1h ago", since about 13:40Z), and ssh and :57800 time out. The Air is still dark ("last seen 16h ago").
+  - The probe macbook-air-anastasiia is direct from home and busy (its tailscale counters are up to 837 MB), so the home uplink and the tailscale path are fine. Its traffic isn't ours to look into.
+  - The watchdog is silent since 21:58Z. There are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged. Service ports first if the Mini reappears; uptime and pmset first for the Air; the post-freeze queue once the user lifts the freeze.
