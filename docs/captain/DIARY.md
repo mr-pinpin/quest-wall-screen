@@ -1383,3 +1383,34 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Air is still dark ("last seen 22h ago", since 11-09 about 22:38Z). The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** the daily diary at ~21:27Z. After the freeze lifts: re-point the 192.168.0.x targets, the colorsync kickstart, air_smoke, then the queue.
+
+# Day 2026-11-10
+
+**Arc.** The fifth day of the demo freeze (/root/work/.air-freeze). Nothing shipped in quest-wall-screen except the 22 hourly diary commits (8709225 through b49d117); the kanban is still at rev 105 (11-06) and LOG.md hasn't changed since 11-04.
+- **00:00–13:00Z:** the Air was dark all day (it went flat on 11-09 around 22:38Z while away from home) and the Mini had been dark since 11-07.
+- **About 13:00–13:40Z:** the Mini showed up on tailscale via DERP only (pings answered), while ssh and :57800 never answered, then dropped again.
+- **About 19:10Z:** the Mini booted for real with someone at the console. A new session, work-77 (the user's), was reworking its network for the Ufanet line.
+- **work-77's changes:** Mini bootpd disabled (it was rogue DHCP on the ZyXEL LAN), en0 on DHCP (192.168.1.35), RT-admin 192.168.0.50 disabled, forwarding and dummynet shaping off, pf anchor turned into a WAN guard. Next, the Ufanet cable goes into the Mini's en0, then house Wi-Fi.
+- **Uplink:** fine all day. The probe macbook-air-anastasiia was direct from the home IP 136.169.211.98, so the Mini's outage was local.
+
+**Decisions and why.**
+- Kept my four agents idle. Every open card touches the Air, the Mini or the headset, and the freeze still holds; the Mini returning doesn't lift it.
+- Told the user only on change: Mini half-back (13:00), Mini gone again (14:00), Mini back with a new LAN (19:00). Hourly "nothing new" lines otherwise.
+- When work-77 appeared, I sent one FYI (freeze, Mini state). After its request I acked and went hands off the Mini's network: checks cut to tailscale status plus one HTTP probe, no ssh. I passed two read-only observations: en0 and en1 differed from its plan at 19:17Z, and the Air's old 192.168.1.35 lease could conflict.
+
+**Mistakes and lessons** (fed into captain-lessons.md):
+- At 13:00 the Mini was "active" with traffic, but no service answered. The node's traffic counters can be exit-node traffic through this VPS, so they don't prove its services are up. Test the service ports, not the tailscale state. I did that right; it's worth writing down.
+- At 19:00 I assumed nothing about work-77 and asked instead. The right move with a second session on shared hardware: one FYI, honour its "don't touch", hand off. No mistakes of my own today worth a correction entry.
+
+**State per agent** (all idle, none crashed; work-ff untouched):
+- **work-c4 (headset):** v0.76 is unverified since 11-07. HEARTBEAT (/headset/status) gives 404 on the rebooted Mini; maybe no headset since boot. K9 and K17 are open.
+- **work-34 / work-09 (bench, geometry, Host):** K30 and K31b are built and not installed; K32 is in the backlog; the E and F reruns are pending; the stale bench lock from 11-06 18:15:37 is still there.
+- **work-42 (assistant, perf):** K15 phase 2 DRY waits. The nightly-eval freeze skip held for a third night (01:17Z).
+- **work-ad (apps, ops, perf):** air_smoke (sustained idle gate plus a battery check) and the flagged colorsync_reset at boot are queued. The apps and kanban URLs point at the stale 192.168.0.50.
+- **work-77 (the user's network session):** owns the Mini's network until it says done.
+
+**Tomorrow:**
+1. Wait for work-77 to say the network is settled.
+2. When the Air returns: uptime and pmset first (a fresh boot is expected).
+3. When the user lifts the freeze: a re-point card for every 192.168.0.x target (c4: room.sh/HEARTBEAT, ad: apps/kanban URLs, 34: bench sim-on Mini), then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, K15 phase 2, and clearing the stale lock.
+4. Open questions for the user: the big-wall screen, screens 2 and 3, and UPnP (likely moot on the new line).
