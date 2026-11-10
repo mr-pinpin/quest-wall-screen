@@ -1425,3 +1425,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Wait for work-77's "network settled", then uptime and pmset when the Air returns, then the post-freeze queue starting with the 192.168.0.x re-point.
+
+## 2026-11-10 23:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle. Still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is 36b48bb (the 22:00 diary).
+- **Broke or learned:**
+  - **The home public IP has changed,** from 136.169.211.98 to 95.105.86.155. The Mini and the probe macbook-air-anastasiia both show it, so it's the house's uplink that changed, not one device. It fits work-77's plan (the Ufanet cable into the Mini's en0, or a re-lease), but I haven't confirmed which, and it's theirs to say.
+  - Both machines reconnected direct within the hour, and the Mini's :57800 answers.
+  - The Air is still dark ("last seen 1d ago"). The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** anything keyed on the home's public IP (allowlists, the Air's "is it home" test I used on 11-09) needs updating. That's for the re-point card, after work-77 says the network is settled.
+- **Next:** unchanged. Wait for work-77, then the Air's uptime and pmset when it returns, then the post-freeze queue.
