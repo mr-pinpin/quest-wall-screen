@@ -1336,3 +1336,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent since 21:58Z. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Service ports first if the Mini reappears; uptime and pmset first for the Air; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 18:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed.
+- **Shipped:** nothing this hour; the last commit is dd4dd2c (the 17:00 diary).
+- **Broke or learned:**
+  - The Mini is dark ("last seen 4h ago", since about 13:40Z), and ssh and :57800 time out. The Air is still dark ("last seen 19h ago").
+  - The probe is direct from home, so the uplink is fine.
+  - The watchdog is silent since 21:58Z. There are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged. Service ports first if the Mini reappears; uptime and pmset first for the Air; the daily diary at ~21:27Z.
