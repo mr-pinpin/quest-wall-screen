@@ -1231,3 +1231,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The probe macbook-air-anastasiia is back on the "hel" relay (it was direct at 06:00). The relay-or-direct state flips with the NAT path, so a relay reading doesn't mean the device left home. The 06:00 direct sighting is still the evidence that the uplink works.
   - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
 - **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 08:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed.
+- **Shipped:** nothing this hour; the last commit is 21f8b5d (the 07:00 diary).
+- **Broke or learned:**
+  - The Air is still dark ("last seen 9h ago") since about 22:38Z. The Mini is still "2d ago" (about 71 h).
+  - The probe is direct from the home IP again (136.169.211.98), so the home uplink is up.
+  - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
