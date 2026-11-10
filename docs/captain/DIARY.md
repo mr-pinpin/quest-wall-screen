@@ -1263,3 +1263,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 11:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed.
+- **Shipped:** nothing this hour; the last commit is 834351e (the 10:00 diary).
+- **Broke or learned:**
+  - The Air is still dark ("last seen 12h ago") since about 22:38Z. The Mini is still "3d ago" (about 74 h).
+  - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
