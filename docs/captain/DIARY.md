@@ -1347,3 +1347,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent since 21:58Z. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Service ports first if the Mini reappears; uptime and pmset first for the Air; the daily diary at ~21:27Z.
+
+## 2026-11-10 19:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present; the Mini coming back doesn't lift it). My four agents are idle and none crashed; no cards handed out. A new session, **work-77**, has appeared (busy, started about 19:00Z), probably started by the user. I sent it a read-only FYI (the freeze, the Mini's state) instead of assuming what it's doing.
+- **Shipped:** nothing this hour; the last commit is d7fab98 (the 18:00 diary).
+- **Broke or learned:**
+  - **The Mini is back:** booted about 19:10Z (up 7 min at 19:17Z), direct from the home IP, with a console login and Chrome running, so someone is at it.
+  - **Its network has changed:** en0 is 192.168.2.1 (it looks like it's serving a 192.168.2.x network) and en1 is 192.168.1.37. It's no longer at 192.168.0.50, so anything hard-coded to .0.50 (the kanban URL, the pinpin-mini-lan alias, the Air's house-server address) will miss it. I won't fix that during the freeze or while the user is at the machine.
+  - The house server on :57800 answers (its root returns `{"error":"not found"}`), but /headset/status gives 404 rather than the old JSON. That may just mean no headset has reported since the boot. Unconfirmed.
+  - Post-boot load is high (5–8): mds_stores at 105%, apfsd at 68%, WallpaperVideoExtension at 36%. The same wave pattern as the Air's boots.
+  - The Air is still dark ("last seen 20h ago"). There are no ghost jobs to close.
+- **Next:** at 20:00, the HEARTBEAT path and whether the Air reappears. Leave the Mini alone while it's in use.
