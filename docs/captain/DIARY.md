@@ -1211,3 +1211,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 06:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed for them.
+- **Shipped:** nothing this hour; the last commit is 629b4f1 (the 05:00 diary).
+- **Broke or learned:**
+  - The probe macbook-air-anastasiia is now **direct from the home public IP 136.169.211.98** (it was on the "hel" relay before). The home uplink works and that peer is at home right now, so the Mini being dark (about 69 h, "2d ago") is local to the Mini or its LAN, not the uplink. That's what the user needs to look at.
+  - The Air is still dark ("last seen 7h ago") since about 22:38Z, presumably flat and still away.
+  - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
+- **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
