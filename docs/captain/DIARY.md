@@ -1359,3 +1359,17 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - Post-boot load is high (5–8): mds_stores at 105%, apfsd at 68%, WallpaperVideoExtension at 36%. The same wave pattern as the Air's boots.
   - The Air is still dark ("last seen 20h ago"). There are no ghost jobs to close.
 - **Next:** at 20:00, the HEARTBEAT path and whether the Air reappears. Leave the Mini alone while it's in use.
+
+## 2026-11-10 20:00 UTC
+
+- **Decided:**
+  - Hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out.
+  - work-77 (the user's session) is reworking the Mini's network for the Ufanet line. It asked me not to touch the Mini's network config, and I acked. I'm keeping my Mini checks to tailscale status plus one HTTP probe: no ssh while they work.
+- **Shipped:** nothing from my side; the last commit is d6ee4ed (the 19:00 diary).
+- **What work-77 reported:**
+  - The Mini's gateway role is gone: bootpd is disabled (it was rogue DHCP on the ZyXEL LAN), en0 is on DHCP (192.168.1.35), RT-admin 192.168.0.50 is disabled, forwarding is off, dummynet shaping is removed, and the pf anchor is now a WAN guard on en0.
+  - Next, the Ufanet cable goes into the Mini's en0, then house Wi-Fi.
+  - Every 192.168.0.50 target (TV, Moonlight, the kanban URL, pinpin-mini-lan) is stale until the new layout settles. work-77 has recorded the details in the home-network-routers memory.
+- **Status:** the Mini is direct from home (136.169.211.98), and :57800 answers. The Air is still dark ("last seen 21h ago"). The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** a second session working on shared hardware is best handled with one FYI and one ack, then hands off. The freeze flag still holds for my agents.
+- **Next:** after the network settles and the freeze lifts, a card to re-point every 192.168.0.x target (c4: room.sh/HEARTBEAT; ad: apps/kanban URLs; 34: bench sim-on Mini). The daily diary is at ~21:27Z.
