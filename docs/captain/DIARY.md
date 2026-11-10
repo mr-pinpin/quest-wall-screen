@@ -1283,3 +1283,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 13:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. I'm telling the user that the Mini is half back: it's a change, and they may be at it right now.
+- **Shipped:** nothing this hour; the last commit is 26e1ae7 (the 12:00 diary).
+- **Broke or learned:**
+  - **The Mini is back on tailscale** after about 76 h. It shows active on the "hel" relay with real traffic (tx 13.8 MB, rx 6.3 MB), and `tailscale ping` answers via DERP(hel) in 0.45–1.5 s, with no direct path.
+  - **But TCP to it fails:** ssh :22 and the house server :57800 both time out, even with 40 s timeouts. So the tailscale node is up and the services or the TCP path are not. It may still be booting, its sshd and house server may be down, or the relay path may be too slow. I can't see which without a shell. The traffic counters may be its exit-node traffic through this VPS, so they don't prove the services are up.
+  - Lesson already on file: "active" with traffic is not "reachable". Test the actual service port.
+  - The Air is still dark ("last seen 14h ago"). The watchdog is silent. There are no ghost jobs to close.
+- **Next:** retry ssh and :57800 at 14:00. If they're up: uptime, the LAN IP (is it back on 192.168.0.x?), HEARTBEAT ageS. If they're still down, ask the user whether the Mini is at the login screen.
