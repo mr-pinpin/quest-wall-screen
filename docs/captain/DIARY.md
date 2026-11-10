@@ -1414,3 +1414,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 2. When the Air returns: uptime and pmset first (a fresh boot is expected).
 3. When the user lifts the freeze: a re-point card for every 192.168.0.x target (c4: room.sh/HEARTBEAT, ad: apps/kanban URLs, 34: bench sim-on Mini), then the colorsync kickstart, air_smoke, the K30+K31b install, the E and F reruns, K15 phase 2, and clearing the stale lock.
 4. Open questions for the user: the big-wall screen, screens 2 and 3, and UPnP (likely moot on the new line).
+
+## 2026-11-10 22:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle with nothing new from it. Still hands off the Mini's network.
+- **Shipped:** b47cc7b (the 11-10 daily diary). In memory, captain-lessons gained a 11-10 section: "active" isn't the same as services being up, and one FYI then hands off when a peer session owns shared hardware.
+- **Broke or learned:**
+  - The Mini is stable (direct from home, :57800 answering) for about 3 h since the rework.
+  - The Air is still dark ("last seen 23h ago").
+  - The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged. Wait for work-77's "network settled", then uptime and pmset when the Air returns, then the post-freeze queue starting with the 192.168.0.x re-point.
