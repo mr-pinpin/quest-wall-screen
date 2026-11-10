@@ -1373,3 +1373,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
 - **Status:** the Mini is direct from home (136.169.211.98), and :57800 answers. The Air is still dark ("last seen 21h ago"). The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** a second session working on shared hardware is best handled with one FYI and one ack, then hands off. The freeze flag still holds for my agents.
 - **Next:** after the network settles and the freeze lifts, a card to re-point every 192.168.0.x target (c4: room.sh/HEARTBEAT; ad: apps/kanban URLs; 34: bench sim-on Mini). The daily diary is at ~21:27Z.
+
+## 2026-11-10 21:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle now and has sent nothing new. I'm still hands off the Mini's network (tailscale status and one HTTP probe only).
+- **Shipped:** nothing this hour; the last commit is bd1fbad (the 20:00 diary).
+- **Broke or learned:**
+  - The Mini is stable since the rework: direct from home and active, with :57800 answering. Its post-boot state isn't checked, by choice: no ssh while the user's session owns its network.
+  - The Air is still dark ("last seen 22h ago", since 11-09 about 22:38Z). The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** the daily diary at ~21:27Z. After the freeze lifts: re-point the 192.168.0.x targets, the colorsync kickstart, air_smoke, then the queue.
