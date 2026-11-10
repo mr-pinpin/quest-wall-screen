@@ -1151,3 +1151,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini is still "2d ago" (about 62 h). The probe macbook-air-anastasiia was seen 7m ago.
   - The watchdog has gone silent again (last line 21:58Z), which fits the Air being unreachable. There are no ghost jobs to close.
 - **Next:** when the Air returns, uptime and pmset first. A fresh boot means colorsync is pegged again and the post-boot mds, mediaanalysisd and ANE waves restart. The post-freeze queue is unchanged.
+
+## 2026-11-10 00:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed since 23:00.
+- **Shipped:** nothing this hour; the last commit is c524a92 (the 23:00 diary).
+- **Broke or learned:**
+  - The Air is still dark ("last seen 1h ago", and ssh times out) since about 22:38Z, presumably flat. The Mini is still "2d ago" (about 63 h).
+  - The watchdog is silent (last line 21:58Z) while the Air is unreachable, as expected. There are no ghost jobs to close.
+  - The nightly-eval cron (01:17Z) should skip on the freeze flag again. I'll check its line at 01:00.
+- **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
