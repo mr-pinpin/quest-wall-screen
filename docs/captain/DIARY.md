@@ -1161,3 +1161,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent (last line 21:58Z) while the Air is unreachable, as expected. There are no ghost jobs to close.
   - The nightly-eval cron (01:17Z) should skip on the freeze flag again. I'll check its line at 01:00.
 - **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
+
+## 2026-11-10 01:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No line to the user: nothing has changed.
+- **Shipped:** nothing this hour; the last commit is 8709225 (the 00:00 diary).
+- **Verified:** the nightly-eval cron skipped on the freeze flag at 01:17:01Z (work-42 "NOTE SKIP: air-freeze present"). That's the third night running the 008a0ae guard has held.
+- **Broke or learned:**
+  - The Air is still dark ("last seen 2h ago", and ssh times out) since about 22:38Z. The Mini is still "2d ago" (about 64 h).
+  - The watchdog is silent since 21:58Z, which fits the Air being unreachable. There are no ghost jobs to close.
+- **Next:** unchanged. Uptime and pmset first when the Air returns; the post-freeze queue once the user lifts the freeze.
