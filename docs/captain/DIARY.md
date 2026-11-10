@@ -1294,3 +1294,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - Lesson already on file: "active" with traffic is not "reachable". Test the actual service port.
   - The Air is still dark ("last seen 14h ago"). The watchdog is silent. There are no ghost jobs to close.
 - **Next:** retry ssh and :57800 at 14:00. If they're up: uptime, the LAN IP (is it back on 192.168.0.x?), HEARTBEAT ageS. If they're still down, ask the user whether the Mini is at the login screen.
+
+## 2026-11-10 14:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). All four agents are idle and none crashed; no cards handed out. work-ff is untouched. No new line to the user: I asked at 13:00, and the Mini vanishing again doesn't change what they'd do.
+- **Shipped:** nothing this hour; the last commit is d160dad (the 13:00 diary).
+- **Broke or learned:**
+  - **The Mini dropped off again around 13:40Z** ("last seen 37m ago"). It was on tailscale for roughly 13:00–13:40Z, through the DERP relay only, while ssh and :57800 never answered. That pattern fits a machine that woke briefly (a power nap or Wake for network access) or a boot that never reached its services, more than a healthy machine. I can't tell which without a shell, and I'm not guessing in the user line.
+  - The probe macbook-air-anastasiia is direct from the home IP with real traffic (tx 124 MB), so the home uplink is fine. The Mini's problem is local.
+  - The Air is still dark ("last seen 15h ago"). The watchdog is silent. There are no ghost jobs to close.
+- **Next:** the same checks at 15:00. If the Mini reappears, test the service ports first, not the tailscale state.
