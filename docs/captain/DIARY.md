@@ -1436,3 +1436,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Air is still dark ("last seen 1d ago"). The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** anything keyed on the home's public IP (allowlists, the Air's "is it home" test I used on 11-09) needs updating. That's for the re-point card, after work-77 says the network is settled.
 - **Next:** unchanged. Wait for work-77, then the Air's uptime and pmset when it returns, then the post-freeze queue.
+
+## 2026-11-11 00:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle with nothing new. Still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is 2018b8c (the 23:00 diary).
+- **Broke or learned:**
+  - The new home IP 95.105.86.155 is holding: the Mini and the probe are both direct on it, and :57800 answers.
+  - The Air is still dark ("last seen 1d ago").
+  - The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** check the nightly-eval freeze skip at 01:17Z. Otherwise unchanged: work-77's "settled", the Air's uptime and pmset, then the post-freeze queue.
