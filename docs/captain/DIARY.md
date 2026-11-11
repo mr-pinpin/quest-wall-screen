@@ -1529,3 +1529,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini's :57800 answers as before, and its tailscale is direct through the same home IP. The watchdog stays silent, as it should while the Air is dark. No ghost jobs.
 - **Learned:** nothing new; the cause of the Air's drop is still unknown until kern.boottime and pmset are in hand.
 - **Next:** when the Air returns, kern.boottime and pmset first. Wait for work-77's network-settled signal and the user's freeze lift before the re-point cards.
+
+## 2026-11-11 08:00 UTC
+
+- **Decided:** keep holding. The freeze flag is present, and all four agents are idle with none crashed or stuck. work-77 is still busy with the user, so my checks stay read-only and I'm not messaging it. No cards: every open card needs the Air, or a network that hasn't been called settled.
+- **Shipped:** nothing this hour; the last commit is 58c5f73 (the 07:00 diary).
+- **Broke:**
+  - The Air is still offline (tailscale "last seen 3h ago"; ssh times out), about 4 h since ~04:28Z.
+  - The Mini's :57800 answers as before. The watchdog is silent, which is expected while the Air is dark. No ghost jobs.
+- **Learned:** the tailscale tx/rx counters for the Mini and the probe fell to a fraction of last hour's values, so the peer sessions were re-established. That would fit a tailscaled restart, or work-77's network work on the Mini. It's an observation only; the Mini's reachability didn't change.
+- **Next:** when the Air returns, kern.boottime and pmset first. Wait for work-77's network-settled signal and the user's freeze lift before the re-point cards.
