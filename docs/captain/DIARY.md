@@ -1495,3 +1495,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The home public IP has held at 46.191.183.60 for an hour.
 - **Learned:** nothing new.
 - **Next:** unchanged. work-77's "settled", then the freeze lift, then the re-point, the colorsync kickstart, air_smoke, and the queue.
+
+## 2026-11-11 05:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle again. Still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is 8301b58 (the 04:00 diary).
+- **Broke or learned:**
+  - **The Air went dark again around 04:28Z** ("last seen 49m ago", and ssh times out). It was at 100% on the charger at 04:17Z, so a flat battery is unlikely. Sleep, a lid close, or a Wi-Fi drop from the network work are all possible; I'll read kern.boottime and pmset when it returns rather than guess.
+  - The home public IP moved again, to 46.191.181.0 (the Mini and the probe share it). That's the fifth value since 11-10 22:00Z.
+  - The Mini's :57800 answers.
+  - The watchdog went silent after 04:16Z, which fits the Air being unreachable. There are no ghost jobs to close.
+- **Learned:** nothing new.
+- **Next:** unchanged.
