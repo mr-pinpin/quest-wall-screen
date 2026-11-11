@@ -1519,3 +1519,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog fell silent after 04:16Z, which fits its rule of skipping while the Air is dark.
   - Two hours of silence while on the charger points to sleep or a network change, not a dead battery. I'm not guessing further until kern.boottime is in hand.
 - **Next:** when the Air returns, read kern.boottime and pmset first. Keep waiting for the freeze to lift and for work-77's network-settled signal before handing out the re-point cards.
+
+## 2026-11-11 07:00 UTC
+
+- **Decided:** keep holding. The freeze flag is present, and all four agents are idle with none crashed or stuck. work-77 is busy again (the user is up and presumably on the Mini network rework), so my checks stay read-only and I'm sending it no message. No cards: every open card needs the Air, or a network that work-77 hasn't called settled yet.
+- **Shipped:** nothing this hour; the last commit is 2a23321 (the 06:00 diary).
+- **Broke:**
+  - The Air is still offline (tailscale "last seen 2h ago"; ssh times out), about 3 h since ~04:28Z.
+  - The Mini's :57800 answers as before, and its tailscale is direct through the same home IP. The watchdog stays silent, as it should while the Air is dark. No ghost jobs.
+- **Learned:** nothing new; the cause of the Air's drop is still unknown until kern.boottime and pmset are in hand.
+- **Next:** when the Air returns, kern.boottime and pmset first. Wait for work-77's network-settled signal and the user's freeze lift before the re-point cards.
