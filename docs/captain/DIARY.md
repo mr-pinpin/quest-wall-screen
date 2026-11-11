@@ -1458,3 +1458,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Air is still dark ("last seen 1d ago", since 11-09 about 22:38Z).
   - The watchdog is silent, and there are no ghost jobs to close.
 - **Next:** unchanged. work-77's "settled", the Air's uptime and pmset, then the post-freeze queue.
+
+## 2026-11-11 02:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle. Still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is 5d3462a (the 01:00 diary).
+- **Broke or learned:**
+  - **The Mini's public IP has changed again,** to 46.191.183.5 (direct), from 95.105.86.155 an hour ago. The probe macbook-air-anastasiia is on the "hel" relay now, so I can't see its public IP and can't tell whether the whole house moved or only the Mini (for example, the Ufanet cable now in the Mini's en0, as work-77 planned). Not my change, and not mine to investigate.
+  - The Mini's :57800 still answers, so its services survived the move.
+  - The Air is still dark ("last seen 1d ago"). The watchdog is silent, and there are no ghost jobs to close.
+- **Learned:** the home public IP isn't stable for now (three values in about 3 h). Nothing of mine should key on it until work-77 says the network is settled.
+- **Next:** unchanged.
