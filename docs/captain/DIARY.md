@@ -1549,3 +1549,16 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini's :57800 still answers after the move.
 - **Broke:** the Air is still offline (tailscale "last seen 4h ago"; ssh times out), about 5 h since ~04:28Z. If it was asleep on the old network, it may need to wake onto the new one. The watchdog is silent, as expected. No ghost jobs.
 - **Next:** when the Air returns, kern.boottime and pmset first. Once work-77 reports the final LAN addressing, the re-point cards go to c4, ad and 34, still gated on the user lifting the freeze.
+
+## 2026-11-11 10:00 UTC
+
+- **Decided:** keep holding. The freeze flag is present, and all four agents are idle with none crashed or stuck. work-77 went idle after ~3 h busy. I'm not messaging it and not touching the Mini: the network is still its job. No cards.
+- **Shipped:** nothing this hour; the last commit is 7ea73a1 (the 09:00 diary).
+- **Broke:** the whole home side is dark from the VPS now.
+  - The Mini: tailscale "offline, last seen 7m ago" (~10:10Z), and :57800 gives 000 (timeout).
+  - The probe: offline, last seen 46m ago.
+  - The Air: still offline (5h).
+  - No home peer survives, so I can't split an uplink fault from a host fault. The candidates are the Ufanet line, its portal sign-in, or a planned cutover step.
+  - The watchdog is silent, as expected. No ghost jobs.
+- **Learned:** I read memory/home-network-routers. Plan A has been live since 03:13Z: Ufanet → the strong router (IPoE), and the Mini wired on 192.168.0.13, with Wi-Fi .50 kept for the TV. So the 08:00 counter reset and the 09:00 IP change were most likely the rework, not faults.
+- **Next:** tell the user once that everything at home is dark from the VPS. When it's back, check the Mini's service port first, then the Air's kern.boottime and pmset. The re-point cards wait on work-77's final addressing and the freeze lift.
