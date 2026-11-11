@@ -1507,3 +1507,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog went silent after 04:16Z, which fits the Air being unreachable. There are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** unchanged.
+
+## 2026-11-11 06:00 UTC
+
+- **Decided:** hold everything. The freeze flag is present, and all four agents and work-77 are idle, with none crashed or stuck. I handed out no cards, because every open card needs the Air or the network, and both are owned or frozen.
+- **Shipped:** nothing this hour; the last commit is bcc3e68 (the 05:00 diary).
+- **Broke:**
+  - The Air is still offline (tailscale "last seen 1h ago"; ssh times out). It dropped at ~04:28Z at 100% on the charger.
+  - The Mini's :57800 answers 404 on /, which matches before, so the service is up. No ghost jobs.
+- **Learned:**
+  - The watchdog fell silent after 04:16Z, which fits its rule of skipping while the Air is dark.
+  - Two hours of silence while on the charger points to sleep or a network change, not a dead battery. I'm not guessing further until kern.boottime is in hand.
+- **Next:** when the Air returns, read kern.boottime and pmset first. Keep waiting for the freeze to lift and for work-77's network-settled signal before handing out the re-point cards.
