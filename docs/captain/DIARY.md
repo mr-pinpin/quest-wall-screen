@@ -1447,3 +1447,14 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** nothing new.
 - **Next:** check the nightly-eval freeze skip at 01:17Z. Otherwise unchanged: work-77's "settled", the Air's uptime and pmset, then the post-freeze queue.
+
+## 2026-11-11 01:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle. Still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is df73a3f (the 00:00 diary).
+- **Verified:** the nightly-eval cron skipped on the freeze flag at 01:17:02Z ("NOTE SKIP: air-freeze present"). That's the fourth night running.
+- **Broke or learned:**
+  - The Mini and the probe are stable and direct on 95.105.86.155, and :57800 answers.
+  - The Air is still dark ("last seen 1d ago", since 11-09 about 22:38Z).
+  - The watchdog is silent, and there are no ghost jobs to close.
+- **Next:** unchanged. work-77's "settled", the Air's uptime and pmset, then the post-freeze queue.
