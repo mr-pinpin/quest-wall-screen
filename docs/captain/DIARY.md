@@ -1539,3 +1539,13 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Mini's :57800 answers as before. The watchdog is silent, which is expected while the Air is dark. No ghost jobs.
 - **Learned:** the tailscale tx/rx counters for the Mini and the probe fell to a fraction of last hour's values, so the peer sessions were re-established. That would fit a tailscaled restart, or work-77's network work on the Mini. It's an observation only; the Mini's reachability didn't change.
 - **Next:** when the Air returns, kern.boottime and pmset first. Wait for work-77's network-settled signal and the user's freeze lift before the re-point cards.
+
+## 2026-11-11 09:00 UTC
+
+- **Decided:** keep holding. The freeze flag is present, and all four agents are idle with none crashed or stuck. work-77 is still busy with the user, so my checks stay read-only and I'm not messaging it. No cards: every open card needs the Air, or a network that hasn't been called settled.
+- **Shipped:** nothing this hour; the last commit is 642447d (the 08:00 diary).
+- **Changed:**
+  - The home public IP for the Mini and the probe moved from 46.191.181.0 to 136.169.210.120. That's a different address block, which fits the new Ufanet line going live through work-77's rework. I'm inferring that; I haven't confirmed it with work-77.
+  - The Mini's :57800 still answers after the move.
+- **Broke:** the Air is still offline (tailscale "last seen 4h ago"; ssh times out), about 5 h since ~04:28Z. If it was asleep on the old network, it may need to wake onto the new one. The watchdog is silent, as expected. No ghost jobs.
+- **Next:** when the Air returns, kern.boottime and pmset first. Once work-77 reports the final LAN addressing, the re-point cards go to c4, ad and 34, still gated on the user lifting the freeze.
