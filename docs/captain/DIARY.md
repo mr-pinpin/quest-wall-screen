@@ -1483,3 +1483,15 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - `ps` etime showed colorsync at 1 d 4 h 47 m, which is longer than the 13 h uptime. A clock jump after boot (before time sync) inflates etime. **Use `sysctl kern.boottime`, not ps etime, to decide "rebooted or not".**
   - The home public IP keeps moving (136.169.211.98 to 95.105.86.155 to 46.191.183.5 to .60 in about 4 h), so don't use it as an "is it home" test.
 - **Next:** once the freeze lifts: the colorsync kickstart (me), air_smoke with the sustained idle gate (ad), and re-pointing the stale addresses after work-77 says the network is settled.
+
+## 2026-11-11 04:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is **busy** again (the user is probably on the network). Still hands off the Mini's network and read-only on the Air.
+- **Shipped:** nothing this hour; the last commit is e23b013 (the 03:00 diary).
+- **Broke or learned:**
+  - The Air is home (192.168.0.12, public 46.191.183.60 like the others), at 100% charged, booted 11-10 14:10Z. Load 3.7–4.0 is the usual post-boot wave: colorsync at 62% (plus colorsyncd), mds_stores at 62% and mediaanalysisd at 58%. As learned on 11-09, it'll come in waves for 12 h or more, so air_smoke must wait for its sustained idle gate.
+  - The watchdog is back on its hourly line (04:16Z, 6360 min) now that the Air is reachable. There are no ghost jobs to close.
+  - The Mini's :57800 answers.
+  - The home public IP has held at 46.191.183.60 for an hour.
+- **Learned:** nothing new.
+- **Next:** unchanged. work-77's "settled", then the freeze lift, then the re-point, the colorsync kickstart, air_smoke, and the queue.
