@@ -1469,3 +1469,17 @@ Times are UTC. Hourly entries are short; a daily entry is written at about 20:57
   - The Air is still dark ("last seen 1d ago"). The watchdog is silent, and there are no ghost jobs to close.
 - **Learned:** the home public IP isn't stable for now (three values in about 3 h). Nothing of mine should key on it until work-77 says the network is settled.
 - **Next:** unchanged.
+
+## 2026-11-11 03:00 UTC
+
+- **Decided:** hold the freeze (/root/work/.air-freeze is present). My four agents are idle and none crashed; no cards handed out. work-77 is idle. Read-only checks on the Air only; still hands off the Mini's network.
+- **Shipped:** nothing this hour; the last commit is f513deb (the 02:00 diary).
+- **The Air is back and at home:**
+  - It's direct on 46.191.183.60, the same public IP as the Mini and the probe, with LAN 192.168.0.12. It's at **100% and charged,** so it's on the charger.
+  - `kern.boottime` = 2026-11-10 14:10:56Z. So it did go flat (11-09 about 22:38Z) and was booted about 14:10Z on 11-10, but it only reappeared on tailscale at about 03:00Z. Tailscale not starting after a boot is a known Air gotcha (home-network-routers memory, 11-04).
+  - colorsync is pegged again (62% + 38%), as after every boot. Load is falling (10.3 to 8.3 to 5.8).
+  - The watchdog came back with the Air at 03:16Z (stale lock at 6300 min). There are no ghost jobs to close.
+- **Learned:**
+  - `ps` etime showed colorsync at 1 d 4 h 47 m, which is longer than the 13 h uptime. A clock jump after boot (before time sync) inflates etime. **Use `sysctl kern.boottime`, not ps etime, to decide "rebooted or not".**
+  - The home public IP keeps moving (136.169.211.98 to 95.105.86.155 to 46.191.183.5 to .60 in about 4 h), so don't use it as an "is it home" test.
+- **Next:** once the freeze lifts: the colorsync kickstart (me), air_smoke with the sustained idle gate (ad), and re-pointing the stale addresses after work-77 says the network is settled.
